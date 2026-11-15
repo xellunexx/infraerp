@@ -1,6 +1,7 @@
 // Картон на обекта: the single project workspace. Every tab reads the shared project records; nothing is copied.
 import React, { useEffect, useState } from 'react';
 import { api, fmtDate, fmtDateTime, fmtMoney, fmtNum } from '../api';
+import { WeatherCard } from './Weather';
 import { Card, DeptBadge, Empty, Field, Kpi, Link, Loader, Modal, Progress, Status, Table, Tabs, navigate, useAction, useCan, useCurrency, useForm, useLoad, usePath } from '../ui';
 
 const EVENT_LABEL: Record<string, string> = { 'offer.confirmed': 'Потвърдена оферта', 'contract.submitted': 'Договор изпратен за одобрение', 'contract.signed': 'Подписан договор',
@@ -96,6 +97,7 @@ export function ProjectCard({ id }: { id: number }) {
           {(s.status === 'done' || s.status === 'skipped') && <button className="sm ghost" disabled={busy} onClick={() => stage(s.code, 'pending')}>Върни</button>}</span>}</div>)}</div>
         {write && <button className="sm" style={{ marginTop: 10 }} onClick={() => { const name = window.prompt('Име на допълнителния етап:'); if (name) run(async () => { await api.post(`/projects/${id}/stages`, { add: name }); await p.reload(); }); }}>+ Допълнителен етап</button>}</Card>
       <div>
+        <WeatherCard project={d} onLocationSaved={() => p.reload()} />
         <Card title="Отговорници"><div className="form c2">
           <Field label="Техник"><select disabled={!write || busy} value={d.technical_id || ''} onChange={e => patch({ technical_id: e.target.value ? Number(e.target.value) : null }, 'Записано')}><option value="">— не е определен —</option>
             {(users.data || []).filter(u => u.active && ['technical', 'admin', 'manager'].includes(u.role)).map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}</select></Field>

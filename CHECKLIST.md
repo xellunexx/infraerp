@@ -41,3 +41,11 @@ Tests: `npm test` (6 tests, all passing at the last run). Web build: `npm run bu
 - Forecast sources (keyless): Open-Meteo ECMWF ~15 days, Open-Meteo GFS (NOAA model) 16 days, Open-Meteo ICON (DWD model) ~7 days,
   MET Norway (yr.no) to day 10, 7Timer 7 days, wttr.in 3 days.
 - So: 7 days = 5 independent sources; 14 days = ECMWF + GFS through Open-Meteo (two different national models, one provider) + MET Norway up to day 10.
+- [x] Built and tested (`test/weather.test.mjs`, 2 tests with a fake network) and checked live against the real services:
+      site address geocoded (Nominatim, fallback Open-Meteo geocoding), coordinates editable by hand, 5 sources fetched (live run: ECMWF 15 days,
+      GFS 16, ICON 7, MET Norway 10, 7Timer 7; refresh took 3.3 s), per-day median of all sources, spread shown, warnings for rain / wind / low temperature
+      (thresholds in settings: weather_rain_mm 2, weather_wind_ms 10, weather_min_temp 5 — my defaults, not company rules), 7/14-day switch,
+      per-source table, a failing source is shown and the others still work, background refresh every 3 h (weather_refresh_hours), address change resets location.
+- [ ] Known accuracy issue (seen live): "Бургас, кв. Зорница" geocoded to Зорница in Несебър municipality, not the Burgas district. The resolved place is
+      shown on the card with a "коригирай" link for exact coordinates; geocoding precision for short addresses is NOT solved.
+- [ ] Weather thresholds are not yet on the Settings screen (stored as settings keys only).
