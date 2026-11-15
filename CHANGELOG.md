@@ -492,3 +492,13 @@ the file in Excel itself.
 - Verified: `npm run build` clean (`index-D0fQjFel.js`), `npm test` 42/42,
   :4800 restarted, local + public serve new bundle → 200. Not measured:
   clicking through the catalog tab in a browser.
+
+## Repo sync + catalogue data exclusion
+
+- Merged full local tree to `xellunexx/infraerp` main (f433cfa): all modules,
+  tests, design docs, cloudflared quick-tunnel config.
+- `tools/catalog-import/` (Excel-extracted catalogue staging, ~4.9 MB images
+  + items JSON) added to `.gitignore` — catalogue DATA stays local; only the
+  importer code (`tools/import_catalog.mjs`) ships.
+- `requirements.txt` added for `tools/import_offer_template.py`
+  (`openpyxl==3.1.5`, the only Python dep in the repo).
