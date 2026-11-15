@@ -108,6 +108,12 @@ export function needProject(db, user, projectId) {
   if (!canSeeProject(db, user, projectId)) throw new HttpError(403, 'Нямате достъп до този обект');
 }
 
+/** Mark the event that requested an approval as decided — approval_status='pending' is
+ *  the live queue, so it must stop lying once a human decides. */
+export function resolveApproval(db, entityType, entityId, status) {
+  db.prepare("UPDATE events SET approval_status = ? WHERE entity_type = ? AND entity_id = ? AND approval_status = 'pending'").run(status, entityType, entityId);
+}
+
 export function audit(db, user, { project_id = null, entity_type, entity_id = null, action, before = null, after = null, module = null }) {
   db.prepare('INSERT INTO audit_log(user_id, project_id, entity_type, entity_id, action, before, after, module) VALUES (?,?,?,?,?,?,?,?)')
     .run(user?.id ?? null, project_id, entity_type, entity_id, action, before == null ? null : JSON.stringify(before), after == null ? null : JSON.stringify(after), module);

@@ -1,7 +1,7 @@
 // Договори + Картон на обекта (core view) + engine visibility, notifications, search.
 import { tx } from './db.js';
-import { HttpError, bad, need, can, needProject, canSeeProject, audit, updateRow, emit, reindex } from './core.js';
-import { signContract, newContractVersion, setStage } from './domain.js';
+import { HttpError, bad, need, can, needProject, canSeeProject, audit, updateRow, emit, reindex, resolveApproval } from './core.js';
+import { signContract, newContractVersion, setStage, deriveProjectStatus, syncProjectStatus } from './domain.js';
 import { progressSummary, finance } from './calc.js';
 import { h, pick } from './app.js';
 import { refreshProject, weatherView } from './weather.js';
@@ -56,6 +56,7 @@ export default function mountProjects(app, db) {
         if (c.status !== 'review') throw bad('Договорът не е изпратен за одобрение');
         if (special) need(req.user, 'approvals', 'approve'); else need(req.user, 'contracts', 'write');
         db.prepare("UPDATE contracts SET status = 'approved', row_version = row_version + 1 WHERE id = ?").run(c.id);
+        resolveApproval(db, 'contract', c.id, 'approved');
         newContractVersion(db, pid, 'Първоначален договор (одобрена оферта)', { approved_by: req.user.id });
         setStage(db, pid, 'contract_approval', 'done', req.user);
         db.prepare("UPDATE approvals SET status = 'approved', decided_by = ?, decided_at = datetime('now') WHERE entity_type = 'contract' AND entity_id = ? AND status = 'pending'").run(req.user.id, c.id);
@@ -63,6 +64,7 @@ export default function mountProjects(app, db) {
         need(req.user, 'contracts', 'write');
         if (c.status !== 'review') throw bad('Договорът не е в преглед');
         db.prepare("UPDATE contracts SET status = 'draft', row_version = row_version + 1 WHERE id = ?").run(c.id);
+        resolveApproval(db, 'contract', c.id, 'rejected');
         db.prepare("UPDATE approvals SET status = 'rejected', decided_by = ?, decided_at = datetime('now'), decision_note = ? WHERE entity_type = 'contract' AND entity_id = ? AND status = 'pending'").run(req.user.id, req.body?.note || null, c.id);
       } else throw bad('Непозната операция');
       audit(db, req.user, { project_id: pid, entity_type: 'contract', entity_id: c.id, action, before: { status: c.status }, after: { note: req.body?.note || null }, module: 'contracts' });
@@ -115,6 +117,17 @@ export default function mountProjects(app, db) {
     if (f.name || f.site_address) { const a = db.prepare('SELECT p.code, p.name, p.site_address, c.name AS cn FROM projects p JOIN customers c ON c.id = p.customer_id WHERE p.id = ?').get(id); reindex(db, 'project', id, a.code, a.name, `${a.cn} ${a.site_address || ''}`); }
     for (const k of ['technical_id', 'brigadier_id']) if (f[k] !== undefined && f[k] !== before[k])
       emit(db, req.user, { type: 'project.assigned', origin: 'projects', project_id: id, entity_type: 'project', entity_id: id, prev: { [k]: before[k] }, next: { [k]: f[k] }, affected: ['technical', 'brigadier'] });
+    // coarse status is stage-derived; the only manual writes are on_hold (pause) and resume (re-derive)
+    if (b.status !== undefined) {
+      if (b.status !== 'on_hold' && b.status !== 'resume') throw bad('Статусът следва етапите — възможни са само „on_hold“ (пауза) и „resume“ (възобновяване)');
+      let next = before.status;
+      if (b.status === 'on_hold' && before.status !== 'closed') next = 'on_hold';
+      else if (b.status === 'resume' && before.status === 'on_hold') next = deriveProjectStatus(db, id);
+      if (next !== before.status) {
+        db.prepare('UPDATE projects SET status = ?, row_version = row_version + 1 WHERE id = ?').run(next, id);
+        audit(db, req.user, { project_id: id, entity_type: 'project', entity_id: id, action: 'status', before: { status: before.status }, after: { status: next }, module: 'projects' });
+      }
+    }
     return { ok: true };
   })));
   // ---- weather at the project site (several independent sources, refreshed in the background and on demand)
@@ -135,6 +148,7 @@ export default function mountProjects(app, db) {
       const sort = (db.prepare('SELECT sort FROM project_stages WHERE project_id = ? AND code = ?').get(id, b.after)?.sort ?? 9990) + 1;
       const code = `extra_${Date.now()}`;
       db.prepare('INSERT INTO project_stages(project_id, code, name, department, sort, requires_approval) VALUES (?,?,?,?,?,?)').run(id, code, String(b.add), b.department || null, sort, b.requires_approval ? 1 : 0);
+      syncProjectStatus(db, id);
       audit(db, req.user, { project_id: id, entity_type: 'stage', action: 'add', after: b, module: 'projects' });
       return { ok: true, code };
     }
@@ -146,6 +160,21 @@ export default function mountProjects(app, db) {
     audit(db, req.user, { project_id: id, entity_type: 'stage', entity_id: s.id, action: 'status', before: { status: s.status }, after: { status: b.status, note: b.note }, module: 'projects' });
     emit(db, req.user, { type: 'stage.changed', origin: 'projects', project_id: id, entity_type: 'stage', entity_id: s.id, prev: { code: s.code, status: s.status }, next: { code: s.code, name: s.name, status: b.status }, affected: [s.department].filter(Boolean) });
     return { ok: true };
+  })));
+  /** Archive is the explicit close: archived=1 + status 'closed'; unarchive re-derives from stages. */
+  app.post('/api/projects/:id/archive', h(req => tx(db, () => {
+    need(req.user, 'projects', 'write');
+    const id = Number(req.params.id), want = req.body?.archived;
+    if (typeof want !== 'boolean') throw bad('Посочете archived: true или false');
+    const p = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
+    if (!p) throw new HttpError(404, 'Обектът не е намерен');
+    needProject(db, req.user, id);
+    if (!!p.archived === want) return { ok: true, archived: p.archived, status: p.status };
+    const next = want ? 'closed' : deriveProjectStatus(db, id);
+    db.prepare('UPDATE projects SET archived = ?, status = ?, row_version = row_version + 1 WHERE id = ?').run(want ? 1 : 0, next, id);
+    audit(db, req.user, { project_id: id, entity_type: 'project', entity_id: id, action: want ? 'archive' : 'unarchive',
+      before: { archived: p.archived, status: p.status }, after: { archived: want ? 1 : 0, status: next }, module: 'projects' });
+    return { ok: true, archived: want, status: next };
   })));
   app.get('/api/projects/:id/timeline', h(req => { need(req.user, 'projects'); needProject(db, req.user, req.params.id);
     return db.prepare(`SELECT e.id, e.type, e.origin_module, e.ts, e.status, e.approval_status, e.affected_modules, e.prev_value, e.new_value, e.last_error, u.full_name AS user_name

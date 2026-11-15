@@ -1,7 +1,7 @@
 # SYNCHRO — implementation checklist (honest status)
 
 A module is ticked only when its operations, persistence, permissions and integrations are tested — not when a screen exists.
-Tests: `npm test` (15 tests, all passing at the last run). Web build: `npm run build` (passes).
+Tests: `npm test` (21 tests, all passing at the last run). Web build: `npm run build` (passes).
 
 ## Phase 1 — Foundation
 - [x] Database schema (SQLite, WAL, foreign keys) — all phases' tables created
@@ -17,7 +17,8 @@ Tests: `npm test` (15 tests, all passing at the last run). Web build: `npm run b
 - [x] Offer confirmed → Project Card + КС lines + recipes + lifecycle stages + contract draft + notifications (sync handlers) — tested
 - [x] Contract: draft → review → approve (immutable version 1 + Appendices 1-3) → signed; special terms need Management approval — tested
 - [x] Contract signed → baseline active, dates, linear schedule built from planned days, procurement + technical review tasks — tested
-- [x] Project Card screen: overview, lifecycle (complete / skip / reopen / extra stage), customer and site/logistics data, contract, КС, timeline, audit
+- [x] Project Card screen: overview, lifecycle (complete / skip / reopen / extra stage), customer and site/logistics data, contract, КС, timeline, audit,
+      finance, schedule, progress, logistics+mechanization, tasks+issues, documents, messages — each tab reads the shared module records, permission-gated
 - [x] Search (FTS) across projects, customers, contracts, offers, products — permission-filtered
 - [x] Offer number rule: one company-wide running number + the preparer's letter (e.g. 39G); next number settable in Settings, only forward — tested.
       Assumption: the running number is shared by all preparers (the Excel note does not say whether each preparer has their own sequence).
@@ -47,6 +48,9 @@ Tests: `npm test` (15 tests, all passing at the last run). Web build: `npm run b
       The editor and print show the correct total.
 - [x] Printable offer in the company layout ("Печат / PDF" on the offer): logo, header block, sections with their own totals, variants marked,
       grand total, four legal clauses (setting `offer_clauses`), footer strip. Customer columns only; a test checks no cost data leaks. Seen on screen in a browser.
+- [x] Catalogue gallery wired into offers: `catalog_items` (2,581 isport + 62 Excel-image products, ~5,000 images in `files/`),
+      search/detail/image/attach API, 🖼 picker on offer sections and lines, template auto-attach via `offer_templates.catalog_slug`,
+      fitted `object-fit: contain` image boxes in print/PDF. `.xlsx` export embeds the same images (webp→png via sharp, fitted anchors).
       NOT verified: how it paginates on paper / in a saved PDF (footer repeat uses a repeating table footer; untested in print). Line pictures are not printed.
 - [x] Excel export of an offer ("Excel" button): sheet "Оферта" in the customer layout with live formulas (line totals, section sums, VAT) and the logo;
       sheet "Калкулация" with the cost breakdown only for users who may see costs — tested by reading the produced file back. Not opened in Excel itself.
@@ -56,12 +60,42 @@ Tests: `npm test` (15 tests, all passing at the last run). Web build: `npm run b
 - [ ] Contract amendments / annexes (new versions after signing) — versioning core exists, no amendment workflow yet
 - [ ] Backups (daily copy + manual backup/restore) — not built
 
-## Phase 2 — Execution: NOT started (Technical, Brigadier mobile screen, schedule editing/Gantt, daily progress, photos, consumption alerts)
-   Calculations already written and used by the Project Card: progress %, theoretical vs actual consumption (`server/calc.js`) — consumption not tested yet.
+## Phase 2 — Execution: PARTIAL
+- [x] Техник workspace (`/technical`): projects needing attention, open tasks/issues — tested
+- [x] Tasks: create/assign to dept-user, done/reopen, `task.assigned` → notify — tested
+- [x] Linear schedule: read (baseline vs current, pct/planned %, late/slip/behind), edit with 409 guard, add custom item, `schedule.changed` → brigadier+logistics — tested
+- [x] Daily progress: Technical enters per-КС-line entries, uid dedupe, void-not-edit, first entry sets actual_start + execution stage — tested
+- [x] Consumption view: required/expected/consumed/on-site/variance per product — tested
+- [x] `progress.recorded → execution_watch`: over-consumption/unplanned → one tracked issue per product; behind-plan line → one issue per line — tested
+- [x] Fixed gate: free-text offer lines (no smr_type_id) were never scheduled — now every non-product КС line gets a schedule item; PRJ-2026-001 backfilled (audit `schedule_item/backfill`) — tested
+- [x] Brigadier field interface (`/brigade` + `/brigade/:id`): assigned-project scope, daily plan, progress entry, attendance, issues, photos, messages — tested
+- [x] Photos/documents: multipart upload/list/download API under `documents` permission — tested (versioning tables pre-existing)
+- [ ] Растер на настилките — not built (operator deferred)
+- [x] Issues workflow: report → in_progress → resolved (resolution required) → reopen/cancel, dept routing + notify, UI in Бригадир — tested
+- [ ] Material requests (`request.created` handlers), machinery/asset allocation — Phase 3
 ## Phase 3 — Resources: NOT started (Warehouse, requests, reservations, Logistics, machinery, transfers, returns)
-## Phase 4 — Financial control: NOT started (proformas, income/expenses, payment requests/approvals, reconciliation)
-   Finance figures on the Project Card are computed from transactions/proformas; there is no way to enter them yet.
-## Phase 5 — Management intelligence: NOT started (global dashboard beyond the role-aware start page, profitability, deviations, workload, reports)
+## Phase 3.5 — Logistics: BUILT (`/logistics` live)
+- [x] Portfolio: per-project delivery counts by status + live allocations + fleet status — tested
+- [x] Deliveries: DLV-####, items[] (product+qty), carrier/courier/pallets/vehicle, request link, planned→in_transit→delivered/cancelled flow, 409 edits — tested
+- [x] Assets: AST-#### registry (kind/plate/status/location) + project allocations with overlap guard — tested
+- [x] Events: delivery.created→warehouse+technical+brigadir, delivered→site, cancelled→warehouse, asset.allocated→technical — tested
+- [ ] Delivery ↔ material_request stock coupling (delivery does not yet decrement reservations/stock)
+- [ ] Driver/route planning, fuel costs
+
+## Phase 4 — Financial control: PARTIAL (Accounting module live at `/accounting`)
+- [x] Proformas: issue against contracted project (PF-####, net of VAT), mark paid (posts one linked receipt, idempotent), cancel — tested
+- [x] Income/expenses: manual transactions in/out, planned/committed/paid/voided, edit with 409 guard, proforma link — tested
+- [x] Payment requests: file → approvals row → Management approve/reject (no auto money-posting, manual entry after) — tested
+- [x] Accommodations: per-project records (place, dates, beds, cost/night, payment method) — tested
+- [x] Finance views: portfolio KPIs + per-project reconciliation (`calc.finance()`) + Project Card "Финанси" tab — tested
+- [x] Project lifecycle status: `projects.status` derives from the stage checklist (leading edge), on_hold/archive manual — tested; startup sweep heals existing rows
+- [ ] Proforma document printing (records exist, no printable invoice yet)
+- [ ] Automatic postings from completed work / cost allocations (kept manual per design — traceable + approval rules)
+- [ ] Worker communication about accommodation/parking — records only
+## Phase 5 — Management intelligence: PARTIAL (`/management` live)
+- [x] Management board: KPIs (projects, money, approvals, overdue, critical, failed sync, in-transit), attention queues, portfolio finance table, workload by department — tested
+- [x] Approval queue truthfulness: `events.approval_status` now resolves on decision (was a dead 'pending' forever) — tested
+- [ ] Profitability per project deep-dive, deviation analytics, scheduled reports/exports
 
 ## Hosting
 - [ ] Served as Devin App `synchro` with `deploy_devin_app` — the tool was not available in this session (searched several times)

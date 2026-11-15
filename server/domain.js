@@ -1,7 +1,7 @@
 // Phase 1 business operations and the event handlers that keep departments in sync.
 import { tx, nextCode } from './db.js';
 import { on, emit, notify, audit, reindex, bad, HttpError, setting } from './core.js';
-import { progressSummary, round2 } from './calc.js';
+import { progressSummary, round2, consumption, scheduleStatus } from './calc.js';
 import { validUntil } from './pricing.js';
 
 /** Lines that count towards the offer: no section, a normal section, or (once confirmed) the chosen alternative. */
@@ -86,10 +86,39 @@ export function signContract(db, user, projectId, signedOn) {
   });
 }
 
+const MANUAL_PROJECT_STATUSES = new Set(['closed', 'on_hold']);
+
+/** Coarse projects.status = the leading edge of the stage checklist: the phase of the
+ *  furthest-progressed (active/done) stage. Pending earlier stages don't hold the status
+ *  back — work in progress is work in progress; 'skipped' counts as finished for the
+ *  all-done check but does not advance the frontier. Wrap-up stages (completion onward)
+ *  read as 'completed'; 'closed'/'on_hold' are manual states, never auto-derived. */
+export function deriveProjectStatus(db, projectId) {
+  const contract = db.prepare("SELECT status FROM contracts WHERE project_id = ? ORDER BY id DESC LIMIT 1").get(projectId);
+  if (!contract || contract.status !== 'signed') return 'contract_pending';
+  const stages = db.prepare('SELECT code, sort, status FROM project_stages WHERE project_id = ? ORDER BY sort, id').all(projectId);
+  if (stages.every(s => s.status === 'done' || s.status === 'skipped')) return 'completed';
+  const progressed = stages.filter(s => s.status === 'active' || s.status === 'done');
+  if (!progressed.length) return 'preparation';
+  const frontier = progressed[progressed.length - 1];
+  const execSort = stages.find(s => s.code === 'execution')?.sort ?? Infinity;
+  const wrapSort = stages.find(s => s.code === 'completion')?.sort ?? Infinity;
+  return frontier.sort >= wrapSort ? 'completed' : frontier.sort >= execSort ? 'execution' : 'preparation';
+}
+
+export function syncProjectStatus(db, projectId) {
+  const p = db.prepare('SELECT status FROM projects WHERE id = ?').get(projectId);
+  if (!p || MANUAL_PROJECT_STATUSES.has(p.status)) return p?.status ?? null;
+  const next = deriveProjectStatus(db, projectId);
+  if (next !== p.status) db.prepare('UPDATE projects SET status = ?, row_version = row_version + 1 WHERE id = ?').run(next, projectId);
+  return next;
+}
+
 export function setStage(db, projectId, code, status, user = null, note = null) {
   const s = db.prepare('SELECT * FROM project_stages WHERE project_id = ? AND code = ?').get(projectId, code);
   if (!s || s.status === status) return false;
   db.prepare("UPDATE project_stages SET status = ?, done_at = CASE WHEN ? = 'done' THEN datetime('now') ELSE done_at END, done_by = ?, note = COALESCE(?, note) WHERE id = ?").run(status, status, user?.id ?? null, note, s.id);
+  syncProjectStatus(db, projectId);
   return true;
 }
 
@@ -111,11 +140,10 @@ on('offer.confirmed', 'init_project_card', (db, ev) => {
   const sched = db.prepare('INSERT INTO schedule_items(project_id, project_line_id, name, sort, crew) VALUES (?,?,?,?,?)');
   for (const l of db.prepare(`SELECT l.* ${COUNTED_LINES} ORDER BY l.sort, l.id`).all(v.id)) {
     const lid = Number(insLine.run(pid, l.sort, l.id, l.smr_type_id, l.product_id, l.code, l.description, l.unit, l.qty, round2(l.unit_price * factor), l.unit_cost, l.tech_note).lastInsertRowid);
-    if (l.smr_type_id) {
-      for (const r of db.prepare('SELECT * FROM recipe_items WHERE smr_type_id = ?').all(l.smr_type_id)) insRec.run(lid, r.product_id, r.norm_per_unit, r.waste_pct);
-      sched.run(pid, lid, l.description, l.sort, String(l.planned_days || 1)); // crew column holds planned days until dates exist
-      cursor += l.planned_days || 1;
-    } else if (l.product_id) insRec.run(lid, l.product_id, 1, 0);
+    if (l.smr_type_id) for (const r of db.prepare('SELECT * FROM recipe_items WHERE smr_type_id = ?').all(l.smr_type_id)) insRec.run(lid, r.product_id, r.norm_per_unit, r.waste_pct);
+    else if (l.product_id) insRec.run(lid, l.product_id, 1, 0);
+    // the linear schedule covers every work line: catalogue СМР rows AND free-text work; pure product lines are procurement, not site work
+    if (!l.product_id) { sched.run(pid, lid, l.description, l.sort, String(l.planned_days || 1)); cursor += l.planned_days || 1; } // crew column holds planned days until dates exist
     n++;
   }
   const st = db.prepare('INSERT INTO project_stages(project_id, code, name, department, sort, status) VALUES (?,?,?,?,?,?)');
@@ -187,4 +215,53 @@ on('contract.signed', 'notify', (db, ev) => {
   const total = progressSummary(db, ev.project_id).contract_value;
   return notify(db, ev, { departments: ['technical', 'warehouse', 'logistics', 'accounting', 'management'], title: `Подписан договор ${p.ccode} — ${p.code}`,
     body: `${p.name}. Договорна стойност ${total.toFixed(2)}. Сроковете и потребностите от материали са активни.`, link: `/projects/${ev.project_id}` });
+});
+
+// ------------------------------------------------ Phase 2: execution watch
+// Progress/consumption/schedule figures are computed on read, so the work after a
+// progress entry is watch-dogging: every alarm materializes as a tracked issue
+// (one open issue per product / КС line per kind), never a bare notification.
+on('progress.recorded', 'execution_watch', (db, ev) => {
+  const pid = ev.project_id;
+  if (!pid) return { skipped: true };
+  const opened = [];
+  const tol = Number(setting(db, 'overconsumption_tolerance_pct', '5'));
+  for (const r of consumption(db, pid, tol)) {
+    if (!r.over && !r.unplanned) continue;
+    if (db.prepare("SELECT 1 FROM issues WHERE project_id = ? AND product_id = ? AND kind = 'overconsumption' AND status = 'open'").get(pid, r.product_id)) continue;
+    const title = r.unplanned ? `Непланиран материал: ${r.name}` : `Наднормен разход: ${r.name}`;
+    const body = r.unplanned ? `Изразходени ${r.consumed} ${r.unit} без ред в КС/рецепта.`
+      : `Очаквано по рецепта за извършеното: ${r.expected} ${r.unit}; изразходено: ${r.consumed} ${r.unit} (допуск ${tol}%).`;
+    opened.push(Number(db.prepare(`INSERT INTO issues(code, project_id, kind, severity, title, description, product_id, project_line_id, status, assigned_dept)
+      VALUES (?,?,?,?,?,?,?,?,'open','technical')`).run(nextCode(db, 'ISS'), pid, 'overconsumption', 'high', title, body, r.product_id, ev.entity_id ?? null).lastInsertRowid));
+  }
+  if (ev.entity_id) for (const s of scheduleStatus(db, pid).filter(x => x.project_line_id === ev.entity_id && (x.late_days > 0 || x.behind))) {
+    if (db.prepare("SELECT 1 FROM issues WHERE project_id = ? AND project_line_id = ? AND kind = 'schedule_delay' AND status = 'open'").get(pid, s.project_line_id)) continue;
+    const body = s.late_days > 0 ? `Срокът ${s.end_date} е минал с ${s.late_days} дни при ${s.pct}% готовност.`
+      : `Планирано изпълнение към днес ${s.planned_pct}%, реално ${s.pct}%.`;
+    opened.push(Number(db.prepare(`INSERT INTO issues(code, project_id, kind, severity, title, description, project_line_id, status, assigned_dept)
+      VALUES (?,?,?,?,?,?,?,'open','technical')`).run(nextCode(db, 'ISS'), pid, 'schedule_delay', 'medium', `Изоставане по график: ${s.name}`, body, s.project_line_id).lastInsertRowid));
+  }
+  if (opened.length) {
+    const p = db.prepare('SELECT code FROM projects WHERE id = ?').get(pid);
+    notify(db, ev, { departments: ['technical', 'management'], title: `Сигнали при изпълнение — ${p?.code || pid}`,
+      body: `Открити са ${opened.length} нов(и) проблема при дневен отчет (наднормен разход / изоставане).`, link: `/technical/${pid}`, severity: 'warn' });
+  }
+  return { issues_opened: opened.length, ids: opened };
+});
+
+on('progress.voided', 'notify', (db, ev) => notify(db, ev, { departments: ['accounting'], title: 'Анулиран дневен отчет',
+  body: `Запис #${ev.prev?.entry_id} (${ev.prev?.qty} от ${ev.prev?.work_date}) е анулиран. Извършените количества се преизчисляват.`, link: `/technical/${ev.project_id}` }));
+
+on('schedule.changed', 'notify', (db, ev) => {
+  const n = ev.next || {};
+  const body = n.added ? `Нова дейност „${n.name}“ (${n.start_date || '—'} → ${n.end_date || '—'}).`
+    : `„${n.name}“: ${ev.prev?.start_date || '—'} → ${ev.prev?.end_date || '—'} става ${n.start_date || '—'} → ${n.end_date || '—'}.`;
+  return notify(db, ev, { departments: ['brigadier', 'logistics'], title: 'Промяна в линейния график', body, link: `/technical/${ev.project_id}` });
+});
+
+on('task.assigned', 'notify', (db, ev) => {
+  const n = ev.next || {};
+  return notify(db, ev, { departments: [n.assignee_dept].filter(Boolean), users: [n.assignee_id].filter(Boolean),
+    title: `Нова задача ${n.code || ''}`, body: n.title || '', link: ev.project_id ? `/projects/${ev.project_id}` : '/' });
 });

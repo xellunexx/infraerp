@@ -11,7 +11,7 @@ import { LabourTab } from './LabourTab';
 import { labourCalc, DEFAULT_LABOUR } from '../../../server/labour.js';
 
 type Line = Record<string, any>;
-type Section = { key: string; title: string; description: string; footer: string; alternative: boolean };
+type Section = { key: string; title: string; description: string; footer: string; alternative: boolean; image_document_id?: number | null; image_url?: string | null };
 const N = (v: any) => { const x = Number(v); return Number.isFinite(x) ? x : 0; };
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 const r4 = (n: number) => Math.round((n + Number.EPSILON) * 10000) / 10000;
@@ -103,9 +103,10 @@ function DescCell({ l, r, smr, products, editable, onText, onPick }: {
 }
 
 /** One bordered sheet grid (a section or the loose lines). Internal "калкулация" columns only for finance users. */
-function SheetGrid({ rows, editable, money, smr, products, setL, pickL, delL, addLine, vatPct }: {
+function SheetGrid({ rows, editable, money, smr, products, setL, pickL, delL, addLine, vatPct, onPickImage }: {
   rows: { l: Line; i: number }[]; editable: boolean; money: boolean; smr: any[]; products: any[];
   setL: (i: number, k: string, v: any) => void; pickL: (i: number, p: Partial<Line>) => void; delL: (i: number) => void; addLine: () => void; vatPct: number;
+  onPickImage?: (i: number) => void;
 }) {
   const ref = useRef<HTMLTableElement>(null);
   const inp = (r: number, i: number, k: string, c: number, w = 72, step = '0.01') =>
@@ -169,7 +170,7 @@ function SheetGrid({ rows, editable, money, smr, products, setL, pickL, delL, ad
         <td className="n c">{inp(r, i, 'manual_price', 20)}</td>
         <td className="n c f out">{c.hasBreakdown ? fmtMoney(c.calculated) : '—'}</td>
       </>}
-      {editable && <td className="ops"><button className="ghost sm" aria-label="Изтрий реда" title="Изтрий реда" onClick={() => delL(i)}>✕</button></td>}
+      {editable && <td className="ops">{onPickImage && <button className="ghost sm" title="Снимка от каталога" onClick={() => onPickImage(i)}>🖼</button>}{l.image_url && <img src={l.image_url} alt="" style={{ width: 26, height: 26, objectFit: 'contain', border: '1px solid var(--line, #ddd)', borderRadius: 4, verticalAlign: 'middle' }} />}<button className="ghost sm" aria-label="Изтрий реда" title="Изтрий реда" onClick={() => delL(i)}>✕</button></td>}
     </tr>; })}
     {!rows.length && <tr><td className="empty" colSpan={30}>Празен раздел — добавете ред или вмъкнете система от шаблон.</td></tr>}</tbody>
     <tfoot>
@@ -179,6 +180,99 @@ function SheetGrid({ rows, editable, money, smr, products, setL, pickL, delL, ad
       <tr className="tot grand"><td colSpan={5}>Общо с ДДС:</td><td className="n"><b>{fmtMoney(t * (1 + vatPct / 100))}</b></td>{money && <td colSpan={CC} />}{editable && <td />}</tr>
     </tfoot>
   </table></div>;
+}
+
+/** Excel replica — the offer rendered literally like the company's workbook: 23 columns, image column,
+ *  merged section banner rows, per-section totals. Same state/handlers as the Оферта tab — edits save identically. */
+function ExcelReplica({ groups, lines, editable, money, vatPct, cur, smr, products, setL, pickL, delL, addLine, setS, delSection, onPickImage, onPickSectionImage, grand }: {
+  groups: { key: string; section?: Section; idx?: number }[]; lines: Line[]; editable: boolean; money: boolean; vatPct: number; cur: string;
+  smr: any[]; products: any[];
+  setL: (i: number, k: string, v: any) => void; pickL: (i: number, p: Partial<Line>) => void; delL: (i: number) => void;
+  addLine: (section?: string) => void; setS: (i: number, k: keyof Section, v: any) => void; delSection: (key: string) => void;
+  onPickImage: (i: number) => void; onPickSectionImage: (key: string) => void;
+  grand: { gross: number; net: number; vat: number; withVat: number };
+}) {
+  const num = (i: number, k: string, w = 64) => <input className="num" style={{ width: w }} type="number" step="0.01" min="0" disabled={!editable} value={lines[i][k] ?? ''} onChange={e => setL(i, k, e.target.value)} />;
+  const INP = money; // internal calc columns only for finance/offers-write, same rule as SheetGrid
+  const COLS = 6 + (INP ? 17 : 0);
+  const TotRows = ({ rows }: { rows: { l: Line; i: number }[] }) => {
+    const t = rows.reduce((s, x) => { const c = calcLine(x.l); return s + c.total; }, 0);
+    const net = r2(t), vat = r2(net * vatPct / 100);
+    return <>
+      <tr className="xr-tot"><td colSpan={7}>Общо, € без ДДС:</td><td className="n" colSpan={COLS - 8}>{fmtMoney(net)}</td></tr>
+      <tr className="xr-tot"><td colSpan={7}>ДДС {fmtNum(vatPct, 0)}%:</td><td className="n" colSpan={COLS - 8}>{fmtMoney(vat)}</td></tr>
+      <tr className="xr-tot grand"><td colSpan={7}>Общо, € с ДДС:</td><td className="n" colSpan={COLS - 8}><b>{fmtMoney(net + vat)}</b></td></tr>
+    </>;
+  };
+  return <div className="table-wrap xr-wrap">
+    <table className="xr">
+      <thead>
+        <tr className="xr-h1"><th colSpan={COLS} className="xr-title">{cur} ·(calc) · цени без ДДС</th></tr>
+        <tr>
+          <th className="no">№</th><th className="desc" colSpan={2}>Описание на СМР</th><th>Изображение</th>
+          <th>Ед. мярка</th><th>Количество</th><th>Ед. Цена €</th><th>Обща стойност</th>
+          {INP && <>
+            <th>Материал франко доставчик</th><th>Доставка</th><th>Сума доставки</th><th>Надници</th><th>Стойност</th><th>Сума монтаж</th>
+            <th>Сума</th><th>Режийни</th><th>Сума режийни</th><th>Себест-ст</th><th>Печалба</th><th>Печалба</th><th>сума печалба</th>
+            <th>Корпоративен данък</th><th>Ед.цена към клиента</th></>}
+        </tr>
+      </thead>
+      <tbody>
+        {groups.map(g => {
+          const s = g.section;
+          const rows = lines.map((l, i) => ({ l, i })).filter(x => (x.l.section || '') === g.key);
+          if (!s && !rows.length) return null;
+          return <React.Fragment key={g.key || 'loose'}>
+            {s ? <tr className="xr-sec"><td colSpan={COLS} style={{ position: 'relative' }}>
+              <div className="xr-sec-in">
+                {editable ? <input className="xr-sec-title" value={s.title} placeholder="Име на системата…" onChange={e => setS(g.idx!, 'title', e.target.value)} />
+                  : <b className="xr-sec-title">{s.title || 'Раздел'}</b>}
+                {s.alternative && <span className="badge warn">вариант</span>}
+                <button className="ghost sm" title="Снимка от каталога" onClick={() => onPickSectionImage(s.key)}>🖼</button>
+                {editable && <button className="ghost sm danger" title="Изтрий раздела и редовете му" onClick={() => delSection(s.key)}>✕</button>}
+                {s.image_url && <img className="xr-secimg" src={s.image_url} alt="" />}
+              </div>
+              {s && (editable ? <textarea className="xr-sec-desc" rows={2} value={s.description} placeholder="Описание на системата…" onChange={e => setS(g.idx!, 'description', e.target.value)} />
+                : s.description && <div className="xr-sec-desc-ro">{s.description}</div>)}
+            </td></tr> : rows.length > 0 && <tr className="xr-sec"><td colSpan={COLS}><b className="muted">Други редове</b></td></tr>}
+            {rows.map(({ l, i }, r) => { const c = calcLine(l); const iss = lineIssues(l, c); return <tr key={i} className={iss.length ? 'issue' : ''}>
+              <td className="no">{iss.length ? <span className="iss" title={iss.join('\n')}>⚠</span> : null}{r + 1}</td>
+              <td className="desc" colSpan={2}><DescCell l={l} r={r} smr={smr} products={products} editable={editable} onText={v => setL(i, 'description', v)} onPick={p => pickL(i, p)} /></td>
+              <td className="xr-img">{l.image_url ? <img src={l.image_url} alt="" /> : null}{editable && <button className="ghost sm" title="Снимка от каталога" onClick={() => onPickImage(i)}>🖼</button>}</td>
+              <td><input disabled={!editable} value={l.unit || ''} onChange={e => setL(i, 'unit', e.target.value)} list="units" /></td>
+              <td className="n">{num(i, 'qty')}</td>
+              <td className="n price"><b>{fmtMoney(c.price)}</b>{c.manual && <div className="sub">ръчна</div>}</td>
+              <td className="n price">{fmtMoney(c.total)}</td>
+              {INP && <>
+                <td className="n">{num(i, 'material_cost')}</td><td className="n">{num(i, 'delivery_cost')}</td>
+                <td className="n f">{c.hasBreakdown ? fmtMoney(c.delivery_sum) : '—'}</td>
+                <td className="n">{num(i, 'labour_days', 56)}</td><td className="n">{num(i, 'day_rate', 56)}</td>
+                <td className="n f">{c.hasBreakdown ? fmtMoney(c.labour_sum) : '—'}</td>
+                <td className="n f">{c.hasBreakdown ? fmtMoney(c.direct) : '—'}</td>
+                <td className="n">{num(i, 'overhead_pct', 48)}</td>
+                <td className="n f">{c.hasBreakdown ? fmtMoney(c.overhead_sum) : '—'}</td>
+                <td className="n f">{c.hasBreakdown ? fmtMoney(c.cost_sum) : '—'}</td>
+                <td className="n">{num(i, 'profit_pct', 48)}</td>
+                <td className="n f">{c.hasBreakdown ? fmtNum(c.profit, 2) : '—'}</td>
+                <td className="n f">{c.hasBreakdown ? fmtMoney(c.profit_sum) : '—'}</td>
+                <td className="n">{num(i, 'tax_pct', 48)}{c.hasBreakdown && <div className="sub">{fmtNum(c.tax, 2)}</div>}</td>
+                <td className="n price">{c.hasBreakdown && editable ? <input className="num" style={{ width: 60 }} type="number" step="0.01" min="0" placeholder={fmtMoney(c.calculated)} title="Ръчна цена — празно = изчислената" value={l.manual_price ?? ''} onChange={e => setL(i, 'manual_price', e.target.value)} /> : fmtMoney(c.price)}</td>
+              </>}
+              {editable && <td className="ops"><button className="ghost sm" aria-label="Изтрий реда" onClick={() => delL(i)}>✕</button></td>}
+            </tr>; })}
+            {rows.length > 0 && <TotRows rows={rows} />}
+            {editable && <tr className="xr-add"><td colSpan={COLS}><button className="sm" onClick={() => addLine(g.key)}>+ Ред</button></td></tr>}
+          </React.Fragment>;
+        })}
+        {!lines.length && <tr><td className="empty" colSpan={COLS}>Празна оферта.</td></tr>}
+      </tbody>
+      <tfoot>
+        <tr className="xr-tot grand"><td colSpan={7}>ОБЩО, {cur} без ДДС:</td><td className="n" colSpan={COLS - 8}><b>{fmtMoney(grand.net)}</b></td></tr>
+        <tr className="xr-tot"><td colSpan={7}>ДДС {fmtNum(vatPct, 0)}%:</td><td className="n" colSpan={COLS - 8}>{fmtMoney(grand.vat)}</td></tr>
+        <tr className="xr-tot grand"><td colSpan={7}>ОБЩО, {cur} с ДДС:</td><td className="n" colSpan={COLS - 8}><b>{fmtMoney(grand.withVat)}</b></td></tr>
+      </tfoot>
+    </table>
+  </div>;
 }
 
 export function OfferEditor({ id }: { id: number }) {
@@ -200,6 +294,10 @@ export function OfferEditor({ id }: { id: number }) {
   const [confirming, setConfirming] = useState(false);
   const [chosen, setChosen] = useState<number[]>([]);
   const [picking, setPicking] = useState(false);
+  const [pickTab, setPickTab] = useState<'sys' | 'cat'>('sys');
+  const [tplAdded, setTplAdded] = useState<Set<number>>(new Set());
+  const [catAdded, setCatAdded] = useState<Set<number>>(new Set());
+  const [imgPick, setImgPick] = useState<null | { kind: 'section'; key: string } | { kind: 'line'; i: number }>(null);
   const [preflight, setPreflight] = useState<null | { i: number; sec: string; issues: string[] }[]>(null);
   const [extras, setExtras] = useState(false);
   const templates = useLoad<any[]>(picking ? '/offer-templates' : null);
@@ -211,7 +309,7 @@ export function OfferEditor({ id }: { id: number }) {
     if (!o || !version) return;
     setHead({ title: o.title, site_address: o.site_address || '', attention_to: version.attention_to || '', offer_date: version.offer_date || '', validity_months: version.validity_months ?? 1,
       discount_pct: version.discount_pct ?? 0, notes: version.notes || '', execution_logic: version.execution_logic || '' });
-    setSections(version.sections.map((s: any) => ({ key: String(s.id), title: s.title, description: s.description || '', footer: s.footer || '', alternative: !!s.alternative })));
+    setSections(version.sections.map((s: any) => ({ key: String(s.id), title: s.title, description: s.description || '', footer: s.footer || '', alternative: !!s.alternative, image_document_id: s.image_document_id ?? null, image_url: s.image_url ?? null })));
     setLines(version.lines.map((l: any) => ({ ...l, section: l.section_id ? String(l.section_id) : '' })));
     setLabour(version.labour_calc || JSON.parse(JSON.stringify(DEFAULT_LABOUR)));
     setDirty(false);
@@ -235,12 +333,33 @@ export function OfferEditor({ id }: { id: number }) {
   const delL = (i: number) => { setLines(x => x.filter((_, j) => j !== i)); touch(); };
   const setH = (k: string, v: any) => { setHead(x => ({ ...x, [k]: v })); touch(); };
   const setS = (i: number, k: keyof Section, v: any) => { setSections(x => x.map((s, j) => j === i ? { ...s, [k]: v } : s)); touch(); };
+  const applyImage = (target: NonNullable<typeof imgPick>, r: any) => {
+    const img = { image_document_id: r.document_id ?? null, image_url: r.image_url ?? null };
+    if (target.kind === 'section') setSections(x => x.map(s => s.key === target.key ? { ...s, ...img } : s));
+    else setLines(x => x.map((l, j) => j === target.i ? { ...l, ...img } : l));
+    touch(); setImgPick(null);
+  };
   const addLine = (section = '') => { setLines(x => [...x, { section, description: '', unit: 'м²', qty: 1, material_cost: '', delivery_cost: '', labour_days: '', day_rate: '', install_cost: '', manual_price: '', ...defaults }]); touch(); };
   const insertTemplate = (t: any) => {
     const key = 'tpl' + Date.now();
-    setSections(x => [...x, { key, title: t.title, description: t.description || '', footer: t.footer || '', alternative: !!t.alternative }]);
-    setLines(x => [...x, ...t.lines.map((l: any) => ({ material_cost: '', delivery_cost: '', labour_days: '', day_rate: '', install_cost: '', manual_price: '', ...defaults, ...l, section: key }))]);
-    touch(); setPicking(false);
+    const img = t.catalog_slug ? api.post(`/catalog/items/${encodeURIComponent(t.catalog_slug)}/attach`, { img: 0 }).catch(() => null) : Promise.resolve(null);
+    img.then((r: any) => {
+      setSections(x => [...x, { key, title: t.title, description: t.description || '', footer: t.footer || '', alternative: !!t.alternative,
+        image_document_id: r?.document_id ?? null, image_url: r?.image_url ?? null }]);
+      setLines(x => [...x, ...t.lines.map((l: any) => ({ material_cost: '', delivery_cost: '', labour_days: '', day_rate: '', install_cost: '', manual_price: '', ...defaults, ...l, section: key }))]);
+      touch();
+    });
+  };
+  const insertCatalogItem = (it: any) => {
+    const key = 'cat' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
+    const specsText = it.specs && typeof it.specs === 'object' ? Object.entries(it.specs).map(([k, v]) => `${k}: ${v}`).join(' · ') : '';
+    const img = it.image_count > 0 ? api.post(`/catalog/items/${it.id}/attach`, { img: 0 }).catch(() => null) : Promise.resolve(null);
+    img.then((r: any) => {
+      setSections(x => [...x, { key, title: it.name, description: specsText, footer: '', alternative: false,
+        image_document_id: r?.document_id ?? null, image_url: r?.image_url ?? null }]);
+      setLines(x => [...x, { section: key, description: it.name, unit: 'бр.', qty: 1, material_cost: '', delivery_cost: '', labour_days: '', day_rate: '', install_cost: '', manual_price: '', ...defaults }]);
+      touch();
+    });
   };
   const addSection = () => { setSections(x => [...x, { key: 'new' + Date.now(), title: '', description: '', footer: '', alternative: false }]); touch(); };
   const applyLabour = (perUnit: number, dayRate: number, unit: string, name: string) => {
@@ -281,7 +400,7 @@ export function OfferEditor({ id }: { id: number }) {
     {o.status === 'confirmed' && <div className="alert ok">Офертата е потвърдена (версия {o.confirmed_version}) и е търговската база на обект {o.project_code || '(създава се…)'}. Промени се правят с анекс към договора.</div>}
     {viewVersion != null && viewVersion !== o.current_version && <div className="alert">Преглеждате стара версия v{viewVersion}. <a onClick={() => setViewVersion(null)}>Към текущата</a></div>}
 
-    <Tabs tabs={[['lines', 'Оферта'], ['labour', 'Труд'], ['head', 'Бележки и логика'], ['versions', `Версии (${o.versions.length})`]]} value={tab} onChange={setTab} />
+    <Tabs tabs={[['lines', 'Оферта'], ['replica', 'Excel реплика'], ['labour', 'Труд'], ['head', 'Бележки и логика'], ['versions', `Версии (${o.versions.length})`]]} value={tab} onChange={setTab} />
 
     {tab === 'labour' && (editable ? <LabourTab labour={labour} setLabour={l => { setLabour(l); touch(); }} onApply={applyLabour} />
       : <Card title="Труд">{version.labour_calc ? <LabourTab labour={version.labour_calc} setLabour={() => {}} onApply={() => {}} /> : <div className="empty">Няма калкулация за труд.</div>}</Card>)}
@@ -294,7 +413,7 @@ export function OfferEditor({ id }: { id: number }) {
     {tab === 'lines' && <>
       <div className="row" style={{ marginBottom: 10 }}>
         {editable && <button onClick={addSection}>+ Раздел (система / вариант)</button>}
-        {editable && <button className="primary" onClick={() => setPicking(true)}>+ От готов шаблон</button>}
+        {editable && <button className="primary" onClick={() => { setTplAdded(new Set()); setCatAdded(new Set()); setPickTab('sys'); setPicking(true); }}>+ От шаблон или каталог</button>}
         {money && <label className="row small muted"><input type="checkbox" checked={showCost} onChange={e => setShowCost(e.target.checked)} /> Показвай калкулацията (не се вижда от клиента)</label>}
         <span className="spacer" />
         {dirty && <span className="badge warn">незаписани промени</span>}
@@ -342,13 +461,15 @@ export function OfferEditor({ id }: { id: number }) {
               <label className="row small" title="Вариантите не се сумират в общата стойност — клиентът избира един">
                 <input type="checkbox" disabled={!editable} checked={s.alternative} onChange={e => setS(g.idx!, 'alternative', e.target.checked)} /> вариант</label>
               {editable && <button className="ghost sm danger" title="Изтрий раздела и редовете му" onClick={() => { setLines(x => x.filter(l => l.section !== s.key)); setSections(x => x.filter(y => y.key !== s.key)); touch(); }}>✕</button>}
+              {editable && <button className="ghost sm" title="Снимка от каталога" onClick={() => setImgPick({ kind: 'section', key: s.key })} style={{ opacity: s.image_url ? 1 : 0.6 }}>🖼</button>}
+              {s.image_url && <img src={s.image_url} alt="" style={{ width: 34, height: 34, objectFit: 'contain', border: '1px solid var(--line, #ddd)', borderRadius: 4, verticalAlign: 'middle' }} />}
             </div> : sections.length > 0 && <div className="doc-sec-head"><h3 className="muted">Други редове</h3></div>}
             {s && (editable ? <textarea className="doc-sec-desc" rows={Math.max(2, Math.ceil((s.description || '').length / 110))} value={s.description}
               placeholder="Описание на системата — печата се над редовете…" onChange={e => setS(g.idx!, 'description', e.target.value)} />
               : s.description && <p className="doc-sec-desc">{s.description}</p>)}
             {s?.alternative && <div className="alt-note">Вариант — не се сумира в общата стойност.</div>}
             <SheetGrid rows={rows} editable={editable} money={money && showCost} smr={smr.data || []} products={products.data || []}
-              setL={setL} pickL={pickL} delL={delL} addLine={() => addLine(g.key)} vatPct={vatPct} />
+              setL={setL} pickL={pickL} delL={delL} addLine={() => addLine(g.key)} vatPct={vatPct} onPickImage={i => setImgPick({ kind: 'line', i })} />
             {s && (editable || s.footer) && (editable ? <input className="doc-sec-foot" value={s.footer} placeholder="Бележка под раздела (незадължителна)…" onChange={e => setS(g.idx!, 'footer', e.target.value)} />
               : <p className="doc-sec-foot">{s.footer}</p>)}
           </section>;
@@ -369,19 +490,35 @@ export function OfferEditor({ id }: { id: number }) {
       </div>
     </>}
 
+    {tab === 'replica' && <ExcelReplica groups={groups} lines={lines} editable={editable} money={money} vatPct={vatPct} cur={cur}
+      smr={smr.data || []} products={products.data || []} setL={setL} pickL={pickL} delL={delL} addLine={addLine} setS={setS}
+      delSection={key => { setLines(x => x.filter(l => l.section !== key)); setSections(x => x.filter(y => y.key !== key)); touch(); }}
+      onPickImage={i => setImgPick({ kind: 'line', i })} onPickSectionImage={key => setImgPick({ kind: 'section', key })} grand={totals} />}
+
     {tab === 'versions' && <Card pad={false} title="Версии на офертата"><div className="table-wrap"><table className="t"><thead><tr><th>Версия</th><th>Статус</th><th>Създадена</th><th>От</th><th>Бележка</th><th className="num">Без ДДС, {cur}</th><th /></tr></thead>
       <tbody>{o.versions.map((v: any) => <tr key={v.id}><td>v{v.version}{v.version === o.confirmed_version ? ' · търговска база' : ''}</td><td><Status value={v.status} /></td><td>{fmtDate(v.created_at)}</td><td>{v.created_by_name}</td><td>{v.notes}</td>
         <td className="num">{fmtMoney(v.totals.net)}</td><td><button className="sm" onClick={() => { setViewVersion(v.version); setTab('lines'); }}>Преглед</button></td></tr>)}</tbody></table></div></Card>}
 
     <datalist id="units">{['м²', 'л.м', 'бр.', 'к-т', 'кг', 'т', 'м³', 'ч'].map(u => <option key={u} value={u} />)}</datalist>
 
-    {picking && <Modal wide title="Готови системи (от шаблона на офертите)" onClose={() => setPicking(false)}>
-      {!templates.data ? <div className="empty">Зареждане…</div> : templates.data.length === 0 ? <div className="empty">Няма шаблони</div> :
+    {picking && <Modal wide title="Готови системи и каталог" onClose={() => setPicking(false)}
+      footer={<><span className="muted small">{tplAdded.size + catAdded.size ? `Добавени: ${tplAdded.size + catAdded.size}` : 'Изберете колкото са нужни'}</span><button className="primary" onClick={() => setPicking(false)}>Готово</button></>}>
+      <div className="row" style={{ gap: 6, marginBottom: 10 }}>
+        <button className={pickTab === 'sys' ? 'sm primary' : 'sm ghost'} onClick={() => setPickTab('sys')}>Системи (шаблони)</button>
+        <button className={pickTab === 'cat' ? 'sm primary' : 'sm ghost'} onClick={() => setPickTab('cat')}>Цял каталог</button>
+      </div>
+      {pickTab === 'cat' ? <CatalogInsert added={catAdded} onAdd={it => { setCatAdded(s => new Set(s).add(it.id)); insertCatalogItem(it); }} /> :
+      !templates.data ? <div className="empty">Зареждане…</div> : templates.data.length === 0 ? <div className="empty">Няма шаблони</div> :
         <div className="table-wrap"><table className="t"><thead><tr><th>Група</th><th>Система</th><th className="num">Редове</th><th>Вид</th><th /></tr></thead>
-          <tbody>{templates.data.map((t: any) => <tr key={t.id}><td>{t.family}</td><td><b>{t.title}</b><div className="muted small">{(t.description || t.lines[0]?.description || '').slice(0, 160)}</div></td>
-            <td className="num">{t.lines.length}</td><td>{t.alternative ? <span className="badge warn">вариант</span> : ''}</td><td><button className="sm primary" onClick={() => insertTemplate(t)}>Добави</button></td></tr>)}</tbody></table></div>}
-      <p className="muted small">Цените в шаблоните са от Excel файла. Където трудът идва от калкулатора „Труд“, надниците и стойността на надника се попълват от таба „Труд“.</p>
+          <tbody>{templates.data.map((t: any) => <tr key={t.id} style={tplAdded.has(t.id) ? { opacity: 0.55 } : undefined}><td>{t.family}</td><td><b>{t.title}</b><div className="muted small">{(t.description || t.lines[0]?.description || '').slice(0, 160)}</div></td>
+            <td className="num">{t.lines.length}</td><td>{t.alternative ? <span className="badge warn">вариант</span> : ''}</td>
+            <td><button className="sm primary" disabled={tplAdded.has(t.id)} onClick={() => { setTplAdded(s => new Set(s).add(t.id)); insertTemplate(t); }}>{tplAdded.has(t.id) ? 'Добавено ✓' : 'Добави'}</button></td></tr>)}</tbody></table></div>}
+      <p className="muted small">{pickTab === 'sys'
+        ? 'Цените в шаблоните са от Excel файла. Където трудът идва от калкулатора „Труд“, надниците и стойността на надника се попълват от таба „Труд“. Можете да добавяте няколко системи поред — прозорецът остава отворен до „Готово“.'
+        : 'Всяка позиция от каталога се добавя като раздел с една позиция — попълнете количество и цена в офертата. Артикулите със снимка я прикачват автоматично.'}</p>
     </Modal>}
+
+    {imgPick && <CatalogPicker onPick={r => applyImage(imgPick, r)} onClose={() => setImgPick(null)} />}
 
     {preflight && <Modal title="Проверка преди изпращане" onClose={() => setPreflight(null)}
       footer={<><button onClick={() => setPreflight(null)}>Отказ — ще поправя</button>
@@ -402,4 +539,76 @@ export function OfferEditor({ id }: { id: number }) {
         {dirty && <div className="muted small">Запишете офертата първо, ако сте променяли раздели.</div>}</>}
     </Modal>}
   </>;
+}
+
+/** Цял каталог в picker-а — търси всички артикули, добавя като раздел+ред с автом. снимка. */
+function CatalogInsert({ added, onAdd }: { added: Set<number>; onAdd: (it: any) => void }) {
+  const [q, setQ] = useState(''); const [cat, setCat] = useState(''); const [brand, setBrand] = useState('');
+  const facets = useLoad<any>('/catalog/facets');
+  const qs = new URLSearchParams({ q, cat, brand });
+  const items = useLoad<any[]>(`/catalog/items?${qs}`);
+  return <div>
+    <div className="row" style={{ gap: 6, marginBottom: 8 }}>
+      <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Търси — име, марка, категория…" style={{ flex: 1, padding: '7px 10px' }} />
+      <select value={cat} onChange={e => setCat(e.target.value)} style={{ maxWidth: 160 }}><option value="">всички категории</option>
+        {(facets.data?.cats || []).map((c: string) => <option key={c} value={c}>{c}</option>)}</select>
+      <select value={brand} onChange={e => setBrand(e.target.value)} style={{ maxWidth: 160 }}><option value="">всички марки</option>
+        {(facets.data?.brands || []).map((b: string) => <option key={b} value={b}>{b}</option>)}</select>
+    </div>
+    {!items.data ? <div className="empty">Зареждане…</div> : items.data.length === 0 ? <div className="empty">Няма резултати</div> :
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 8, maxHeight: '52vh', overflowY: 'auto' }}>
+        {items.data.map((it: any) => <div key={it.id} className="ghost" style={{ padding: 6, border: '1px solid var(--border-strong)', borderRadius: 6, opacity: added.has(it.id) ? 0.55 : 1 }}>
+          {it.img_url ? <img src={it.img_url} alt="" loading="lazy" style={{ width: '100%', height: 90, objectFit: 'contain', display: 'block', background: '#fafafa' }} />
+            : <div style={{ height: 90, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999', fontSize: 11 }}>няма снимка</div>}
+          <div style={{ fontSize: 12, marginTop: 4, fontWeight: 600 }}>{it.name}</div>
+          <div className="muted" style={{ fontSize: 11, minHeight: 14 }}>{[it.brand, it.cat, it.source === 'excel' ? 'Excel' : ''].filter(Boolean).join(' · ') || '—'}</div>
+          <button className="sm primary" style={{ marginTop: 4, width: '100%' }} disabled={added.has(it.id)}
+            onClick={() => onAdd(it)}>{added.has(it.id) ? 'Добавено ✓' : 'Добави'}</button>
+        </div>)}
+      </div>}
+    <div className="muted small" style={{ marginTop: 6 }}>Показани до 120 резултата — стеснете търсенето за повече.</div>
+  </div>;
+}
+
+/** Галерия от каталога — търси, отваря детайл със всички снимки, прикача избраната към ред/раздел. */
+function CatalogPicker({ onPick, onClose }: { onPick: (r: any) => void; onClose: () => void }) {
+  const [q, setQ] = useState('');
+  const items = useLoad<any[]>(`/catalog/items?q=${encodeURIComponent(q)}`);
+  const [sel, setSel] = useState<null | { it: any; d: any }>(null);
+  const [err, setErr] = useState('');
+  const open = async (it: any) => { setErr(''); try { setSel({ it, d: await api.get(`/catalog/items/${it.id}`) }); } catch (e: any) { setErr(e.message); } };
+  const choose = async (idx: number) => {
+    if (!sel) return; setErr('');
+    try { onPick(await api.post(`/catalog/items/${sel.it.id}/attach`, { img: idx })); }
+    catch (e: any) { setErr(e.message); }
+  };
+  return <Modal wide title="Каталог — снимки" onClose={onClose}>
+    {sel ? <div>
+      <button className="ghost sm" onClick={() => setSel(null)}>← Назад към търсенето</button>
+      <h3 style={{ margin: '8px 0 4px' }}>{sel.it.name}</h3>
+      <div className="muted small" style={{ marginBottom: 10 }}>{[sel.it.brand, sel.it.cat, sel.it.source === 'excel' ? 'Excel' : 'isport'].filter(Boolean).join(' · ')}</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+        {(sel.d.images || []).map((u: string, i: number) =>
+          <button key={i} className="ghost" onClick={() => choose(i)} title="Избери тази снимка"
+            style={{ padding: 4, border: '1px solid var(--line, #ddd)', borderRadius: 6, background: '#fff', cursor: 'pointer' }}>
+            <img src={u} alt="" style={{ display: 'block', maxWidth: 180, maxHeight: 140, objectFit: 'contain' }} />
+          </button>)}
+      </div>
+      {err && <div className="alert warn" style={{ marginTop: 10 }}>{err}</div>}
+    </div> : <div>
+      <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Търси в каталога — име, марка, категория…"
+        style={{ width: '100%', padding: '8px 10px', marginBottom: 10 }} />
+      {!items.data ? <div className="empty">Зареждане…</div> : items.data.length === 0 ? <div className="empty">Няма резултати</div> :
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 8, maxHeight: '55vh', overflowY: 'auto' }}>
+          {items.data.map((it: any) => <button key={it.id} className="ghost" onClick={() => open(it)}
+            style={{ padding: 6, textAlign: 'left', border: '1px solid var(--line, #ddd)', borderRadius: 6, background: '#fff', cursor: 'pointer' }}>
+            {it.img_url ? <img src={it.img_url} alt="" loading="lazy" style={{ width: '100%', height: 90, objectFit: 'contain', display: 'block', background: '#fafafa' }} />
+              : <div style={{ height: 90, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999', fontSize: 11 }}>няма снимка</div>}
+            <div style={{ fontSize: 12, marginTop: 4, fontWeight: 600 }}>{it.name}</div>
+            <div className="muted" style={{ fontSize: 11 }}>{[it.brand, it.cat].filter(Boolean).join(' · ') || '—'}</div>
+          </button>)}
+        </div>}
+      {err && <div className="alert warn" style={{ marginTop: 10 }}>{err}</div>}
+    </div>}
+  </Modal>;
 }

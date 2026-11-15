@@ -31,6 +31,10 @@ CREATE TABLE IF NOT EXISTS products (
   id INTEGER PRIMARY KEY, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'material',
   unit TEXT NOT NULL, unit_cost REAL NOT NULL DEFAULT 0, unit_price REAL NOT NULL DEFAULT 0, description TEXT,
   min_stock REAL NOT NULL DEFAULT 0, pallet_qty REAL, active INTEGER NOT NULL DEFAULT 1, row_version INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE IF NOT EXISTS catalog_items (
+  id INTEGER PRIMARY KEY, slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL, brand TEXT, cat TEXT, specs TEXT,
+  images TEXT NOT NULL DEFAULT '[]', source TEXT NOT NULL DEFAULT 'isport', active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')));
 CREATE TABLE IF NOT EXISTS smr_types (
   id INTEGER PRIMARY KEY, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL, unit TEXT NOT NULL,
   labour_norm_h REAL NOT NULL DEFAULT 0, description TEXT, active INTEGER NOT NULL DEFAULT 1, row_version INTEGER NOT NULL DEFAULT 1);
@@ -69,7 +73,8 @@ CREATE TABLE IF NOT EXISTS offer_sections (
   title TEXT NOT NULL, description TEXT, footer TEXT, alternative INTEGER NOT NULL DEFAULT 0, selected INTEGER NOT NULL DEFAULT 0, image_document_id INTEGER REFERENCES documents(id));
 CREATE TABLE IF NOT EXISTS offer_templates (
   id INTEGER PRIMARY KEY, code TEXT NOT NULL UNIQUE, family TEXT NOT NULL, title TEXT NOT NULL, description TEXT, footer TEXT,
-  alternative INTEGER NOT NULL DEFAULT 0, lines TEXT NOT NULL DEFAULT '[]', active INTEGER NOT NULL DEFAULT 1, row_version INTEGER NOT NULL DEFAULT 1);
+  alternative INTEGER NOT NULL DEFAULT 0, lines TEXT NOT NULL DEFAULT '[]', active INTEGER NOT NULL DEFAULT 1, row_version INTEGER NOT NULL DEFAULT 1,
+  catalog_slug TEXT);
 
 CREATE TABLE IF NOT EXISTS projects (
   id INTEGER PRIMARY KEY, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL, customer_id INTEGER NOT NULL REFERENCES customers(id),
@@ -128,14 +133,16 @@ CREATE TABLE IF NOT EXISTS issues (
   id INTEGER PRIMARY KEY, code TEXT NOT NULL UNIQUE, project_id INTEGER NOT NULL REFERENCES projects(id), kind TEXT NOT NULL,
   severity TEXT NOT NULL DEFAULT 'medium', title TEXT NOT NULL, description TEXT, product_id INTEGER REFERENCES products(id),
   project_line_id INTEGER REFERENCES project_lines(id), status TEXT NOT NULL DEFAULT 'open', reported_by INTEGER REFERENCES users(id),
-  assigned_dept TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), resolved_at TEXT, resolution TEXT);
+  assigned_dept TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), resolved_at TEXT, resolution TEXT,
+  row_version INTEGER NOT NULL DEFAULT 1);
 
 CREATE TABLE IF NOT EXISTS assets (
   id INTEGER PRIMARY KEY, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL, kind TEXT NOT NULL, plate TEXT, status TEXT NOT NULL DEFAULT 'available',
   location TEXT, notes TEXT, row_version INTEGER NOT NULL DEFAULT 1);
 CREATE TABLE IF NOT EXISTS asset_allocations (
   id INTEGER PRIMARY KEY, asset_id INTEGER NOT NULL REFERENCES assets(id), project_id INTEGER NOT NULL REFERENCES projects(id),
-  date_from TEXT NOT NULL, date_to TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'planned', note TEXT, created_by INTEGER REFERENCES users(id));
+  date_from TEXT NOT NULL, date_to TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'planned', note TEXT, created_by INTEGER REFERENCES users(id),
+  row_version INTEGER NOT NULL DEFAULT 1);
 CREATE TABLE IF NOT EXISTS material_requests (
   id INTEGER PRIMARY KEY, code TEXT NOT NULL UNIQUE, project_id INTEGER NOT NULL REFERENCES projects(id), origin TEXT NOT NULL,
   needed_by TEXT, status TEXT NOT NULL DEFAULT 'submitted', note TEXT, requested_by INTEGER REFERENCES users(id),
@@ -165,20 +172,20 @@ CREATE TABLE IF NOT EXISTS delivery_items (id INTEGER PRIMARY KEY, delivery_id I
 CREATE TABLE IF NOT EXISTS proformas (
   id INTEGER PRIMARY KEY, code TEXT NOT NULL UNIQUE, project_id INTEGER NOT NULL REFERENCES projects(id), kind TEXT NOT NULL DEFAULT 'advance',
   amount REAL NOT NULL, vat_pct REAL NOT NULL, issued_on TEXT NOT NULL, due_on TEXT, status TEXT NOT NULL DEFAULT 'issued', note TEXT,
-  created_by INTEGER REFERENCES users(id));
+  created_by INTEGER REFERENCES users(id), row_version INTEGER NOT NULL DEFAULT 1);
 CREATE TABLE IF NOT EXISTS transactions (
   id INTEGER PRIMARY KEY, code TEXT NOT NULL UNIQUE, uid TEXT NOT NULL UNIQUE, project_id INTEGER REFERENCES projects(id),
   direction TEXT NOT NULL CHECK (direction IN ('in','out')), category TEXT NOT NULL, amount REAL NOT NULL CHECK (amount > 0),
   status TEXT NOT NULL DEFAULT 'paid', tx_date TEXT NOT NULL, due_on TEXT, counterparty TEXT, document_ref TEXT, proforma_id INTEGER REFERENCES proformas(id),
-  payment_request_id INTEGER, note TEXT, created_by INTEGER REFERENCES users(id), created_at TEXT NOT NULL DEFAULT (datetime('now')));
+  payment_request_id INTEGER, note TEXT, created_by INTEGER REFERENCES users(id), created_at TEXT NOT NULL DEFAULT (datetime('now')), row_version INTEGER NOT NULL DEFAULT 1);
 CREATE TABLE IF NOT EXISTS payment_requests (
   id INTEGER PRIMARY KEY, code TEXT NOT NULL UNIQUE, project_id INTEGER REFERENCES projects(id), category TEXT NOT NULL, amount REAL NOT NULL,
   payee TEXT NOT NULL, reason TEXT, exceptional INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'pending', approval_id INTEGER,
-  requested_by INTEGER REFERENCES users(id), created_at TEXT NOT NULL DEFAULT (datetime('now')));
+  requested_by INTEGER REFERENCES users(id), created_at TEXT NOT NULL DEFAULT (datetime('now')), row_version INTEGER NOT NULL DEFAULT 1);
 CREATE TABLE IF NOT EXISTS accommodations (
   id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL REFERENCES projects(id), place TEXT NOT NULL, address TEXT, date_from TEXT, date_to TEXT,
   beds INTEGER, cost_per_night REAL NOT NULL DEFAULT 0, payment_method TEXT, parking TEXT, workers TEXT, note TEXT,
-  created_by INTEGER REFERENCES users(id));
+  created_by INTEGER REFERENCES users(id), row_version INTEGER NOT NULL DEFAULT 1);
 
 CREATE TABLE IF NOT EXISTS documents (
   id INTEGER PRIMARY KEY, project_id INTEGER REFERENCES projects(id), entity_type TEXT, entity_id INTEGER, category TEXT NOT NULL,

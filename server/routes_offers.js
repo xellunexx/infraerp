@@ -62,9 +62,23 @@ export default function mountOffers(app, db) {
     const o = db.prepare('SELECT o.*, c.name AS customer_name, c.code AS customer_code, p.code AS project_code FROM offers o JOIN customers c ON c.id = o.customer_id LEFT JOIN projects p ON p.id = o.project_id WHERE o.id = ?').get(id);
     if (!o) throw new HttpError(404, 'Офертата не е намерена');
     o.questionnaire = JSON.parse(o.questionnaire || '{}');
+    const imgUrls = ids => {
+      const m = new Map();
+      if (!ids.length) return m;
+      const ph = ids.map(() => '?').join(',');
+      for (const r of db.prepare(`SELECT d.id AS doc_id, v.id AS vid FROM documents d
+        JOIN document_versions v ON v.document_id = d.id AND v.version = (SELECT MAX(version) FROM document_versions WHERE document_id = d.id)
+        WHERE d.id IN (${ph})`).all(...ids)) m.set(r.doc_id, `/api/documents/${r.vid}/file`);
+      return m;
+    };
     o.versions = db.prepare('SELECT v.*, u.full_name AS created_by_name FROM offer_versions v LEFT JOIN users u ON u.id = v.created_by WHERE v.offer_id = ? ORDER BY v.version').all(id)
-      .map(v => ({ ...v, labour_calc: v.labour_calc ? JSON.parse(v.labour_calc) : null, totals: offerTotals(db, v.id), sections: db.prepare('SELECT * FROM offer_sections WHERE version_id = ? ORDER BY sort, id').all(v.id),
-        lines: db.prepare('SELECT * FROM offer_lines WHERE version_id = ? ORDER BY sort, id').all(v.id).map(l => ({ ...l, calc: priceLine(l) })) }));
+      .map(v => {
+        const sections = db.prepare('SELECT * FROM offer_sections WHERE version_id = ? ORDER BY sort, id').all(v.id);
+        const lines = db.prepare('SELECT * FROM offer_lines WHERE version_id = ? ORDER BY sort, id').all(v.id).map(l => ({ ...l, calc: priceLine(l) }));
+        const urls = imgUrls([...sections, ...lines].map(x => x.image_document_id).filter(Boolean));
+        const withImg = x => x.image_document_id && urls.has(x.image_document_id) ? { ...x, image_url: urls.get(x.image_document_id) } : x;
+        return { ...v, labour_calc: v.labour_calc ? JSON.parse(v.labour_calc) : null, totals: offerTotals(db, v.id), sections: sections.map(withImg), lines: lines.map(withImg) };
+      });
     o.owner = o.owner_id ? db.prepare('SELECT id, full_name, phone, offer_letter, office FROM users WHERE id = ?').get(o.owner_id) : null;
     return o;
   };

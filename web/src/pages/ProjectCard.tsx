@@ -7,7 +7,7 @@ import { Card, DeptBadge, Empty, Field, Kpi, Link, Loader, Modal, Progress, Stat
 const EVENT_LABEL: Record<string, string> = { 'offer.confirmed': 'Потвърдена оферта', 'contract.submitted': 'Договор изпратен за одобрение', 'contract.signed': 'Подписан договор',
   'project.assigned': 'Определен отговорник', 'stage.changed': 'Промяна на етап', 'request.created': 'Заявка за материали', 'progress.recorded': 'Отчетено изпълнение',
   'amendment.approved': 'Одобрен анекс', 'delivery.changed': 'Промяна по доставка', 'issue.reported': 'Докладван проблем' };
-const PLANNED = ['Технически спецификации', 'Логистика и доставки', 'Склад', 'Механизация', 'Линеен график', 'Дневен отчет', 'Снимки и документи', 'Финанси', 'Настаняване', 'Анекси', 'Задачи и одобрения', 'Комуникация'];
+const PLANNED = ['Технически спецификации', 'Склад'];
 
 function ContractTab({ pid, onChange }: { pid: number; onChange: () => void }) {
   const c = useLoad<any>(`/projects/${pid}/contract`);
@@ -66,6 +66,12 @@ export function ProjectCard({ id }: { id: number }) {
   const [tab, setTab] = useState(new URLSearchParams(path.split('?')[1] || '').get('tab') || 'overview');
   const timeline = useLoad<any[]>(tab === 'timeline' || tab === 'overview' ? `/projects/${id}/timeline` : null, [p.data?.row_version]);
   const audit = useLoad<any[]>(tab === 'audit' ? `/projects/${id}/audit` : null);
+  const sched = useLoad<any>(tab === 'schedule' ? `/projects/${id}/schedule` : null);
+  const prog = useLoad<any>(tab === 'progress' ? `/projects/${id}/progress` : null);
+  const logi = useLoad<any>(tab === 'logistics' ? `/projects/${id}/logistics` : null);
+  const tasks = useLoad<any>(tab === 'tasks' ? `/projects/${id}/tasks` : null);
+  const docs = useLoad<any[]>(tab === 'docs' ? `/projects/${id}/documents` : null);
+  const msgs = useLoad<any[]>(tab === 'messages' ? `/projects/${id}/messages` : null);
   const { run, busy } = useAction();
   const d = p.data;
   if (!d) return <Loader state={p}><div /></Loader>;
@@ -73,11 +79,25 @@ export function ProjectCard({ id }: { id: number }) {
   const patch = (body: any, ok?: string) => run(async () => { await api.patch(`/projects/${id}`, { ...body, row_version: d.row_version }); await p.reload(); }, ok);
   const stage = (code: string, status: string) => run(async () => { await api.post(`/projects/${id}/stages`, { code, status }); await p.reload(); });
   const pending = (timeline.data || []).filter(e => e.status === 'pending' || e.status === 'processing').length, failed = (timeline.data || []).filter(e => e.status === 'failed').length;
-  const tabs: [string, string][] = [['overview', 'Преглед'], ['customer', 'Клиент и обект'], ...(can('contracts') ? [['contract', 'Договор и приложения'] as [string, string]] : []), ['lines', 'КС и рецепти'], ['timeline', 'Хронология'], ['audit', 'Одит'], ['planned', 'Предстоящи раздели']];
+  const tabs: [string, string][] = [['overview', 'Преглед'], ['customer', 'Клиент и обект'], ...(can('contracts') ? [['contract', 'Договор и приложения'] as [string, string]] : []), ['lines', 'КС и рецепти'],
+    ...(can('finance') ? [['finance', 'Финанси'] as [string, string]] : []),
+    ...(can('technical') ? [['schedule', 'График'] as [string, string]] : []),
+    ...(can('progress') ? [['progress', 'Изпълнение'] as [string, string]] : []),
+    ...(can('logistics') ? [['logistics', 'Логистика'] as [string, string]] : []),
+    ...(can('tasks') ? [['tasks', 'Задачи'] as [string, string]] : []),
+    ...(can('documents') ? [['docs', 'Документи'] as [string, string]] : []),
+    ...(can('messages') ? [['messages', 'Съобщения'] as [string, string]] : []),
+    ['timeline', 'Хронология'], ['audit', 'Одит'], ['planned', 'Предстоящи']];
   return <>
     <div className="page-head">
       <div><div className="muted small"><Link to="/projects">Обекти</Link> / {d.customer.name}</div><h1>{d.code} · {d.name} <Status value={d.status} /></h1><div className="muted">{d.site_address || 'няма въведен адрес'}</div></div>
       <span className="spacer" />{d.offer && can('offers') && <button onClick={() => navigate(`/offers/${d.offer.id}`)}>Оферта {d.offer.code} v{d.offer.confirmed_version}</button>}
+      {write && d.status !== 'closed' && (d.status === 'on_hold'
+        ? <button className="sm" disabled={busy} onClick={() => patch({ status: 'resume' }, 'Обектът е възобновен')}>Възобнови</button>
+        : <button className="sm ghost" disabled={busy} onClick={() => patch({ status: 'on_hold' }, 'Обектът е поставен на пауза')}>Пауза</button>)}
+      {write && (d.archived
+        ? <button className="sm" disabled={busy} onClick={() => run(async () => { await api.post(`/projects/${id}/archive`, { archived: false }); await p.reload(); }, 'Обектът е възстановен от архив')}>Възстанови от архив</button>
+        : <button className="sm ghost" disabled={busy} onClick={() => { if (window.confirm('Архивиране затваря обекта (статус „Закрит“). Да продължа?')) run(async () => { await api.post(`/projects/${id}/archive`, { archived: true }); await p.reload(); }, 'Обектът е архивиран'); }}>Архивирай</button>)}
     </div>
     <div className="grid g4 kpis-m" style={{ marginBottom: 14 }}>
       <Kpi label="Изпълнение" value={d.progress_pct + '%'} sub={<Progress pct={d.progress_pct} />} />
@@ -116,9 +136,11 @@ export function ProjectCard({ id }: { id: number }) {
 
     {tab === 'contract' && <ContractTab pid={id} onChange={() => { p.reload(); timeline.reload(); }} />}
 
+    {tab === 'finance' && <FinanceTab pid={id} />}
+
     {tab === 'lines' && <Card title="Количествено-стойностна сметка (КС) — договорни количества" pad={false}>
       <Table rows={d.lines} empty={<Empty title="Няма редове" />} cols={[{ key: 'sort', title: '№', width: 40 }, { key: 'description', title: 'Описание на СМР' }, { key: 'unit', title: 'Мярка' },
-        { key: 'qty', title: 'Договорено', num: true, render: (r: any) => fmtNum(r.qty, 3) }, { key: 'done_qty', title: 'Изпълнено', num: true, render: (r: any) => fmtNum(r.done_qty, 3) },
+        { key: 'qty', title: 'Договорено', num: true, render: (r: any) => fmtNum(r.qty, 3) }, { key: 'done_qty', title: 'Изпълнено', num: true, render: (r: any) => <>{fmtNum(r.done_qty, 3)}{r.qty > 0 && r.done_qty > r.qty ? <div><span className="badge bad">над договора +{fmtNum(r.done_qty - r.qty, 3)}</span></div> : null}</> },
         { key: 'pct', title: '%', num: true, render: (r: any) => r.qty ? fmtNum(Math.min(100, r.done_qty / r.qty * 100), 0) + '%' : '—' },
         ...(money ? [{ key: 'unit_price', title: 'Ед. цена', num: true, render: (r: any) => fmtMoney(r.unit_price) }, { key: 'tot', title: `Стойност, ${cur}`, num: true, render: (r: any) => fmtMoney(r.qty * r.unit_price) }] : [])]}
         foot={money ? <tr><td colSpan={7}>Общо без ДДС (версия {d.baseline_version ?? 'проект'})</td><td className="num">{fmtMoney(d.finance.contract_value)}</td></tr> : undefined} /></Card>}
@@ -133,6 +155,13 @@ export function ProjectCard({ id }: { id: number }) {
       { key: 'ts', title: 'Кога', render: r => fmtDateTime(r.ts), width: 130 }, { key: 'user_name', title: 'Кой', render: r => r.user_name || 'система' }, { key: 'module', title: 'Модул' },
       { key: 'entity_type', title: 'Обект на промяната', render: r => `${r.entity_type}${r.entity_id ? ' #' + r.entity_id : ''}` }, { key: 'action', title: 'Действие' },
       { key: 'before', title: 'Преди', render: r => <span className="mono small">{r.before}</span> }, { key: 'after', title: 'След', render: r => <span className="mono small">{r.after}</span> }]} /></Loader></Card>}
+
+    {tab === 'schedule' && <ScheduleTab sched={sched} />}
+    {tab === 'progress' && <ProgressTab prog={prog} />}
+    {tab === 'logistics' && <LogisticsTab logi={logi} pid={id} />}
+    {tab === 'tasks' && <TasksTab tasks={tasks} pid={id} />}
+    {tab === 'docs' && <DocsTab docs={docs} pid={id} />}
+    {tab === 'messages' && <MessagesTab msgs={msgs} pid={id} write={can('messages', 'write')} onSent={() => msgs.reload()} />}
 
     {tab === 'planned' && <Card title="Раздели, които още не са изградени"><p className="muted">Тези раздели на Картона са в плана, но още не работят. Ще се появят тук, когато операциите, записът и правата им са тествани.</p>
       <div className="row">{PLANNED.map(x => <span key={x} className="badge">{x}</span>)}</div></Card>}
@@ -151,4 +180,166 @@ function SiteForm({ d, write, busy, onSave }: { d: any; write: boolean; busy: bo
     <Field label="Най-близък куриерски офис"><input {...f.bind('courier_office')} disabled={!write} /></Field>
     <Field label="Офисът приема палети"><select {...f.bind('courier_pallets')} disabled={!write}><option value={0}>Не / неизвестно</option><option value={1}>Да</option></select></Field>
   </div></Card>;
+}
+
+// ---------------------------------------------------------------- Финанси (четене; въвеждането е в „Счетоводство“)
+const PF_KIND: Record<string, string> = { advance: 'Аванс', interim: 'Междинна', final: 'Окончателна', other: 'Друга' };
+const TX_DIR: Record<string, string> = { in: 'Приход', out: 'Разход' };
+
+function FinanceTab({ pid }: { pid: number }) {
+  const fin = useLoad<any>(`/projects/${pid}/finance`);
+  const cur = useCurrency();
+  const d = fin.data;
+  if (!d) return <Loader state={fin}><div /></Loader>;
+  const m = (n: any) => fmtMoney(n, cur);
+  return <>
+    <div className="grid g4 kpis-m" style={{ marginBottom: 14 }}>
+      <Kpi label={`Договорна стойност, ${cur}`} value={m(d.contract_value)} sub={`оферта: ${m(d.offer_value)}`} />
+      <Kpi label={`Издадени проформи, ${cur}`} value={m(d.invoiced)} sub={`вземания: ${m(d.receivables)}`} tone={d.receivables > 0 ? 'warn' : undefined} />
+      <Kpi label={`Получени / платени, ${cur}`} value={m(d.payments_received)} sub={`изплатени: ${m(d.payments_made)}`} />
+      <Kpi label={`Резултат до момента, ${cur}`} value={m(d.result_to_date)} sub={`прогноза: ${m(d.forecast_result)}`} tone={d.result_to_date < 0 ? 'bad' : undefined} />
+      <Kpi label={`Оставащ бюджет, ${cur}`} value={m(d.remaining_budget)} sub={`планирани разходи: ${m(d.planned_expenses)}`} />
+      <Kpi label={`Планиран резултат, ${cur}`} value={m(d.planned_result)} sub={`себестойност: ${m(d.cost_price)}`} />
+    </div>
+    <Card title="Сверка с изпълнението" pad={false}>
+      <Table rows={[
+        { k: 'Извършена работа (КС × изпълнено)', v: d.earned_value },
+        { k: 'Не издадена за фактуриране', v: d.work_not_invoiced, warn: d.work_not_invoiced > 0 },
+        { k: 'Изпълнена себестойност', v: d.earned_cost },
+        { k: 'Фактически разходи (платени + задължения)', v: d.actual_expenses },
+        { k: 'Отклонение на разходите', v: d.cost_variance, warn: d.cost_variance > 0 },
+        { k: 'Планирани разходи по КС', v: d.planned_out },
+        { k: 'Не фактурирано от договора', v: d.not_invoiced },
+      ]} cols={[
+        { key: 'k', title: 'Показател' },
+        { key: 'v', title: `Стойност, ${cur}`, num: true, render: (r: any) => <span className={r.warn ? 'badge warn' : ''}>{m(r.v)}</span> },
+      ]} />
+    </Card>
+    <div className="grid g2">
+      <Card title="Проформи" pad={false}><Table rows={d.proformas} empty={<Empty title="Няма проформи" />} cols={[
+        { key: 'code', title: '№' }, { key: 'kind', title: 'Вид', render: (r: any) => PF_KIND[r.kind] || r.kind },
+        { key: 'amount', title: 'Сума', num: true, render: (r: any) => m(r.amount) },
+        { key: 'issued_on', title: 'Издадена', render: (r: any) => fmtDate(r.issued_on) }, { key: 'status', title: '', render: (r: any) => <Status value={r.status} /> }]} /></Card>
+      <Card title="Транзакции" pad={false}><Table rows={d.transactions} empty={<Empty title="Няма транзакции" />} cols={[
+        { key: 'tx_date', title: 'Дата', render: (r: any) => fmtDate(r.tx_date) }, { key: 'category', title: 'Категория' },
+        { key: 'dir', title: 'Вид', render: (r: any) => TX_DIR[r.direction] || r.direction },
+        { key: 'amount', title: 'Сума', num: true, render: (r: any) => m(r.amount) }, { key: 'status', title: '', render: (r: any) => <Status value={r.status} /> }]} /></Card>
+      <Card title="Заявки за плащане" pad={false}><Table rows={d.payment_requests} empty={<Empty title="Няма заявки" />} cols={[
+        { key: 'code', title: '№' }, { key: 'payee', title: 'Получател' }, { key: 'category', title: 'Категория' },
+        { key: 'amount', title: 'Сума', num: true, render: (r: any) => m(r.amount) }, { key: 'status', title: '', render: (r: any) => <Status value={r.status} /> }]} /></Card>
+      <Card title="Настаняване" pad={false}><Table rows={d.accommodations} empty={<Empty title="Няма записи" />} cols={[
+        { key: 'place', title: 'Място' }, { key: 'date_from', title: 'От–до', render: (r: any) => `${fmtDate(r.date_from)} – ${fmtDate(r.date_to)}` },
+        { key: 'beds', title: 'Легла', num: true }, { key: 'cost_per_night', title: 'Цена/нощ', num: true, render: (r: any) => m(r.cost_per_night) }]} /></Card>
+    </div>
+    <div className="row" style={{ marginTop: 14 }}><Link to={`/accounting?pid=${pid}`}>Отвори в Счетоводство →</Link></div>
+  </>;
+}
+// ---------------------------------------------------------------- раздели, захранени от съществуващите модули
+const IST: Record<string, [string, string]> = { open: ['Отворен', 'warn'], in_progress: ['В работа', 'info'], resolved: ['Решен', 'ok'], cancelled: ['Отменен', ''] };
+const SEV: Record<string, [string, string]> = { low: ['нисък', ''], medium: ['среден', 'warn'], high: ['висок', 'bad'], critical: ['критичен', 'bad'] };
+const TSK_ST: Record<string, string> = { open: 'Отворена', done: 'Завършена' };
+const PRI: Record<string, string> = { low: 'нисък', normal: 'нормален', high: 'висок', urgent: 'спешен' };
+const ISSUE_KIND: Record<string, string> = { problem: 'Проблем', delay: 'Закъснение', material_shortage: 'Липса на материал', damage: 'Повреда', additional_work: 'Допълнителна работа', other: 'Друго' };
+
+function ScheduleTab({ sched }: { sched: any }) {
+  const items: any[] = sched.data?.items || [];
+  return <Loader state={sched}>
+    <Card title={`Линеен график${sched.data?.deadline ? ` · краен срок ${fmtDate(sched.data.deadline)}` : ''}`} pad={false} actions={<Link to="/technical">Редактирай в Технически →</Link>}>
+      <Table rows={items} empty={<Empty title="Няма график">Линейният график се поддържа в Техническия модул.</Empty>} cols={[
+        { key: 'name', title: 'Дейност' },
+        { key: 'period', title: 'Период', render: (r: any) => r.start_date ? `${fmtDate(r.start_date)} → ${fmtDate(r.end_date)}` : '—' },
+        { key: 'pct', title: 'Изпълнение', width: 110, render: (r: any) => r.pct != null ? <div className="row" style={{ flexWrap: 'nowrap' }}><Progress pct={r.pct} /><span className="small num" style={{ width: 38 }}>{r.pct}%</span></div> : '—' },
+        { key: 'st', title: 'Статус', render: (r: any) => r.behind ? <span className="badge bad">изостава</span> : (r.late_days || 0) > 0 ? <span className="badge bad">къснее {r.late_days} дн.</span> : r.pct === 100 ? <span className="badge ok">готово</span> : <span className="badge">в срок</span> },
+      ]} /></Card></Loader>;
+}
+
+function ProgressTab({ prog }: { prog: any }) {
+  const lines: any[] = prog.data?.lines || [];
+  const entries: any[] = prog.data?.entries || [];
+  return <Loader state={prog}>
+    <Card title="Изпълнение по редове" pad={false}><Table rows={lines} empty={<Empty title="Няма редове" />} cols={[
+      { key: 'description', title: 'Ред' }, { key: 'unit', title: 'Мярка', width: 60 },
+      { key: 'qty', title: 'Договорено', num: true, render: (r: any) => fmtNum(r.qty) },
+      { key: 'done_qty', title: 'Извършено', num: true, render: (r: any) => <>{fmtNum(r.done_qty)}{r.qty > 0 && r.done_qty > r.qty ? <div><span className="badge bad">над договора +{fmtNum(r.done_qty - r.qty, 3)}</span></div> : null}</> },
+      { key: 'pct', title: '%', width: 130, render: (r: any) => r.pct != null ? <div className="row" style={{ flexWrap: 'nowrap' }}><Progress pct={r.pct} /><span className="small num" style={{ width: 40 }}>{r.pct}%</span></div> : '—' },
+    ]} /></Card>
+    <Card title="Дневни отчети" pad={false} actions={<Link to="/technical">Въведи отчет →</Link>}><Table rows={entries} empty={<Empty title="Няма отчети" />} cols={[
+      { key: 'work_date', title: 'Дата', render: (r: any) => fmtDate(r.work_date) }, { key: 'line_description', title: 'Ред' },
+      { key: 'qty', title: 'Кол-во', num: true, render: (r: any) => <span className={r.voided ? 'muted' : ''} style={r.voided ? { textDecoration: 'line-through' } : {}}>{fmtNum(r.qty)} {r.unit}</span> },
+      { key: 'note', title: 'Бележка' }, { key: 'reported_by_name', title: 'От' },
+    ]} /></Card></Loader>;
+}
+
+function LogisticsTab({ logi, pid }: { logi: any; pid: number }) {
+  const d = logi.data;
+  const lf: any = d?.logistics_fields || {};
+  const notes = [['Достъп', lf.access_notes], ['Разтоварване', lf.unloading_notes], ['Съхранение', lf.storage_notes], ['Паркиране', lf.parking_notes], ['Куриерски офис', lf.courier_office]].filter(([, v]) => v);
+  return <Loader state={logi}>
+    {notes.length ? <Card title="Логистика на обекта" pad={false}><Table rows={notes.map(([k, v]) => ({ k, v }))} cols={[{ key: 'k', title: '', width: 170 }, { key: 'v', title: 'Бележка' }]} /></Card> : null}
+    <Card title="Доставки" pad={false} actions={<Link to={`/logistics?pid=${pid}`}>Управлявай в Логистика →</Link>}><Table rows={d?.deliveries || []} empty={<Empty title="Няма доставки" />} cols={[
+      { key: 'code', title: '№' }, { key: 'planned_date', title: 'Планирана', render: (r: any) => fmtDate(r.planned_date) },
+      { key: 'status', title: 'Статус', render: (r: any) => <Status value={r.status} /> },
+      { key: 'carrier', title: 'Превозвач' }, { key: 'items_summary', title: 'Съдържание' },
+    ]} /></Card>
+    <Card title="Механизация на обекта" pad={false}><Table rows={d?.allocations || []} empty={<Empty title="Няма разпределена техника" />} cols={[
+      { key: 'asset', title: 'Техника', render: (r: any) => `${r.asset_code} — ${r.asset_name}${r.asset_plate ? ' (' + r.asset_plate + ')' : ''}` },
+      { key: 'period', title: 'Период', render: (r: any) => `${fmtDate(r.date_from)} → ${fmtDate(r.date_to)}` },
+      { key: 'status', title: 'Статус', render: (r: any) => <Status value={r.status} /> },
+    ]} /></Card></Loader>;
+}
+
+function TasksTab({ tasks, pid }: { tasks: any; pid: number }) {
+  const d = tasks.data;
+  return <Loader state={tasks}>
+    <Card title="Задачи" pad={false} actions={<Link to="/technical">В Технически →</Link>}><Table rows={d?.tasks || []} empty={<Empty title="Няма задачи" />} cols={[
+      { key: 'code', title: '№', width: 90 }, { key: 'title', title: 'Задача' },
+      { key: 'assignee_name', title: 'Отговорник', render: (r: any) => r.assignee_name || r.assignee_dept || '—' },
+      { key: 'due_date', title: 'Срок', render: (r: any) => fmtDate(r.due_date) },
+      { key: 'priority', title: 'Приоритет', render: (r: any) => PRI[r.priority] || r.priority },
+      { key: 'status', title: 'Статус', render: (r: any) => <Status value={r.status} /> },
+    ]} /></Card>
+    <Card title="Проблеми" pad={false} actions={<Link to={`/brigade/${pid}`}>В Бригадир →</Link>}><Table rows={d?.issues || []} empty={<Empty title="Няма проблеми" />} cols={[
+      { key: 'code', title: '№', width: 90 },
+      { key: 'title', title: 'Проблем', render: (r: any) => <>{r.title}<div className="small muted">{ISSUE_KIND[r.kind] || r.kind}</div></> },
+      { key: 'severity', title: 'Приоритет', render: (r: any) => { const s = SEV[r.severity] || [r.severity, '']; return <span className={'badge ' + s[1]}>{s[0]}</span>; } },
+      { key: 'assigned_dept_name', title: 'Към', render: (r: any) => r.assigned_dept_name || '—' },
+      { key: 'status', title: 'Статус', render: (r: any) => <Status value={r.status} /> },
+    ]} /></Card></Loader>;
+}
+
+function DocsTab({ docs, pid }: { docs: any; pid: number }) {
+  const rows: any[] = docs.data || [];
+  const latest = (d: any) => d.versions?.[d.versions.length - 1];
+  return <Loader state={docs}>
+    <Card title="Файлове на обекта" pad={false} actions={<Link to={`/brigade/${pid}`}>Качи в Бригадир →</Link>}><Table rows={rows} empty={<Empty title="Няма файлове" />} cols={[
+      { key: 'title', title: 'Файл', render: (r: any) => { const v = latest(r); return <>{r.title}<div className="small muted">{v?.filename} · {v ? Math.round(v.size / 1024) + ' KB' : ''} · {fmtDateTime(v?.created_at)}</div></> } },
+      { key: 'category', title: 'Вид', render: (r: any) => ({ photo: 'Снимка', document: 'Документ', act: 'Акт', other: 'Друго' } as any)[r.category] || r.category },
+      { key: 'uploaded_by_name', title: 'Качил' },
+      { key: 'x', title: '', width: 90, render: (r: any) => { const v = latest(r); return v ? <a className="btn sm" href={`/api/documents/${v.id}/file`} target="_blank" rel="noreferrer">Отвори</a> : null; } },
+    ]} /></Card>
+    <div className="grid g3">{rows.flatMap(r => (r.versions || []).filter((v: any) => (v.mime || '').startsWith('image/')).map((v: any) =>
+      <a key={v.id} href={`/api/documents/${v.id}/file`} target="_blank" rel="noreferrer"><img src={`/api/documents/${v.id}/file`} alt={r.title} style={{ width: '100%', borderRadius: 8, border: '1px solid var(--line)' }} /></a>))}
+    </div></Loader>;
+}
+
+function MessagesTab({ msgs, pid, write, onSent }: { msgs: any; pid: number; write: boolean; onSent: () => void }) {
+  const { run } = useAction();
+  const f = useForm({ body: '' });
+  const rows: any[] = msgs.data || [];
+  const send = () => run(async () => {
+    await api.post('/messages', { project_id: pid, body: f.v.body });
+    f.setV({ ...f.v, body: '' }); onSent();
+  }, 'Съобщението е изпратено');
+  return <Loader state={msgs}>
+    <Card title="Разговор по обекта" actions={<Link to={`/brigade/${pid}`}>Пълен изглед →</Link>}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12, maxHeight: 420, overflowY: 'auto' }}>
+        {rows.map(m => <div key={m.id} style={{ background: 'var(--panel2)', borderRadius: 8, padding: '8px 12px' }}>
+          <div className="small muted">{m.author_name || 'системата'} · {fmtDateTime(m.created_at)}{m.entity_type ? ` · към ${m.entity_type} #${m.entity_id}` : ''}</div>
+          <div style={{ whiteSpace: 'pre-wrap' }}>{m.body}</div>
+        </div>)}
+        {!rows.length && <Empty title="Няма съобщения" />}
+      </div>
+      {write && <div className="row"><input {...f.bind('body')} placeholder="Съобщение…" style={{ flex: 1 }} onKeyDown={e => { if (e.key === 'Enter') send(); }} />
+        <button className="primary" disabled={!f.v.body.trim()} onClick={send}>Изпрати</button></div>}
+    </Card></Loader>;
 }

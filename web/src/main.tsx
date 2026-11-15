@@ -11,6 +11,11 @@ import { Projects } from './pages/Projects';
 import { ProjectCard } from './pages/ProjectCard';
 import { Notifications, Settings } from './pages/Admin';
 import { Dashboard } from './pages/Dashboard';
+import { Technical, TechnicalProject } from './pages/Technical';
+import { Accounting } from './pages/Accounting';
+import { Logistics } from './pages/Logistics';
+import { Brigade, BrigadeProject } from './pages/Brigade';
+import { Management } from './pages/Management';
 
 type Nav = { to: string; label: string; res?: string; dept?: string };
 const NAV: (Nav | null)[] = [
@@ -18,7 +23,7 @@ const NAV: (Nav | null)[] = [
   { to: '/offers', label: 'Оферти', res: 'offers', dept: 'offers' }, { to: '/contracts', label: 'Договори', res: 'contracts', dept: 'contracts' },
   { to: '/technical', label: 'Техник', res: 'technical', dept: 'technical' }, { to: '/accounting', label: 'Счетоводство', res: 'finance', dept: 'accounting' },
   { to: '/warehouse', label: 'Склад', res: 'warehouse', dept: 'warehouse' }, { to: '/logistics', label: 'Логистика', res: 'logistics', dept: 'logistics' },
-  { to: '/brigadier', label: 'Бригадир', res: 'progress', dept: 'brigadier' }, { to: '/management', label: 'Управител', res: 'approvals', dept: 'management' }, null,
+  { to: '/brigade', label: 'Бригадир', res: 'progress', dept: 'brigadier' }, { to: '/management', label: 'Управител', res: 'approvals', dept: 'management' }, null,
   { to: '/customers', label: 'Клиенти', res: 'customers' }, { to: '/catalog', label: 'Номенклатури', res: 'catalog' },
   { to: '/notifications', label: 'Известия' }, { to: '/reports', label: 'Справки', res: 'reports' }, { to: '/settings', label: 'Настройки', res: 'settings' },
 ];
@@ -49,6 +54,13 @@ function Shell() {
   else if (seg[1] === 'offers' && seg[2]) page = <OfferEditor id={Number(seg[2])} />;
   else if (seg[1] === 'offers') page = <Offers />;
   else if (seg[1] === 'contracts') page = <Contracts />;
+  else if (seg[1] === 'technical' && seg[2]) page = <TechnicalProject id={Number(seg[2])} />;
+  else if (seg[1] === 'technical') page = <Technical />;
+  else if (seg[1] === 'accounting') page = <Accounting />;
+  else if (seg[1] === 'logistics') page = <Logistics />;
+  else if (seg[1] === 'brigade' && seg[2]) page = <BrigadeProject id={Number(seg[2])} />;
+  else if (seg[1] === 'brigade') page = <Brigade />;
+  else if (seg[1] === 'management') page = <Management />;
   else if (seg[1] === 'customers') page = <Customers />;
   else if (seg[1] === 'catalog') page = <Catalog />;
   else if (seg[1] === 'notifications') page = <Notifications onChange={notes.reload} />;
