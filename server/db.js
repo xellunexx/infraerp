@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS departments (code TEXT PRIMARY KEY, name TEXT NOT NUL
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE, full_name TEXT NOT NULL,
   department TEXT NOT NULL REFERENCES departments(code), role TEXT NOT NULL,
-  phone TEXT, email TEXT, pass_hash TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1,
+  phone TEXT, email TEXT, offer_letter TEXT, office TEXT, pass_hash TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now')), row_version INTEGER NOT NULL DEFAULT 1);
 CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), expires_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS role_permissions (
@@ -54,12 +54,22 @@ CREATE TABLE IF NOT EXISTS offer_versions (
   id INTEGER PRIMARY KEY, offer_id INTEGER NOT NULL REFERENCES offers(id), version INTEGER NOT NULL,
   status TEXT NOT NULL DEFAULT 'draft', valid_until TEXT, discount_pct REAL NOT NULL DEFAULT 0, notes TEXT,
   execution_logic TEXT, prelim_days INTEGER, locked INTEGER NOT NULL DEFAULT 0,
+  attention_to TEXT, offer_date TEXT, validity_months INTEGER NOT NULL DEFAULT 1,
   created_by INTEGER REFERENCES users(id), created_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE (offer_id, version));
 CREATE TABLE IF NOT EXISTS offer_lines (
   id INTEGER PRIMARY KEY, version_id INTEGER NOT NULL REFERENCES offer_versions(id) ON DELETE CASCADE, sort INTEGER NOT NULL DEFAULT 0,
   smr_type_id INTEGER REFERENCES smr_types(id), product_id INTEGER REFERENCES products(id),
   code TEXT, description TEXT NOT NULL, unit TEXT NOT NULL, qty REAL NOT NULL, unit_price REAL NOT NULL,
-  unit_cost REAL NOT NULL DEFAULT 0, tech_note TEXT, planned_days INTEGER);
+  unit_cost REAL NOT NULL DEFAULT 0, tech_note TEXT, planned_days INTEGER,
+  section_id INTEGER REFERENCES offer_sections(id) ON DELETE SET NULL, material_cost REAL NOT NULL DEFAULT 0, delivery_cost REAL NOT NULL DEFAULT 0,
+  labour_days REAL NOT NULL DEFAULT 0, day_rate REAL NOT NULL DEFAULT 0, install_cost REAL, overhead_pct REAL NOT NULL DEFAULT 3.5,
+  profit_pct REAL NOT NULL DEFAULT 30, tax_pct REAL NOT NULL DEFAULT 10, manual_price REAL, image_document_id INTEGER REFERENCES documents(id));
+CREATE TABLE IF NOT EXISTS offer_sections (
+  id INTEGER PRIMARY KEY, version_id INTEGER NOT NULL REFERENCES offer_versions(id) ON DELETE CASCADE, sort INTEGER NOT NULL DEFAULT 0,
+  title TEXT NOT NULL, description TEXT, footer TEXT, alternative INTEGER NOT NULL DEFAULT 0, image_document_id INTEGER REFERENCES documents(id));
+CREATE TABLE IF NOT EXISTS offer_templates (
+  id INTEGER PRIMARY KEY, code TEXT NOT NULL UNIQUE, family TEXT NOT NULL, title TEXT NOT NULL, description TEXT, footer TEXT,
+  alternative INTEGER NOT NULL DEFAULT 0, lines TEXT NOT NULL DEFAULT '[]', active INTEGER NOT NULL DEFAULT 1, row_version INTEGER NOT NULL DEFAULT 1);
 
 CREATE TABLE IF NOT EXISTS projects (
   id INTEGER PRIMARY KEY, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL, customer_id INTEGER NOT NULL REFERENCES customers(id),
