@@ -88,6 +88,7 @@ export function OfferEditor({ id }: { id: number }) {
     <div className="page-head">
       <div><div className="muted small"><Link to="/offers">Оферти</Link> / {o.customer_name}</div><h1>Оферта № {o.code} <span className="muted" style={{ fontWeight: 400 }}>v{version.version}</span> <Status value={version.version === o.current_version ? o.status : version.status} /></h1></div>
       <span className="spacer" />
+      <button disabled={dirty} title={dirty ? 'Запишете първо' : ''} onClick={() => window.open(`/api/offers/${id}/print?version=${version.version}`, '_blank')}>Печат / PDF</button>
       {o.project_id && <button onClick={() => navigate(`/projects/${o.project_id}`)}>Картон на обекта {o.project_code}</button>}
       {editable && <button className="primary" disabled={busy || !dirty} onClick={save}>Запис</button>}
       {editable && <button disabled={busy || !lines.length} onClick={() => act('send', {}, 'Офертата е изпратена и версията е заключена')}>Изпрати на клиента</button>}

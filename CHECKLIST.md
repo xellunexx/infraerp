@@ -1,7 +1,7 @@
 # SYNCHRO — implementation checklist (honest status)
 
 A module is ticked only when its operations, persistence, permissions and integrations are tested — not when a screen exists.
-Tests: `npm test` (12 tests, all passing at the last run). Web build: `npm run build` (passes).
+Tests: `npm test` (13 tests, all passing at the last run). Web build: `npm run build` (passes).
 
 ## Phase 1 — Foundation
 - [x] Database schema (SQLite, WAL, foreign keys) — all phases' tables created
@@ -26,7 +26,10 @@ Tests: `npm test` (12 tests, all passing at the last run). Web build: `npm run b
       Where the Excel takes labour from the Труд sheet (43 cells) man-days / day rate are left empty for the user. Template pictures are not carried over.
       The insert dialog itself was not clicked through in a browser (API and build are tested).
 - [ ] Labour calculator (Труд) and recipe calculators (SBR/EPDM/Corkeen/grass, pallet rounding) — not built
-- [ ] Printable offer in the company layout (logo, pictures, clauses, footer) and Excel export — not built
+- [x] Printable offer in the company layout ("Печат / PDF" on the offer): logo, header block, sections with their own totals, variants marked,
+      grand total, four legal clauses (setting `offer_clauses`), footer strip. Customer columns only; a test checks no cost data leaks. Seen on screen in a browser.
+      NOT verified: how it paginates on paper / in a saved PDF (footer repeat uses a repeating table footer; untested in print). Line pictures are not printed.
+- [ ] Excel export of an offer — not built
 - [ ] Documents and file versioning (uploads, photos, line images) — tables exist, no API
 - [ ] Contract amendments / annexes (new versions after signing) — versioning core exists, no amendment workflow yet
 - [ ] Backups (daily copy + manual backup/restore) — not built
