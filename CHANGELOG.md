@@ -502,3 +502,22 @@ the file in Excel itself.
   importer code (`tools/import_catalog.mjs`) ships.
 - `requirements.txt` added for `tools/import_offer_template.py`
   (`openpyxl==3.1.5`, the only Python dep in the repo).
+
+## Deployment to dedicated VM
+
+- Full stack moved to `devops@68.210.226.194` (tenderops-vm): repo snapshot +
+  `synchro-data` (DB + 120 MB files incl. catalogue) rsynced to
+  `/home/devops/synchro/`; Node upgraded 20 → 22.23.5 (required for
+  `node:sqlite`); `npm install --omit=dev` (sharp verified on linux-x64).
+- `synchro.service` (systemd, Restart=always, PORT=4800,
+  SYNCHRO_DATA=/home/devops/synchro/synchro-data) — enabled, active, 200.
+- `synchro-tunnel.service` — cloudflared quick tunnel with an intentionally
+  empty `--config` (same guard as isport-tunnel): without it cloudflared
+  auto-loads `/etc/cloudflared/config.yml` and the TenderOps named-tunnel
+  catch-all answers 404 (measured: first URL returned 404, fixed URL 200).
+- Public: https://laboratory-founded-design-louis.trycloudflare.com → 200,
+  serving `index-D0fQjFel.js`; `/api/offers` → 401 (auth gate intact).
+- Local :4800 server + its quick tunnel stopped — prevents two writable
+  SQLite copies diverging; local `synchro-data` untouched as backup.
+  Other tunnels/services on the VM (TenderOps named tunnel, isport
+  quick tunnel, :8043/:9000/:7100 apps) verified untouched.

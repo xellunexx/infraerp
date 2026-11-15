@@ -105,7 +105,12 @@ Tests: `npm test` (21 tests, all passing at the last run). Web build: `npm run b
       no uptime guarantee for account-less tunnels; it stops when the session machine sleeps.
 - [x] Hardening before exposure (tested, `test/exposure.test.mjs`): first administrator can only be created from the private address; 5 wrong passwords per
       user+address (20 per address) in 15 minutes lock the login for 15 minutes; failed logins are audited; Secure cookie over HTTPS; noindex header.
-- [ ] Permanent public address: needs a Cloudflare account + domain (named tunnel) and a machine that stays on. Not set up.
+- [x] Deployed to dedicated VM `devops@68.210.226.194` (tenderops-vm, Ubuntu 24.04): Node 22.23.5,
+      systemd `synchro.service` (:4800, SYNCHRO_DATA=/home/devops/synchro/synchro-data) + `synchro-tunnel.service`
+      (cloudflared quick tunnel, empty --config to avoid the TenderOps named-tunnel 404 catch-all).
+      Public: https://laboratory-founded-design-louis.trycloudflare.com (quick-tunnel URL — changes on tunnel restart;
+      permanent address still needs a named tunnel + own domain). Local :4800 instance retired to prevent DB split-brain;
+      local synchro-data kept as offline backup.
 - [ ] Not done for internet exposure: 2-factor login, password strength rules beyond 8 characters, automatic backups.
 ## Weather on the Project Card (requested 15:41) — reachability measured from this machine
 - Geocoding: Nominatim (OpenStreetMap, full address) 200 OK; Open-Meteo geocoding (place names) 200 OK.
