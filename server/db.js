@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS offer_lines (
   profit_pct REAL NOT NULL DEFAULT 30, tax_pct REAL NOT NULL DEFAULT 10, manual_price REAL, image_document_id INTEGER REFERENCES documents(id));
 CREATE TABLE IF NOT EXISTS offer_sections (
   id INTEGER PRIMARY KEY, version_id INTEGER NOT NULL REFERENCES offer_versions(id) ON DELETE CASCADE, sort INTEGER NOT NULL DEFAULT 0,
-  title TEXT NOT NULL, description TEXT, footer TEXT, alternative INTEGER NOT NULL DEFAULT 0, image_document_id INTEGER REFERENCES documents(id));
+  title TEXT NOT NULL, description TEXT, footer TEXT, alternative INTEGER NOT NULL DEFAULT 0, selected INTEGER NOT NULL DEFAULT 0, image_document_id INTEGER REFERENCES documents(id));
 CREATE TABLE IF NOT EXISTS offer_templates (
   id INTEGER PRIMARY KEY, code TEXT NOT NULL UNIQUE, family TEXT NOT NULL, title TEXT NOT NULL, description TEXT, footer TEXT,
   alternative INTEGER NOT NULL DEFAULT 0, lines TEXT NOT NULL DEFAULT '[]', active INTEGER NOT NULL DEFAULT 1, row_version INTEGER NOT NULL DEFAULT 1);

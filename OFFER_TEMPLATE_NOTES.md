@@ -293,17 +293,20 @@ Which image belongs to which sheet/cell is in `xl__drawings__drawingN.xml` + `xl
 - Not yet viewed: the other 72 images (product pictures, colour swatches, remaining banners image14 / 24-27 / 40 / 75).
 
 ## Implementation status (kept current)
-DONE and tested (`test/pricing.test.mjs`, 2 tests pass; figures worked out by hand from the Excel formulas):
-- `server/pricing.js`: `priceLine` (material + delivery + labour → overhead → profit → corporate tax → unit price, manual price override),
-  `summarize` (per-section totals, alternative sections excluded from the offer total, discount, VAT), `validUntil` (date + N months, like EDATE).
-- `server/db.js` schema: `offer_versions` + attention_to, offer_date, validity_months; `offer_lines` + section_id, material_cost, delivery_cost, labour_days,
-  day_rate, install_cost, overhead_pct, profit_pct, tax_pct, manual_price, image_document_id; new tables `offer_sections`, `offer_templates`;
-  `users` + offer_letter, office.
+DONE and tested (6 tests pass: `test/pricing.test.mjs`, `test/offer_template.test.mjs`, `test/phase1.test.mjs`; expected figures worked out by hand from the Excel formulas):
+- `server/pricing.js`: `priceLine`, `summarize`, `validUntil` (date + N months, like EDATE).
+- Schema (`server/db.js`): `offer_versions` + attention_to, offer_date, validity_months; `offer_lines` + section_id, material_cost, delivery_cost, labour_days,
+  day_rate, install_cost, overhead_pct, profit_pct, tax_pct, manual_price, image_document_id; `offer_sections` (title, description, footer, alternative, selected);
+  `offer_templates` (empty); `users` + offer_letter, office.
+- API (`server/routes_offers.js`): `PUT /api/offers/:id` saves header fields, sections and lines with the cost breakdown; unit_price / unit_cost are computed
+  on the server with `priceLine`; a line without a breakdown keeps its typed price as manual_price. `GET` returns sections, per-line `calc`, totals per section,
+  `valid_until`, and the owner (name, phone, offer_letter, office). Revisions copy sections, header and every line column.
+- Alternatives: `POST /api/offers/:id/confirm { sections: [ids] }` — required when the offer has alternative sections; only the chosen variant's lines
+  go into the Project Card / contract (КС) and into the approved offer value (`COUNTED_LINES` in `server/domain.js`, `finance()` in `server/calc.js`).
+- Settings read by pricing defaults: `overhead_pct`, `profit_pct`, `corporate_tax_pct` (fall back to 3.5 / 30 / 10; NOT yet added to bootstrap or the Settings screen).
 NOT done yet:
-- `server/domain.js` `offerTotals` and `server/routes_offers.js` still use the old flat qty × unit_price model: they do not read/write the new columns,
-  sections or header fields, and do not compute unit_price/unit_cost with `priceLine`.
-- Offer number rule (running number + preparer's letter), users' offer_letter/office in the user API and Settings.
-- Seeding `offer_templates` with the systems from the Excel (MultiPLAY, InfraSPORT, Padel, SBR tiles, GreenSet, grass, equipment) and the catalogue prices/recipes.
+- Offer number rule (running number + preparer's letter); offer_letter/office are in the schema but not in the user API or Settings.
+- Seeding `offer_templates` with the systems from the Excel and an endpoint to insert a template into an offer; catalogue prices/recipes from the calculators.
 - Labour calculator (Труд), recipe calculators (SBR/EPDM/Corkeen/grass with pallet rounding).
-- Printable offer (logo, pictures, clauses, footer strip) and Excel export. Line/section images.
-- Offers UI (`web/src/pages/Offers.tsx` does not exist yet).
+- Printable offer (logo, pictures, clauses, footer strip) and Excel export. Line/section image upload (documents API does not exist yet).
+- Offers UI: `web/src/pages/Offers.tsx` does not exist yet (also missing: Contracts, Projects, ProjectCard, Admin, Dashboard pages — `web/src/main.tsx` imports them, so the web build fails until they exist).

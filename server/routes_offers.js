@@ -1,8 +1,12 @@
 // Оферти: inquiries, offers, versions/revisions, confirmation.
 import { tx, nextCode } from './db.js';
-import { HttpError, bad, need, audit, updateRow, reindex } from './core.js';
+import { HttpError, bad, need, audit, updateRow, reindex, setting } from './core.js';
 import { offerTotals, confirmOffer } from './domain.js';
 import { h, pick, reqStr, num } from './app.js';
+import { priceLine } from './pricing.js';
+
+const BREAKDOWN = ['material_cost', 'delivery_cost', 'labour_days', 'day_rate', 'install_cost'];
+const optNum = (v, label) => v === undefined || v === null || v === '' ? null : num(v, label);
 
 export default function mountOffers(app, db) {
   app.get('/api/inquiries', h(req => { need(req.user, 'offers');
@@ -31,7 +35,9 @@ export default function mountOffers(app, db) {
     if (!o) throw new HttpError(404, 'Офертата не е намерена');
     o.questionnaire = JSON.parse(o.questionnaire || '{}');
     o.versions = db.prepare('SELECT v.*, u.full_name AS created_by_name FROM offer_versions v LEFT JOIN users u ON u.id = v.created_by WHERE v.offer_id = ? ORDER BY v.version').all(id)
-      .map(v => ({ ...v, totals: offerTotals(db, v.id), lines: db.prepare('SELECT * FROM offer_lines WHERE version_id = ? ORDER BY sort, id').all(v.id) }));
+      .map(v => ({ ...v, totals: offerTotals(db, v.id), sections: db.prepare('SELECT * FROM offer_sections WHERE version_id = ? ORDER BY sort, id').all(v.id),
+        lines: db.prepare('SELECT * FROM offer_lines WHERE version_id = ? ORDER BY sort, id').all(v.id).map(l => ({ ...l, calc: priceLine(l) })) }));
+    o.owner = o.owner_id ? db.prepare('SELECT id, full_name, phone, offer_letter, office FROM users WHERE id = ?').get(o.owner_id) : null;
     return o;
   };
   app.get('/api/offers', h(req => { need(req.user, 'offers'); return db.prepare(`SELECT o.*, c.name AS customer_name, p.code AS project_code,
@@ -45,7 +51,8 @@ export default function mountOffers(app, db) {
     if (!db.prepare('SELECT 1 FROM customers WHERE id = ?').get(num(b.customer_id, 'Клиент', { min: 1 }))) throw bad('Няма такъв клиент');
     const id = Number(db.prepare('INSERT INTO offers(code, inquiry_id, customer_id, title, site_address, owner_id) VALUES (?,?,?,?,?,?)')
       .run(code, b.inquiry_id || null, Number(b.customer_id), reqStr(b.title, 'Заглавие'), b.site_address || null, req.user.id).lastInsertRowid);
-    db.prepare('INSERT INTO offer_versions(offer_id, version, created_by) VALUES (?, 1, ?)').run(id, req.user.id);
+    db.prepare('INSERT INTO offer_versions(offer_id, version, created_by, attention_to, offer_date, validity_months) VALUES (?, 1, ?, ?, ?, ?)')
+      .run(id, req.user.id, b.attention_to || null, new Date().toISOString().slice(0, 10), Math.max(1, Math.round(Number(b.validity_months) || 1)));
     if (b.inquiry_id) db.prepare("UPDATE inquiries SET status = 'offered' WHERE id = ?").run(b.inquiry_id);
     reindex(db, 'offer', id, code, b.title, b.site_address || '');
     audit(db, req.user, { entity_type: 'offer', entity_id: id, action: 'create', after: b, module: 'offers' });
@@ -61,19 +68,41 @@ export default function mountOffers(app, db) {
     const v = db.prepare('SELECT * FROM offer_versions WHERE offer_id = ? AND version = ?').get(id, o.current_version);
     const head = pick(b, ['title', 'site_address', 'readiness_note']);
     if (b.questionnaire) head.questionnaire = JSON.stringify(b.questionnaire);
-    const touchesVersion = Array.isArray(b.lines) || ['valid_until', 'notes', 'execution_logic', 'prelim_days', 'discount_pct'].some(k => b[k] !== undefined);
+    const touchesVersion = Array.isArray(b.lines) || Array.isArray(b.sections) || ['notes', 'execution_logic', 'prelim_days', 'discount_pct', 'attention_to', 'offer_date', 'validity_months'].some(k => b[k] !== undefined);
     if (v.locked && touchesVersion) throw bad('Тази версия е заключена. Създайте нова ревизия.');
     updateRow(db, 'offers', id, { ...head, title: head.title ?? o.title }, b.row_version);
-    const vf = pick(b, ['valid_until', 'notes', 'execution_logic', 'prelim_days']);
+    const vf = pick(b, ['notes', 'execution_logic', 'prelim_days', 'attention_to', 'offer_date']);
+    if (b.validity_months !== undefined) vf.validity_months = Math.round(num(b.validity_months, 'Валидност (месеци)', { min: 1 }));
     if (b.discount_pct !== undefined) { vf.discount_pct = num(b.discount_pct, 'Отстъпка'); if (vf.discount_pct > 100) throw bad('Отстъпката не може да е над 100%'); }
     if (Object.keys(vf).length) db.prepare(`UPDATE offer_versions SET ${Object.keys(vf).map(k => `${k} = ?`).join(', ')} WHERE id = ?`).run(...Object.values(vf), v.id);
     if (Array.isArray(b.lines)) {
       const before = db.prepare('SELECT COUNT(*) AS n FROM offer_lines WHERE version_id = ?').get(v.id).n;
       db.prepare('DELETE FROM offer_lines WHERE version_id = ?').run(v.id);
-      const ins = db.prepare('INSERT INTO offer_lines(version_id, sort, smr_type_id, product_id, code, description, unit, qty, unit_price, unit_cost, tech_note, planned_days) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)');
-      b.lines.forEach((l, i) => ins.run(v.id, i + 1, l.smr_type_id || null, l.product_id || null, l.code || null, reqStr(l.description, 'Описание'), reqStr(l.unit, 'Мярка'),
-        num(l.qty, 'Количество', { min: 0.0001 }), num(l.unit_price, 'Ед. цена'), num(l.unit_cost ?? 0, 'Себестойност'), l.tech_note || null,
-        l.planned_days ? Math.round(num(l.planned_days, 'Дни')) : null));
+      // sections are replaced together with the lines; a line points to its section by position (section_index) or by a client key
+      const sectionIds = new Map();
+      if (Array.isArray(b.sections)) {
+        db.prepare('DELETE FROM offer_sections WHERE version_id = ?').run(v.id);
+        const insS = db.prepare('INSERT INTO offer_sections(version_id, sort, title, description, footer, alternative, image_document_id) VALUES (?,?,?,?,?,?,?)');
+        b.sections.forEach((s, i) => sectionIds.set(String(s.key ?? s.id ?? i), Number(insS.run(v.id, i + 1, reqStr(s.title, 'Заглавие на раздел'), s.description || null, s.footer || null, s.alternative ? 1 : 0, s.image_document_id || null).lastInsertRowid)));
+      } else for (const s of db.prepare('SELECT id FROM offer_sections WHERE version_id = ?').all(v.id)) sectionIds.set(String(s.id), s.id);
+      const ins = db.prepare(`INSERT INTO offer_lines(version_id, sort, section_id, smr_type_id, product_id, code, description, unit, qty, unit_price, unit_cost, tech_note, planned_days,
+        material_cost, delivery_cost, labour_days, day_rate, install_cost, overhead_pct, profit_pct, tax_pct, manual_price, image_document_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+      b.lines.forEach((l, i) => {
+        const sec = l.section === undefined || l.section === null || l.section === '' ? null : sectionIds.get(String(l.section));
+        if (l.section !== undefined && l.section !== null && l.section !== '' && !sec) throw bad(`Ред ${i + 1}: няма такъв раздел`);
+        const hasBreakdown = BREAKDOWN.some(k => l[k] !== undefined && l[k] !== null && l[k] !== '' && Number(l[k]) !== 0);
+        const row = { qty: num(l.qty, 'Количество', { min: 0 }), material_cost: optNum(l.material_cost, 'Материал') ?? 0, delivery_cost: optNum(l.delivery_cost, 'Доставка') ?? 0,
+          labour_days: optNum(l.labour_days, 'Надници') ?? 0, day_rate: optNum(l.day_rate, 'Стойност на надник') ?? 0, install_cost: optNum(l.install_cost, 'Монтаж'),
+          overhead_pct: optNum(l.overhead_pct, 'Режийни %') ?? Number(setting(db, 'overhead_pct', '3.5')), profit_pct: optNum(l.profit_pct, 'Печалба %') ?? Number(setting(db, 'profit_pct', '30')),
+          tax_pct: optNum(l.tax_pct, 'Корпоративен данък %') ?? Number(setting(db, 'corporate_tax_pct', '10')),
+          // a line without a cost breakdown is a plain priced line: the typed unit price is kept as a manual price
+          manual_price: optNum(l.manual_price, 'Ед. цена') ?? (hasBreakdown ? null : num(l.unit_price ?? 0, 'Ед. цена')) };
+        const c = priceLine(row);
+        const unitCost = hasBreakdown ? c.unit_cost : num(l.unit_cost ?? 0, 'Себестойност');
+        ins.run(v.id, i + 1, sec, l.smr_type_id || null, l.product_id || null, l.code || null, reqStr(l.description, 'Описание'), reqStr(l.unit, 'Мярка'), row.qty, c.unit_price, unitCost,
+          l.tech_note || null, l.planned_days ? Math.round(num(l.planned_days, 'Дни')) : null, row.material_cost, row.delivery_cost, row.labour_days, row.day_rate, row.install_cost,
+          row.overhead_pct, row.profit_pct, row.tax_pct, row.manual_price, l.image_document_id || null);
+      });
       audit(db, req.user, { entity_type: 'offer', entity_id: id, action: 'save_lines', before: { lines: before }, after: { version: v.version, lines: b.lines.length }, module: 'offers' });
     }
     const t = db.prepare('SELECT title, site_address FROM offers WHERE id = ?').get(id);
@@ -116,8 +145,16 @@ export default function mountOffers(app, db) {
     const nv = o.current_version + 1;
     const vid = Number(db.prepare('INSERT INTO offer_versions(offer_id, version, valid_until, discount_pct, notes, execution_logic, prelim_days, created_by) VALUES (?,?,?,?,?,?,?,?)')
       .run(o.id, nv, prev.valid_until, prev.discount_pct, req.body?.reason || null, prev.execution_logic, prev.prelim_days, req.user.id).lastInsertRowid);
-    db.prepare(`INSERT INTO offer_lines(version_id, sort, smr_type_id, product_id, code, description, unit, qty, unit_price, unit_cost, tech_note, planned_days)
-      SELECT ?, sort, smr_type_id, product_id, code, description, unit, qty, unit_price, unit_cost, tech_note, planned_days FROM offer_lines WHERE version_id = ?`).run(vid, prev.id);
+    db.prepare('UPDATE offer_versions SET attention_to = ?, offer_date = ?, validity_months = ? WHERE id = ?').run(prev.attention_to, new Date().toISOString().slice(0, 10), prev.validity_months, vid);
+    const secMap = new Map();
+    for (const s of db.prepare('SELECT * FROM offer_sections WHERE version_id = ? ORDER BY sort, id').all(prev.id))
+      secMap.set(s.id, Number(db.prepare('INSERT INTO offer_sections(version_id, sort, title, description, footer, alternative, image_document_id) VALUES (?,?,?,?,?,?,?)')
+        .run(vid, s.sort, s.title, s.description, s.footer, s.alternative, s.image_document_id).lastInsertRowid));
+    const cols = 'sort, smr_type_id, product_id, code, description, unit, qty, unit_price, unit_cost, tech_note, planned_days, material_cost, delivery_cost, labour_days, day_rate, install_cost, overhead_pct, profit_pct, tax_pct, manual_price, image_document_id';
+    for (const l of db.prepare(`SELECT section_id, ${cols} FROM offer_lines WHERE version_id = ? ORDER BY sort, id`).all(prev.id)) {
+      const { section_id, ...rest } = l;
+      db.prepare(`INSERT INTO offer_lines(version_id, section_id, ${cols}) VALUES (?,?,${Object.keys(rest).map(() => '?').join(',')})`).run(vid, section_id ? secMap.get(section_id) : null, ...Object.values(rest));
+    }
     db.prepare("UPDATE offers SET current_version = ?, status = 'draft', row_version = row_version + 1 WHERE id = ?").run(nv, o.id);
     audit(db, req.user, { entity_type: 'offer', entity_id: o.id, action: 'revise', before: { version: prev.version }, after: { version: nv, reason: req.body?.reason }, module: 'offers' });
     return offerView(o.id);
@@ -128,5 +165,5 @@ export default function mountOffers(app, db) {
     audit(db, req.user, { entity_type: 'offer', entity_id: o.id, action: 'reject', after: { reason: req.body?.reason }, module: 'offers' });
     return offerView(o.id);
   });
-  app.post('/api/offers/:id/confirm', h(req => { need(req.user, 'offers', 'write'); return confirmOffer(db, req.user, Number(req.params.id)); }));
+  app.post('/api/offers/:id/confirm', h(req => { need(req.user, 'offers', 'write'); return confirmOffer(db, req.user, Number(req.params.id), req.body?.sections); }));
 }

@@ -49,7 +49,7 @@ export function consumption(db, projectId, tolerancePct = 5) {
 export function finance(db, projectId) {
   const p = progressSummary(db, projectId);
   const offer = db.prepare(`SELECT COALESCE(SUM(ol.qty * ol.unit_price), 0) * (1 - ov.discount_pct / 100.0) AS v FROM projects pr JOIN offers o ON o.id = pr.offer_id
-    JOIN offer_versions ov ON ov.offer_id = o.id AND ov.version = o.confirmed_version LEFT JOIN offer_lines ol ON ol.version_id = ov.id WHERE pr.id = ?`).get(projectId);
+    JOIN offer_versions ov ON ov.offer_id = o.id AND ov.version = o.confirmed_version LEFT JOIN offer_lines ol ON ol.version_id = ov.id AND (ol.section_id IS NULL OR ol.section_id IN (SELECT id FROM offer_sections WHERE alternative = 0 OR selected = 1)) WHERE pr.id = ?`).get(projectId);
   const t = db.prepare(`SELECT
       COALESCE(SUM(CASE WHEN direction = 'in' AND status = 'paid' THEN amount END), 0) AS received,
       COALESCE(SUM(CASE WHEN direction = 'out' AND status = 'paid' THEN amount END), 0) AS paid,

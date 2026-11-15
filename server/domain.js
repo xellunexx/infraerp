@@ -2,23 +2,36 @@
 import { tx, nextCode } from './db.js';
 import { on, emit, notify, audit, reindex, bad, HttpError, setting } from './core.js';
 import { progressSummary, round2 } from './calc.js';
+import { validUntil } from './pricing.js';
+
+/** Lines that count towards the offer: no section, a normal section, or (once confirmed) the chosen alternative. */
+export const COUNTED_LINES = `FROM offer_lines l LEFT JOIN offer_sections s ON s.id = l.section_id WHERE l.version_id = ? AND (s.id IS NULL OR s.alternative = 0 OR s.selected = 1)`;
 
 export function offerTotals(db, versionId) {
-  const v = db.prepare('SELECT discount_pct FROM offer_versions WHERE id = ?').get(versionId);
-  const s = db.prepare('SELECT COALESCE(SUM(qty * unit_price), 0) AS gross, COALESCE(SUM(qty * unit_cost), 0) AS cost FROM offer_lines WHERE version_id = ?').get(versionId);
-  const net = s.gross * (1 - (v?.discount_pct || 0) / 100);
-  const vat = Number(setting(db, 'vat_pct', '20'));
-  return { gross: round2(s.gross), net: round2(net), cost: round2(s.cost), margin: round2(net - s.cost), vat_pct: vat, total_with_vat: round2(net * (1 + vat / 100)) };
+  const v = db.prepare('SELECT discount_pct, offer_date, validity_months FROM offer_versions WHERE id = ?').get(versionId);
+  const vat = Number(setting(db, 'vat_pct', '20')), f = 1 - (v?.discount_pct || 0) / 100;
+  const wrap = s => { const net = s.gross * f; return { gross: round2(s.gross), net: round2(net), cost: round2(s.cost), margin: round2(net - s.cost), vat_pct: vat, vat: round2(net * vat / 100), total_with_vat: round2(net * (1 + vat / 100)) }; };
+  const all = db.prepare(`SELECT COALESCE(SUM(l.qty * l.unit_price), 0) AS gross, COALESCE(SUM(l.qty * l.unit_cost), 0) AS cost ${COUNTED_LINES}`).get(versionId);
+  const sections = db.prepare(`SELECT s.id AS section_id, s.alternative, s.selected, COALESCE(SUM(l.qty * l.unit_price), 0) AS gross, COALESCE(SUM(l.qty * l.unit_cost), 0) AS cost
+    FROM offer_sections s LEFT JOIN offer_lines l ON l.section_id = s.id WHERE s.version_id = ? GROUP BY s.id ORDER BY s.sort, s.id`).all(versionId)
+    .map(s => ({ section_id: s.section_id, alternative: !!s.alternative, selected: !!s.selected, ...wrap(s) }));
+  return { ...wrap(all), sections, valid_until: validUntil(v?.offer_date, v?.validity_months ?? 1) };
 }
 
 /** Customer confirmed the offer: lock the version and raise the event. Everything else happens in handlers. */
-export function confirmOffer(db, user, offerId) {
+export function confirmOffer(db, user, offerId, chosenSections = []) {
   return tx(db, () => {
     const o = db.prepare('SELECT * FROM offers WHERE id = ?').get(offerId);
     if (!o) throw new HttpError(404, 'Офертата не е намерена');
     if (o.status === 'confirmed') throw bad('Офертата вече е потвърдена');
     const v = db.prepare('SELECT * FROM offer_versions WHERE offer_id = ? AND version = ?').get(offerId, o.current_version);
-    const n = db.prepare('SELECT COUNT(*) AS n FROM offer_lines WHERE version_id = ?').get(v.id).n;
+    // alternatives (e.g. four padel court variants): the customer confirms specific ones, the rest stay in the offer for the record only
+    const alts = db.prepare('SELECT id FROM offer_sections WHERE version_id = ? AND alternative = 1').all(v.id).map(s => s.id);
+    const chosen = [...new Set((chosenSections || []).map(Number))].filter(id => alts.includes(id));
+    if (alts.length && !chosen.length) throw bad('Офертата съдържа варианти. Изберете кой вариант е потвърдил клиентът.');
+    db.prepare('UPDATE offer_sections SET selected = 0 WHERE version_id = ?').run(v.id);
+    for (const id of chosen) db.prepare('UPDATE offer_sections SET selected = 1 WHERE id = ?').run(id);
+    const n = db.prepare(`SELECT COUNT(*) AS n ${COUNTED_LINES}`).get(v.id).n;
     if (!n) throw bad('Офертата няма редове');
     db.prepare("UPDATE offer_versions SET status = 'confirmed', locked = 1 WHERE id = ?").run(v.id);
     db.prepare("UPDATE offers SET status = 'confirmed', confirmed_version = ?, row_version = row_version + 1 WHERE id = ?").run(v.version, offerId);
@@ -96,7 +109,7 @@ on('offer.confirmed', 'init_project_card', (db, ev) => {
   const factor = 1 - (v.discount_pct || 0) / 100;
   let n = 0, cursor = 0;
   const sched = db.prepare('INSERT INTO schedule_items(project_id, project_line_id, name, sort, crew) VALUES (?,?,?,?,?)');
-  for (const l of db.prepare('SELECT * FROM offer_lines WHERE version_id = ? ORDER BY sort, id').all(v.id)) {
+  for (const l of db.prepare(`SELECT l.* ${COUNTED_LINES} ORDER BY l.sort, l.id`).all(v.id)) {
     const lid = Number(insLine.run(pid, l.sort, l.id, l.smr_type_id, l.product_id, l.code, l.description, l.unit, l.qty, round2(l.unit_price * factor), l.unit_cost, l.tech_note).lastInsertRowid);
     if (l.smr_type_id) {
       for (const r of db.prepare('SELECT * FROM recipe_items WHERE smr_type_id = ?').all(l.smr_type_id)) insRec.run(lid, r.product_id, r.norm_per_unit, r.waste_pct);
