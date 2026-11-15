@@ -1,7 +1,7 @@
 # SYNCHRO — implementation checklist (honest status)
 
 A module is ticked only when its operations, persistence, permissions and integrations are tested — not when a screen exists.
-Tests: `npm test` (14 tests, all passing at the last run). Web build: `npm run build` (passes).
+Tests: `npm test` (15 tests, all passing at the last run). Web build: `npm run build` (passes).
 
 ## Phase 1 — Foundation
 - [x] Database schema (SQLite, WAL, foreign keys) — all phases' tables created
@@ -25,7 +25,26 @@ Tests: `npm test` (14 tests, all passing at the last run). Web build: `npm run b
       loaded once on first start, inserted into an offer with "+ От готов шаблон" — tested (TOUR COURT line prices to 24.11 as in the Excel).
       Where the Excel takes labour from the Труд sheet (43 cells) man-days / day rate are left empty for the user. Template pictures are not carried over.
       The insert dialog itself was not clicked through in a browser (API and build are tested).
-- [ ] Labour calculator (Труд) and recipe calculators (SBR/EPDM/Corkeen/grass, pallet rounding) — not built
+- [x] Offer editor rebuilt as the document itself ("Оферта" tab = the sheet): company logo + the Excel header grid inline
+      (На вниманието на / Обект / Адрес / Оферта № / Дата / yellow валидност-месеци cell → Валидна до / Съставил + тел. / Клиент),
+      each section a bordered sheet with a two-tier header (customer columns vs tinted internal "Калкулация" block: Материал,
+      Доставка, Σдост., Надници, Надник, Монт./ед, Σмонтаж, Сума, Реж.%, Σреж., Себ-ст, Печ.%, Печ./ед, Σпеч., Дан.%, Дан./ед,
+      Ръчна, →Ед.цена), per-section totals (без ДДС / ДДС / с ДДС), grand total excluding unselected variants, cost+margin line
+      for finance users, the four legal clauses at the bottom. Internal columns toggle with "Показвай калкулацията" and never
+      render for users without finance rights. Checked in a real browser on a seeded offer.
+- [x] Smart line input: the description cell searches СМР and products as you type; a pick fills description + unit + labour norm
+      (man-hours ÷ 8 → надници) for СМР or unit + material cost for products; the picked source shows as a СМР/МАТ tag and the
+      catalogue id is stored on the line (offer_lines.smr_type_id / product_id). Free text still possible.
+- [x] Spreadsheet behaviour in the grids: Tab/arrows walk cells, Enter moves down and adds a row at the grid end, Enter in the
+      description goes to the next row (Shift+Enter = newline). Enter on an open suggestion list takes the highlighted pick.
+- [x] Send preflight: lines with missing description, zero quantity or no price (neither breakdown nor manual) get a ⚠ marker
+      in the № cell; "Изпрати на клиента" first lists the problem rows ("Отказ — ще поправя" / "Изпрати все пак"). Checked in
+      a real browser: 2 problem rows listed, send blocked until confirmed.
+- [x] Labour calculator (Труд) tab in the offer editor — built earlier (commit 480ca37), tested (`test/labour.test.mjs`).
+      Recipe calculators (SBR/EPDM/Corkeen/grass, pallet rounding) — not built.
+- [ ] Known inconsistency (pre-existing, not in the editor scope): the offers list/dashboard figure sums qty×unit_price over
+      ALL lines of the current version, including lines in unselected alternative sections; `offerTotals` excludes them.
+      The editor and print show the correct total.
 - [x] Printable offer in the company layout ("Печат / PDF" on the offer): logo, header block, sections with their own totals, variants marked,
       grand total, four legal clauses (setting `offer_clauses`), footer strip. Customer columns only; a test checks no cost data leaks. Seen on screen in a browser.
       NOT verified: how it paginates on paper / in a saved PDF (footer repeat uses a repeating table footer; untested in print). Line pictures are not printed.
