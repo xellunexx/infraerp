@@ -36,3 +36,8 @@ Tests: `npm test` (6 tests, all passing at the last run). Web build: `npm run bu
 
 ## Hosting
 - [ ] Served as Devin App `synchro` with `deploy_devin_app` — the tool was not available in this session (searched several times)
+## Weather on the Project Card (requested 15:41) — reachability measured from this machine
+- Geocoding: Nominatim (OpenStreetMap, full address) 200 OK; Open-Meteo geocoding (place names) 200 OK.
+- Forecast sources (keyless): Open-Meteo ECMWF ~15 days, Open-Meteo GFS (NOAA model) 16 days, Open-Meteo ICON (DWD model) ~7 days,
+  MET Norway (yr.no) to day 10, 7Timer 7 days, wttr.in 3 days.
+- So: 7 days = 5 independent sources; 14 days = ECMWF + GFS through Open-Meteo (two different national models, one provider) + MET Norway up to day 10.

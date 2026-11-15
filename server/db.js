@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS projects (
   planned_start TEXT, planned_end TEXT, actual_start TEXT, actual_end TEXT, baseline_version INTEGER,
   access_notes TEXT, unloading_notes TEXT, storage_notes TEXT, parking_notes TEXT, courier_office TEXT, courier_pallets INTEGER,
   payment_urgency TEXT NOT NULL DEFAULT 'normal', site_questionnaire TEXT NOT NULL DEFAULT '{}', customer_questionnaire TEXT NOT NULL DEFAULT '{}',
+  latitude REAL, longitude REAL, geo_label TEXT, geo_source TEXT,
   archived INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')), row_version INTEGER NOT NULL DEFAULT 1);
 CREATE TABLE IF NOT EXISTS project_members (project_id INTEGER NOT NULL REFERENCES projects(id), user_id INTEGER NOT NULL REFERENCES users(id),
   role TEXT, PRIMARY KEY (project_id, user_id));
@@ -223,6 +224,8 @@ CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY, ts TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), user_id INTEGER REFERENCES users(id),
   project_id INTEGER REFERENCES projects(id), entity_type TEXT NOT NULL, entity_id INTEGER, action TEXT NOT NULL, before TEXT, after TEXT, module TEXT);
 CREATE INDEX IF NOT EXISTS ix_audit_project ON audit_log(project_id, id);
+CREATE TABLE IF NOT EXISTS weather_forecasts (project_id INTEGER NOT NULL REFERENCES projects(id), source TEXT NOT NULL, fetched_at TEXT NOT NULL,
+  status TEXT NOT NULL, error TEXT, days TEXT NOT NULL DEFAULT '[]', latitude REAL, longitude REAL, PRIMARY KEY (project_id, source));
 CREATE TABLE IF NOT EXISTS idempotency (key TEXT PRIMARY KEY, user_id INTEGER, response TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')));
 CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(kind UNINDEXED, ref_id UNINDEXED, code, title, body, tokenize='unicode61 remove_diacritics 2');
 `;
@@ -232,7 +235,38 @@ export function openDb(file) {
   const db = new DatabaseSync(file);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA synchronous = NORMAL;');
   db.exec(SCHEMA);
+  migrateColumns(db);
   return db;
+}
+
+/** Additive migration: columns added to SCHEMA later are added to existing databases, so updates never need a rebuild or lose data. */
+function splitTopLevel(body) {
+  const parts = []; let depth = 0, cur = '';
+  for (const ch of body) { if (ch === '(') depth++; if (ch === ')') depth--; if (ch === ',' && depth === 0) { parts.push(cur); cur = ''; } else cur += ch; }
+  if (cur.trim()) parts.push(cur);
+  return parts.map(p => p.trim()).filter(Boolean);
+}
+export function migrateColumns(db) {
+  const re = /CREATE TABLE IF NOT EXISTS (\w+) \(([\s\S]*?)\);\n/g;
+  let m, added = [];
+  while ((m = re.exec(SCHEMA))) {
+    const [, table, body] = m;
+    const have = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name));
+    for (const def of splitTopLevel(body)) {
+      const name = def.split(/\s+/)[0];
+      if (/^(PRIMARY|UNIQUE|FOREIGN|CHECK|CONSTRAINT)$/i.test(name) || have.has(name)) continue;
+      // SQLite cannot add UNIQUE/PRIMARY KEY columns or NOT NULL without a default; such columns only appear in new tables
+      // SQLite also rejects expression defaults such as (datetime('now')) on ADD COLUMN: add the column plain, then backfill with the expression
+      const expr = def.match(/DEFAULT\s+(\([^]*\))\s*$/i)?.[1];
+      let safe = def.replace(/\bUNIQUE\b/gi, '');
+      if (expr) safe = safe.replace(/DEFAULT\s+\([^]*\)\s*$/i, '').replace(/NOT NULL/i, '');
+      else if (!/DEFAULT/i.test(safe)) safe = safe.replace(/NOT NULL/i, '');
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${safe}`);
+      if (expr) db.exec(`UPDATE ${table} SET ${name} = ${expr} WHERE ${name} IS NULL`);
+      added.push(`${table}.${name}`);
+    }
+  }
+  return added;
 }
 
 let depth = 0;
