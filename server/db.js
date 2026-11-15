@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS offer_versions (
   id INTEGER PRIMARY KEY, offer_id INTEGER NOT NULL REFERENCES offers(id), version INTEGER NOT NULL,
   status TEXT NOT NULL DEFAULT 'draft', valid_until TEXT, discount_pct REAL NOT NULL DEFAULT 0, notes TEXT,
   execution_logic TEXT, prelim_days INTEGER, locked INTEGER NOT NULL DEFAULT 0,
-  attention_to TEXT, offer_date TEXT, validity_months INTEGER NOT NULL DEFAULT 1,
+  attention_to TEXT, offer_date TEXT, validity_months INTEGER NOT NULL DEFAULT 1, labour_calc TEXT,
   created_by INTEGER REFERENCES users(id), created_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE (offer_id, version));
 CREATE TABLE IF NOT EXISTS offer_lines (
   id INTEGER PRIMARY KEY, version_id INTEGER NOT NULL REFERENCES offer_versions(id) ON DELETE CASCADE, sort INTEGER NOT NULL DEFAULT 0,

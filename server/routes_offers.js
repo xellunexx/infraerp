@@ -63,7 +63,7 @@ export default function mountOffers(app, db) {
     if (!o) throw new HttpError(404, 'Офертата не е намерена');
     o.questionnaire = JSON.parse(o.questionnaire || '{}');
     o.versions = db.prepare('SELECT v.*, u.full_name AS created_by_name FROM offer_versions v LEFT JOIN users u ON u.id = v.created_by WHERE v.offer_id = ? ORDER BY v.version').all(id)
-      .map(v => ({ ...v, totals: offerTotals(db, v.id), sections: db.prepare('SELECT * FROM offer_sections WHERE version_id = ? ORDER BY sort, id').all(v.id),
+      .map(v => ({ ...v, labour_calc: v.labour_calc ? JSON.parse(v.labour_calc) : null, totals: offerTotals(db, v.id), sections: db.prepare('SELECT * FROM offer_sections WHERE version_id = ? ORDER BY sort, id').all(v.id),
         lines: db.prepare('SELECT * FROM offer_lines WHERE version_id = ? ORDER BY sort, id').all(v.id).map(l => ({ ...l, calc: priceLine(l) })) }));
     o.owner = o.owner_id ? db.prepare('SELECT id, full_name, phone, offer_letter, office FROM users WHERE id = ?').get(o.owner_id) : null;
     return o;
@@ -101,10 +101,11 @@ export default function mountOffers(app, db) {
     const v = db.prepare('SELECT * FROM offer_versions WHERE offer_id = ? AND version = ?').get(id, o.current_version);
     const head = pick(b, ['title', 'site_address', 'readiness_note']);
     if (b.questionnaire) head.questionnaire = JSON.stringify(b.questionnaire);
-    const touchesVersion = Array.isArray(b.lines) || Array.isArray(b.sections) || ['notes', 'execution_logic', 'prelim_days', 'discount_pct', 'attention_to', 'offer_date', 'validity_months'].some(k => b[k] !== undefined);
+    const touchesVersion = Array.isArray(b.lines) || Array.isArray(b.sections) || b.labour_calc !== undefined || ['notes', 'execution_logic', 'prelim_days', 'discount_pct', 'attention_to', 'offer_date', 'validity_months'].some(k => b[k] !== undefined);
     if (v.locked && touchesVersion) throw bad('Тази версия е заключена. Създайте нова ревизия.');
     updateRow(db, 'offers', id, { ...head, title: head.title ?? o.title }, b.row_version);
     const vf = pick(b, ['notes', 'execution_logic', 'prelim_days', 'attention_to', 'offer_date']);
+    if (b.labour_calc !== undefined) vf.labour_calc = b.labour_calc ? JSON.stringify(b.labour_calc) : null;
     if (b.validity_months !== undefined) vf.validity_months = Math.round(num(b.validity_months, 'Валидност (месеци)', { min: 1 }));
     if (b.discount_pct !== undefined) { vf.discount_pct = num(b.discount_pct, 'Отстъпка'); if (vf.discount_pct > 100) throw bad('Отстъпката не може да е над 100%'); }
     if (Object.keys(vf).length) db.prepare(`UPDATE offer_versions SET ${Object.keys(vf).map(k => `${k} = ?`).join(', ')} WHERE id = ?`).run(...Object.values(vf), v.id);
@@ -178,7 +179,7 @@ export default function mountOffers(app, db) {
     const nv = o.current_version + 1;
     const vid = Number(db.prepare('INSERT INTO offer_versions(offer_id, version, valid_until, discount_pct, notes, execution_logic, prelim_days, created_by) VALUES (?,?,?,?,?,?,?,?)')
       .run(o.id, nv, prev.valid_until, prev.discount_pct, req.body?.reason || null, prev.execution_logic, prev.prelim_days, req.user.id).lastInsertRowid);
-    db.prepare('UPDATE offer_versions SET attention_to = ?, offer_date = ?, validity_months = ? WHERE id = ?').run(prev.attention_to, new Date().toISOString().slice(0, 10), prev.validity_months, vid);
+    db.prepare('UPDATE offer_versions SET attention_to = ?, offer_date = ?, validity_months = ?, labour_calc = ? WHERE id = ?').run(prev.attention_to, new Date().toISOString().slice(0, 10), prev.validity_months, prev.labour_calc, vid);
     const secMap = new Map();
     for (const s of db.prepare('SELECT * FROM offer_sections WHERE version_id = ? ORDER BY sort, id').all(prev.id))
       secMap.set(s.id, Number(db.prepare('INSERT INTO offer_sections(version_id, sort, title, description, footer, alternative, image_document_id) VALUES (?,?,?,?,?,?,?)')

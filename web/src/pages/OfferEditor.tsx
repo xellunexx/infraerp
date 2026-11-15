@@ -3,6 +3,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { api, fmtDate, fmtMoney, fmtNum } from '../api';
 import { Card, Field, Kpi, Link, Loader, Modal, Status, Tabs, navigate, useAction, useAuth, useCan, useCurrency, useLoad } from '../ui';
+import { LabourTab } from './LabourTab';
+import { DEFAULT_LABOUR } from '../../../server/labour.js';
 
 type Line = Record<string, any>;
 type Section = { key: string; title: string; description: string; footer: string; alternative: boolean };
@@ -32,6 +34,7 @@ export function OfferEditor({ id }: { id: number }) {
   const [viewVersion, setViewVersion] = useState<number | null>(null);
   const [head, setHead] = useState<Record<string, any>>({});
   const [sections, setSections] = useState<Section[]>([]);
+  const [labour, setLabour] = useState<any>(null);
   const [lines, setLines] = useState<Line[]>([]);
   const [dirty, setDirty] = useState(false);
   const [showCost, setShowCost] = useState(true);
@@ -49,6 +52,7 @@ export function OfferEditor({ id }: { id: number }) {
       discount_pct: version.discount_pct ?? 0, notes: version.notes || '', execution_logic: version.execution_logic || '' });
     setSections(version.sections.map((s: any) => ({ key: String(s.id), title: s.title, description: s.description || '', footer: s.footer || '', alternative: !!s.alternative })));
     setLines(version.lines.map((l: any) => ({ ...l, section: l.section_id ? String(l.section_id) : '' })));
+    setLabour(version.labour_calc || JSON.parse(JSON.stringify(DEFAULT_LABOUR)));
     setDirty(false);
   }, [o?.row_version, version?.id]);
 
@@ -75,8 +79,14 @@ export function OfferEditor({ id }: { id: number }) {
     touch(); setPicking(false);
   };
   const addSection = () => { setSections(x => [...x, { key: 'new' + Date.now(), title: '', description: '', footer: '', alternative: false }]); touch(); };
+  const applyLabour = (perUnit: number, dayRate: number, unit: string, name: string) => {
+    const n = { count: 0 };
+    setLines(x => x.map(l => { if (l.unit !== unit || (l.install_cost !== '' && l.install_cost != null)) return l; n.count++; return { ...l, labour_days: perUnit, day_rate: dayRate }; }));
+    touch();
+    window.alert(n.count ? `${name}: ${n.count} реда с мярка „${unit}“ получиха надници ${perUnit}/ед. и надник ${dayRate} €` : `Няма редове с мярка „${unit}“ (или са с ръчен монтаж)`);
+  };
   const pickSmr = (i: number, sid: string) => { const s = (smr.data || []).find(x => x.id === Number(sid)); setLines(x => x.map((l, j) => j === i ? { ...l, smr_type_id: s?.id || null, code: s?.code || l.code, description: s ? s.name : l.description, unit: s?.unit || l.unit } : l)); touch(); };
-  const payload = () => ({ ...head, row_version: o.row_version, sections, lines: lines.map(l => ({ ...l, section: l.section || null })) });
+  const payload = () => ({ ...head, labour_calc: labour, row_version: o.row_version, sections, lines: lines.map(l => ({ ...l, section: l.section || null })) });
   const save = () => run(async () => { const d = await api.put(`/offers/${id}`, payload()); offer.setData(d); setDirty(false); }, 'Офертата е записана');
   const act = (name: string, body: any = {}, ok?: string) => run(async () => { if (dirty && editable) await api.put(`/offers/${id}`, payload()); await api.post(`/offers/${id}/${name}`, body); await offer.reload(); setViewVersion(null); }, ok);
   const alternatives = version.sections.filter((s: any) => s.alternative);
@@ -108,8 +118,10 @@ export function OfferEditor({ id }: { id: number }) {
       {money && <Kpi label="Марж" value={fmtMoney(totals.margin)} tone={totals.margin < 0 ? 'bad' : 'ok'} sub={totals.net ? fmtNum(totals.margin / totals.net * 100, 1) + '% от продажбата' : undefined} />}
     </div>
 
-    <Tabs tabs={[['lines', 'Редове и цени'], ['head', 'Данни за офертата'], ['versions', `Версии (${o.versions.length})`]]} value={tab} onChange={setTab} />
+    <Tabs tabs={[['lines', 'Редове и цени'], ['labour', 'Труд'], ['head', 'Данни за офертата'], ['versions', `Версии (${o.versions.length})`]]} value={tab} onChange={setTab} />
 
+    {tab === 'labour' && (editable ? <LabourTab labour={labour} setLabour={l => { setLabour(l); touch(); }} onApply={applyLabour} />
+      : <Card title="Труд">{version.labour_calc ? <LabourTab labour={version.labour_calc} setLabour={() => {}} onApply={() => {}} /> : <div className="empty">Няма калкулация за труд.</div>}</Card>)}
     {tab === 'head' && <Card title="Данни за офертата"><div className="form c3">
       <Field label="Обект"><input disabled={!editable} value={head.title || ''} onChange={e => setH('title', e.target.value)} /></Field>
       <Field label="Адрес на обекта"><input disabled={!editable} value={head.site_address || ''} onChange={e => setH('site_address', e.target.value)} /></Field>
