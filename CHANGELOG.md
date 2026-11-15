@@ -542,3 +542,47 @@ the file in Excel itself.
   (QUIC showed recurring Azure NAT stream errors).
 - Note: PC's Cloudflared service still runs and retries with dead secret —
   harmless; disable via admin `Stop-Service Cloudflared` when convenient.
+
+## Governance core — change requests, admin-only settings, per-user visibility, reminders (phase 1)
+
+Design: `docs/governance-design.md`. NOT yet deployed to the VM — awaiting
+operator's local test pass.
+
+**Universal change requests** (`/change-requests`, `server/routes_change_requests.js`)
+- Any user files edit (optional proposed values) or delete requests against 22
+  entity types via a registry (customer, product, СМР, inquiry, offer, project,
+  КС line, contract, transaction, proforma, payment request, accommodation,
+  delivery, asset(+allocation), task, issue, schedule item, lifecycle stage,
+  material request, attendance, document). Whitelisted columns only; values
+  coerced by column kind; `PRAGMA foreign_keys=ON` makes referenced rows
+  undeletable with a clear error.
+- Flow: `pending` → admin-only `decide` (approve applies inside the same tx —
+  failure rolls back and the request stays pending; reject closes with note).
+  Flag-only requests (no payload) close as `applied: 'manual'` — the admin
+  fixes the record himself and acknowledges. Every step writes `audit_log`;
+  creation pings the management department.
+- Bug found by tests: payload was double-JSON-encoded → decide saw index keys;
+  fixed before ship.
+
+**Admin-only settings** — `needAdmin()` in core.js now guards `POST/PATCH
+/api/users`, `GET/PUT /api/permissions`, `PUT /api/settings`. `/settings` nav
+item and route are admin-only (manager previously had read access — removed
+per requirement). `GET /api/users` stays readable (picker directory).
+
+**Per-user visibility** (`user_overrides` table) — admin sets per-resource
+presets (inherit / none / read / rw / full) in the user form; `userFromToken`
+merges overrides per request (immediate effect, no re-login), admins are never
+restrictable. UI: "Ограничения по модули" section in UserForm — after creating
+a user the modal stays open so limits can be set right away.
+
+**Automatic reminders** (`server/reminders.js`, 60s sweep) — 12 watchdogs:
+approval events/rows, open/overdue tasks, overdue lifecycle stages, planned
+deliveries, submitted material requests, pending payment requests, overdue
+proformas, critical open issues, pending change requests/amendments,
+contract-pending projects. >12h pending → `notifications` (warn) to the
+responsible dept/user, deduped to once/day/entity via `reminders_log` — the
+history the reports engine (phase 2) queries for "was it reminded / attended".
+
+**Verified:** `npm test` 48/48 (6 new governance tests), `npm run build`
+clean (`index-CcpdolQn.js`), local :4800 restarted and serving; new endpoints
+401-gated without session. Not measured: clicking through the UI in a browser.

@@ -93,11 +93,21 @@ export function userFromToken(db, token) {
   u.perms = {};
   for (const p of db.prepare('SELECT resource, can_read, can_write, can_approve FROM role_permissions WHERE role = ?').all(u.role))
     u.perms[p.resource] = { read: !!p.can_read, write: !!p.can_write, approve: !!p.can_approve };
+  // per-user visibility limits set by an admin; admins themselves are never restricted
+  if (u.role !== 'admin') for (const o of db.prepare('SELECT resource, can_read, can_write, can_approve FROM user_overrides WHERE user_id = ?').all(u.id)) {
+    const cur = u.perms[o.resource] || { read: false, write: false, approve: false };
+    u.perms[o.resource] = { read: o.can_read == null ? cur.read : !!o.can_read, write: o.can_write == null ? cur.write : !!o.can_write,
+      approve: o.can_approve == null ? cur.approve : !!o.can_approve };
+  }
   return u;
 }
 export function can(user, resource, action = 'read') { return !!user?.perms?.[resource]?.[action]; }
 export function need(user, resource, action = 'read') {
   if (!can(user, resource, action)) throw new HttpError(403, `Нямате право: ${resource}/${action}`);
+}
+/** Hard admin gate — user management, permissions, settings and change-request decisions. */
+export function needAdmin(user) {
+  if (user?.role !== 'admin') throw new HttpError(403, 'Действието е само за администратор');
 }
 /** Brigadiers only reach projects they are assigned to. */
 export function canSeeProject(db, user, projectId) {

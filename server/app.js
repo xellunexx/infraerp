@@ -4,7 +4,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 const parseCookie = header => Object.fromEntries(String(header).split(';').map(p => p.trim().split('=')).filter(p => p[0] && p.length > 1).map(([k, ...v]) => [k, decodeURIComponent(v.join('='))]));
 import { tx, nextCode } from './db.js';
-import { bootstrap, HttpError, bad, hashPassword, verifyPassword, createSession, userFromToken, need, audit, updateRow, reindex, ROLES, RESOURCES } from './core.js';
+import { bootstrap, HttpError, bad, hashPassword, verifyPassword, createSession, userFromToken, need, needAdmin, audit, updateRow, reindex, ROLES, RESOURCES } from './core.js';
 import './domain.js';
 
 export const pick = (o, keys) => Object.fromEntries(keys.filter(k => o[k] !== undefined).map(k => [k, o[k] === '' ? null : o[k]]));
@@ -75,7 +75,7 @@ export function createApp(db, routeModules = []) {
   // ---- users, permissions, settings
   app.get('/api/users', h(() => db.prepare('SELECT id, username, full_name, department, role, phone, email, offer_letter, office, active, row_version FROM users ORDER BY full_name').all()));
   app.post('/api/users', h(req => tx(db, () => {
-    need(req.user, 'users', 'write');
+    needAdmin(req.user);
     const b = req.body || {};
     if (!ROLES[b.role]) throw bad('Невалидна роля');
     if (String(b.password || '').length < 8) throw bad('Паролата трябва да е поне 8 символа');
@@ -86,7 +86,7 @@ export function createApp(db, routeModules = []) {
     return { id };
   })));
   app.patch('/api/users/:id', h(req => tx(db, () => {
-    need(req.user, 'users', 'write');
+    needAdmin(req.user);
     const b = req.body || {}, id = Number(req.params.id);
     const before = db.prepare('SELECT username, full_name, role, department, active, phone, email FROM users WHERE id = ?').get(id);
     if (!before) throw new HttpError(404, 'Няма такъв потребител');
@@ -101,16 +101,33 @@ export function createApp(db, routeModules = []) {
     audit(db, req.user, { entity_type: 'user', entity_id: id, action: 'update', before, after: { ...f, pass_hash: f.pass_hash ? '(changed)' : undefined }, module: 'settings' });
     return { ok: true };
   })));
-  app.get('/api/permissions', h(req => { need(req.user, 'settings'); return { roles: Object.keys(ROLES), resources: RESOURCES, rows: db.prepare('SELECT * FROM role_permissions').all() }; }));
+  // per-user module visibility: admin sets explicit allow/deny per resource; NULL inherits the role
+  app.get('/api/users/:id/overrides', h(req => { needAdmin(req.user); return db.prepare('SELECT * FROM user_overrides WHERE user_id = ?').all(Number(req.params.id)); }));
+  app.put('/api/users/:id/overrides', h(req => tx(db, () => {
+    needAdmin(req.user);
+    const id = Number(req.params.id);
+    const target = db.prepare('SELECT role FROM users WHERE id = ?').get(id);
+    if (!target) throw new HttpError(404, 'Няма такъв потребител');
+    if (target.role === 'admin') throw bad('Ограничения не могат да се задават на администратор');
+    db.prepare('DELETE FROM user_overrides WHERE user_id = ?').run(id);
+    const ins = db.prepare('INSERT INTO user_overrides(user_id, resource, can_read, can_write, can_approve) VALUES (?,?,?,?,?)');
+    for (const r of req.body?.rows || []) {
+      if (!RESOURCES.includes(String(r.resource))) throw bad(`Невалиден модул: ${r.resource}`);
+      ins.run(id, String(r.resource), r.can_read == null ? null : +!!r.can_read, r.can_write == null ? null : +!!r.can_write, r.can_approve == null ? null : +!!r.can_approve);
+    }
+    audit(db, req.user, { entity_type: 'user', entity_id: id, action: 'overrides', after: req.body?.rows, module: 'settings' });
+    return { ok: true };
+  })));
+  app.get('/api/permissions', h(req => { needAdmin(req.user); return { roles: Object.keys(ROLES), resources: RESOURCES, rows: db.prepare('SELECT * FROM role_permissions').all() }; }));
   app.put('/api/permissions', h(req => tx(db, () => {
-    need(req.user, 'settings', 'write');
+    needAdmin(req.user);
     const up = db.prepare('UPDATE role_permissions SET can_read = ?, can_write = ?, can_approve = ? WHERE role = ? AND resource = ?');
     for (const r of req.body?.rows || []) { if (r.role === 'admin') continue; up.run(+!!r.can_read, +!!r.can_write, +!!r.can_approve, String(r.role), String(r.resource)); }
     audit(db, req.user, { entity_type: 'permissions', action: 'update', after: req.body?.rows, module: 'settings' });
     return { ok: true };
   })));
   app.put('/api/settings', h(req => tx(db, () => {
-    need(req.user, 'settings', 'write');
+    needAdmin(req.user);
     const up = db.prepare('INSERT INTO settings(key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
     const body = { ...(req.body || {}) };
     if (body.offer_next_number !== undefined && body.offer_next_number !== '') {

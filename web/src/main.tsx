@@ -16,8 +16,9 @@ import { Accounting } from './pages/Accounting';
 import { Logistics } from './pages/Logistics';
 import { Brigade, BrigadeProject } from './pages/Brigade';
 import { Management } from './pages/Management';
+import { ChangeRequests } from './pages/ChangeRequests';
 
-type Nav = { to: string; label: string; res?: string; dept?: string };
+type Nav = { to: string; label: string; res?: string; dept?: string; admin?: boolean };
 const NAV: (Nav | null)[] = [
   { to: '/', label: 'Табло' }, { to: '/projects', label: 'Обекти', res: 'projects' }, null,
   { to: '/offers', label: 'Оферти', res: 'offers', dept: 'offers' }, { to: '/contracts', label: 'Договори', res: 'contracts', dept: 'contracts' },
@@ -25,7 +26,8 @@ const NAV: (Nav | null)[] = [
   { to: '/warehouse', label: 'Склад', res: 'warehouse', dept: 'warehouse' }, { to: '/logistics', label: 'Логистика', res: 'logistics', dept: 'logistics' },
   { to: '/brigade', label: 'Бригадир', res: 'progress', dept: 'brigadier' }, { to: '/management', label: 'Управител', res: 'approvals', dept: 'management' }, null,
   { to: '/customers', label: 'Клиенти', res: 'customers' }, { to: '/catalog', label: 'Номенклатури', res: 'catalog' },
-  { to: '/notifications', label: 'Известия' }, { to: '/reports', label: 'Справки', res: 'reports' }, { to: '/settings', label: 'Настройки', res: 'settings' },
+  { to: '/change-requests', label: 'Заявки' },
+  { to: '/notifications', label: 'Известия' }, { to: '/reports', label: 'Справки', res: 'reports' }, { to: '/settings', label: 'Настройки', res: 'settings', admin: true },
 ];
 
 function Soon({ title }: { title: string }) {
@@ -63,8 +65,9 @@ function Shell() {
   else if (seg[1] === 'management') page = <Management />;
   else if (seg[1] === 'customers') page = <Customers />;
   else if (seg[1] === 'catalog') page = <Catalog />;
+  else if (seg[1] === 'change-requests') page = <ChangeRequests />;
   else if (seg[1] === 'notifications') page = <Notifications onChange={notes.reload} />;
-  else if (seg[1] === 'settings') page = <Settings />;
+  else if (seg[1] === 'settings') page = user.role === 'admin' ? <Settings /> : <div className="card"><div className="empty"><b>Само за администратори</b>Настройките, потребителите и правата се управляват единствено от администратор.</div></div>;
   else page = <Soon title={(NAV.find(n => n && n.to === '/' + seg[1]) as Nav | undefined)?.label || 'Страница'} />;
 
   return <div className="shell">
@@ -72,6 +75,7 @@ function Shell() {
       <div className="brand">SYNCHRO<small>{state.settings.company_name || 'Оперативна платформа'}</small></div>
       <nav className="nav">{NAV.map((n, i) => {
         if (!n) return <div key={i} className="sep" />;
+        if (n.admin && user.role !== 'admin') return null;
         if (n.res && !user.perms[n.res]?.read) return null;
         const c = state.departments.find(d => d.code === n.dept)?.color;
         const active = n.to === '/' ? path === '/' : path.startsWith(n.to);

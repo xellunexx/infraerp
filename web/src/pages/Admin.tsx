@@ -26,19 +26,37 @@ export function Notifications({ onChange }: { onChange: () => void }) {
   </>;
 }
 
+const OVR_PRESETS: Record<string, [number, number, number]> = { none: [0, 0, 0], read: [1, 0, 0], rw: [1, 1, 0], full: [1, 1, 1] };
+const presetOf = (o: any) => { const k = `${o.can_read ? 1 : 0}${o.can_write ? 1 : 0}${o.can_approve ? 1 : 0}`;
+  return { '000': 'none', '100': 'read', '110': 'rw', '111': 'full' }[k] || 'custom'; };
+
 function UserForm({ initial, onClose, onSaved }: { initial?: any; onClose: () => void; onSaved: () => void }) {
   const f = useForm({ username: '', full_name: '', role: 'commercial', phone: '', email: '', offer_letter: '', office: '', password: '', active: 1, ...(initial || {}) });
   const { run, busy } = useAction();
+  const [uid, setUid] = useState<number | undefined>(initial?.id);
+  const ov = useLoad<any[]>(uid ? `/users/${uid}/overrides` : null);
+  const [preset, setPreset] = useState<Record<string, string>>({});
+  const [ovRaw, setOvRaw] = useState<Record<string, any>>({});
+  useEffect(() => { if (ov.data) { const p: Record<string, string> = {}, raw: Record<string, any> = {};
+    for (const o of ov.data) { p[o.resource] = presetOf(o); raw[o.resource] = o; } setPreset(p); setOvRaw(raw); } }, [ov.data]);
   const save = () => run(async () => {
     const body: any = { ...f.v, active: !!Number(f.v.active) };
     if (!body.password) delete body.password;
-    initial?.id ? await api.patch(`/users/${initial.id}`, body) : await api.post('/users', body);
+    if (!uid) { const r = await api.post<any>('/users', body); setUid(r.id); return; } // остава отворено — следва задаване на ограничения
+    await api.patch(`/users/${uid}`, body);
+    if (ov.data) {
+      const rows = Object.entries(preset).filter(([, p]) => p && p !== 'inherit').map(([res, p]) => {
+        const [r, w, a] = p === 'custom' ? [+!!ovRaw[res].can_read, +!!ovRaw[res].can_write, +!!ovRaw[res].can_approve] : OVR_PRESETS[p];
+        return { resource: res, can_read: r, can_write: w, can_approve: a };
+      });
+      await api.put(`/users/${uid}/overrides`, { rows });
+    }
     onSaved(); onClose();
   }, 'Потребителят е записан');
-  return <Modal title={initial?.id ? `Потребител ${initial.username}` : 'Нов потребител'} onClose={onClose}
-    footer={<><button onClick={onClose}>Отказ</button><button className="primary" disabled={busy} onClick={save}>Запис</button></>}>
+  return <Modal wide title={uid ? `Потребител ${f.v.username}` : 'Нов потребител'} onClose={onClose}
+    footer={<><button onClick={onClose}>Отказ</button><button className="primary" disabled={busy} onClick={save}>{uid ? 'Запис' : 'Създай и продължи'}</button></>}>
     <div className="form c2">
-      <Field label="Потребителско име"><input {...f.bind('username')} disabled={!!initial?.id} autoFocus /></Field>
+      <Field label="Потребителско име"><input {...f.bind('username')} disabled={!!uid} autoFocus /></Field>
       <Field label="Име и фамилия"><input {...f.bind('full_name')} /></Field>
       <Field label="Роля (определя отдела и правата)"><select {...f.bind('role')}>{Object.entries(ROLE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
       <Field label="Статус"><select {...f.bind('active')}><option value={1}>Активен</option><option value={0}>Деактивиран</option></select></Field>
@@ -46,8 +64,24 @@ function UserForm({ initial, onClose, onSaved }: { initial?: any; onClose: () =>
       <Field label="Имейл"><input type="email" {...f.bind('email')} /></Field>
       <Field label="Буква за номер на оферта (напр. G)"><input maxLength={3} {...f.bind('offer_letter')} placeholder="само за съставители на оферти" /></Field>
       <Field label="Офис"><input {...f.bind('office')} placeholder="Бургас, София, Варна" /></Field>
-      <Field label={initial?.id ? 'Нова парола (празно = без промяна)' : 'Парола (поне 8 символа)'} full><input type="password" {...f.bind('password')} autoComplete="new-password" /></Field>
+      <Field label={uid ? 'Нова парола (празно = без промяна)' : 'Парола (поне 8 символа)'} full><input type="password" {...f.bind('password')} autoComplete="new-password" /></Field>
     </div>
+    {uid && <div style={{ marginTop: 14 }}>
+      <h3 style={{ margin: '0 0 4px' }}>Ограничения по модули</h3>
+      <div className="muted small" style={{ marginBottom: 8 }}>По подразбиране потребителят вижда това, което позволява ролята. Тук можете да ограничите или разширите всеки модул поотделно — промените важат веднага.</div>
+      <div style={{ maxHeight: 240, overflow: 'auto' }}><table className="t"><tbody>
+        {Object.keys(RES_LABEL).map(res => <tr key={res}><td style={{ width: '55%' }}>{RES_LABEL[res]}</td><td>
+          <select value={preset[res] ?? 'inherit'} disabled={!ov.data} onChange={e => setPreset(p => ({ ...p, [res]: e.target.value }))}>
+            <option value="inherit">По подразбиране (ролята)</option>
+            <option value="none">Без достъп</option>
+            <option value="read">Само четене</option>
+            <option value="rw">Четене + запис</option>
+            <option value="full">Пълен достъп</option>
+            {preset[res] === 'custom' && <option value="custom">Персонализирано</option>}
+          </select></td></tr>)}
+      </tbody></table></div>
+    </div>}
+    {!uid && <div className="muted small" style={{ marginTop: 10 }}>След създаването ще можете да зададете ограничения по модули за този потребител.</div>}
   </Modal>;
 }
 

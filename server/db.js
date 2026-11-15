@@ -234,6 +234,20 @@ CREATE INDEX IF NOT EXISTS ix_audit_project ON audit_log(project_id, id);
 CREATE TABLE IF NOT EXISTS weather_forecasts (project_id INTEGER NOT NULL REFERENCES projects(id), source TEXT NOT NULL, fetched_at TEXT NOT NULL,
   status TEXT NOT NULL, error TEXT, days TEXT NOT NULL DEFAULT '[]', latitude REAL, longitude REAL, PRIMARY KEY (project_id, source));
 CREATE TABLE IF NOT EXISTS idempotency (key TEXT PRIMARY KEY, user_id INTEGER, response TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')));
+CREATE TABLE IF NOT EXISTS change_requests (
+  id INTEGER PRIMARY KEY, code TEXT NOT NULL UNIQUE, entity_type TEXT NOT NULL, entity_id INTEGER NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('edit','delete')), payload TEXT, reason TEXT NOT NULL, entity_label TEXT,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+  requested_by INTEGER NOT NULL REFERENCES users(id), decided_by INTEGER REFERENCES users(id), decided_at TEXT, decision_note TEXT,
+  applied_at TEXT, result TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')));
+CREATE INDEX IF NOT EXISTS ix_crq_status ON change_requests(status, id);
+CREATE TABLE IF NOT EXISTS user_overrides (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, resource TEXT NOT NULL,
+  can_read INTEGER, can_write INTEGER, can_approve INTEGER, PRIMARY KEY (user_id, resource));
+CREATE TABLE IF NOT EXISTS reminders_log (
+  id INTEGER PRIMARY KEY, entity_type TEXT NOT NULL, entity_id INTEGER NOT NULL, kind TEXT NOT NULL,
+  bucket INTEGER NOT NULL, notified TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (entity_type, entity_id, kind, bucket));
 CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(kind UNINDEXED, ref_id UNINDEXED, code, title, body, tokenize='unicode61 remove_diacritics 2');
 `;
 
