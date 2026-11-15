@@ -4,6 +4,7 @@ import { HttpError, bad, need, can, needProject, canSeeProject, audit, updateRow
 import { signContract, newContractVersion, setStage } from './domain.js';
 import { progressSummary, finance } from './calc.js';
 import { h, pick } from './app.js';
+import { refreshProject, weatherView } from './weather.js';
 
 export default function mountProjects(app, db) {
   const contractView = projectId => {
@@ -102,6 +103,13 @@ export default function mountProjects(app, db) {
     const b = req.body || {};
     const f = pick(b, ['name', 'site_address', 'technical_id', 'brigadier_id', 'access_notes', 'unloading_notes', 'storage_notes', 'parking_notes', 'courier_office', 'courier_pallets', 'payment_urgency']);
     for (const k of ['site_questionnaire', 'customer_questionnaire']) if (b[k]) f[k] = JSON.stringify(b[k]);
+    // site location: coordinates typed by hand win; a changed address without coordinates is geocoded again on the next weather refresh
+    if (b.latitude !== undefined || b.longitude !== undefined) {
+      const lat = b.latitude === '' || b.latitude == null ? null : Number(b.latitude), lon = b.longitude === '' || b.longitude == null ? null : Number(b.longitude);
+      if ((lat == null) !== (lon == null) || (lat != null && !(lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180))) throw bad('Невалидни координати');
+      Object.assign(f, { latitude: lat, longitude: lon, geo_source: lat == null ? null : 'manual', geo_label: lat == null ? null : 'въведени ръчно' });
+    } else if (f.site_address !== undefined && f.site_address !== before.site_address && before.geo_source !== 'manual') Object.assign(f, { latitude: null, longitude: null, geo_source: null, geo_label: null });
+    if (f.latitude !== undefined && (f.latitude !== before.latitude || f.longitude !== before.longitude)) db.prepare('DELETE FROM weather_forecasts WHERE project_id = ?').run(id);
     updateRow(db, 'projects', id, f, b.row_version);
     audit(db, req.user, { project_id: id, entity_type: 'project', entity_id: id, action: 'update', before: pick(before, Object.keys(f)), after: f, module: 'projects' });
     if (f.name || f.site_address) { const a = db.prepare('SELECT p.code, p.name, p.site_address, c.name AS cn FROM projects p JOIN customers c ON c.id = p.customer_id WHERE p.id = ?').get(id); reindex(db, 'project', id, a.code, a.name, `${a.cn} ${a.site_address || ''}`); }
@@ -109,6 +117,16 @@ export default function mountProjects(app, db) {
       emit(db, req.user, { type: 'project.assigned', origin: 'projects', project_id: id, entity_type: 'project', entity_id: id, prev: { [k]: before[k] }, next: { [k]: f[k] }, affected: ['technical', 'brigadier'] });
     return { ok: true };
   })));
+  // ---- weather at the project site (several independent sources, refreshed in the background and on demand)
+  app.get('/api/projects/:id/weather', h(req => { need(req.user, 'projects'); needProject(db, req.user, req.params.id);
+    return weatherView(db, Number(req.params.id), Number(req.query.days) === 14 ? 14 : 7); }));
+  app.post('/api/projects/:id/weather/refresh', (req, res, next) => {
+    try { need(req.user, 'projects'); needProject(db, req.user, req.params.id); } catch (e) { return next(e); }
+    const id = Number(req.params.id);
+    refreshProject(db, id, app.locals.fetch || fetch).then(results => res.json({ results, view: weatherView(db, id, Number(req.query.days) === 14 ? 14 : 7) }))
+      .catch(e => next(new HttpError(422, e.message)));
+  });
+
   /** Lifecycle is configurable per project: complete, skip, reopen, or add an extra step. */
   app.post('/api/projects/:id/stages', h(req => tx(db, () => {
     need(req.user, 'projects', 'write');
