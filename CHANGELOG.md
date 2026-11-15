@@ -521,3 +521,24 @@ the file in Excel itself.
   SQLite copies diverging; local `synchro-data` untouched as backup.
   Other tunnels/services on the VM (TenderOps named tunnel, isport
   quick tunnel, :8043/:9000/:7100 apps) verified untouched.
+
+## Permanent hostnames: isport./synchro.tenderops.io on named tunnel
+
+- Root cause of dead tunnel links found: TWO connectors shared tunnel
+  `tenderops` (6676bd08) — the VM (68.210.226.194) AND this PC's Cloudflared
+  Windows service (95.42.8.198) with a stale localhost-pointing config.
+  Edge load-balanced requests across both → ~50% hit the stale connector's
+  catch-all 404. Quick tunnels died separately (ephemeral sessions).
+- Fix: added `isport.tenderops.io`→:8043 and `synchro.tenderops.io`→:4800 to
+  `/etc/cloudflared/config.yml` ingress (backup kept); `cloudflared tunnel
+  login` cert → `route dns` created both CNAMEs (proxied).
+- Rogue connector removed at mechanism level: rotated `tunnel_secret` via CF
+  API (PATCH cfd_tunnel) + updated VM credentials-file + `tunnel cleanup`
+  dropped all connections → PC's stale-secret connector can never re-register.
+  VM now sole connector (4 conns, all 68.210.226.194).
+- Verified: isport./synchro.tenderops.io → 200 (synchro serves
+  index-D0fQjFel.js); eop → 302 (app's own host redirect, tunnel fine);
+  tenderops.io + erp.tenderops.io → 200 unaffected. protocol: http2 set
+  (QUIC showed recurring Azure NAT stream errors).
+- Note: PC's Cloudflared service still runs and retries with dead secret —
+  harmless; disable via admin `Stop-Service Cloudflared` when convenient.
