@@ -75,7 +75,7 @@ function Events() {
   return <Card title="Синхронизация — журнал на събитията" actions={<button className="sm" onClick={() => list.reload()}>Обнови</button>} pad={false}><Loader state={list}>
     <Table rows={list.data || []} onRow={setOpen} empty={<Empty title="Няма събития">Събитие се записва при всяка значима промяна.</Empty>} cols={[
       { key: 'id', title: '#', width: 50 }, { key: 'ts', title: 'Кога', render: r => fmtDateTime(r.ts) }, { key: 'type', title: 'Събитие', render: r => <span className="mono">{r.type}</span> },
-      { key: 'project_code', title: 'Обект' }, { key: 'origin_module', title: 'Източник', render: r => <DeptBadge code={r.origin_module} /> || r.origin_module }, { key: 'user_name', title: 'Потребител' },
+      { key: 'project_code', title: 'Обект' }, { key: 'origin_module', title: 'Източник', render: r => <span><DeptBadge code={r.origin_module} /> <span className="muted small">{r.origin_module}</span></span> }, { key: 'user_name', title: 'Потребител' },
       { key: 'status', title: 'Обработка', render: r => <Status value={r.status} /> }, { key: 'attempts', title: 'Опити', num: true },
       { key: 'act', title: '', render: r => r.status === 'failed' && can('events', 'write') ? <button className="sm" onClick={e => { e.stopPropagation(); run(async () => { await api.post(`/events/${r.id}/retry`); await list.reload(); }, 'Събитието е върнато за обработка'); }}>Повтори</button> : null }]} />
     {open && <Modal wide title={`Събитие #${open.id} · ${open.type}`} onClose={() => setOpen(null)}>
