@@ -586,3 +586,68 @@ history the reports engine (phase 2) queries for "was it reminded / attended".
 **Verified:** `npm test` 48/48 (6 new governance tests), `npm run build`
 clean (`index-CcpdolQn.js`), local :4800 restarted and serving; new endpoints
 401-gated without session. Not measured: clicking through the UI in a browser.
+
+## Warehouse + Reports (phase 2)
+
+**Склад** (`/warehouse`, `server/routes_warehouse.js`) — the write side of the
+stock pipeline that already existed in schema/calc but had no writer:
+- `GET /api/warehouse/stock` — live stock per product from immutable
+  `stock_movements` (on_hand / reserved / free / min_stock / low), merged with
+  reservation holds. Never a directly-edited total.
+- `POST /api/warehouse/movements` — receipt / issue-to-project / return /
+  adjust with document ref, responsible user, project context; writes
+  `stock_movements` + audit + event. `warehouse` write perm required.
+- `GET/POST /api/warehouse/movements`, `/reservations` — history and live
+  holds (active/reserved/fulfilled/cancelled).
+- `GET /api/warehouse/demand?project_id=` — per-product need computed from
+  project lines × recipes minus issued/reserved, vs free stock; suggests
+  request qty. This is the "suggested quantities" of the design.
+- Material requests (`/api/material-requests`, existing table now writable):
+  submit → approve (auto-creates `reservations`, computes `to_purchase_qty`
+  for the uncovered remainder) → fulfil (issues stock per item, links
+  movement to project, releases reservations) / cancel. Status guards
+  (409/400 on illegal transitions), requester + warehouse notifications.
+
+**Справки** (`/reports`, `server/routes_reports.js`) — curated catalog +
+reusable engine (`{params → run(db) → cols/rows/sections}`), not a query
+builder. `reports` perm gates catalog + every run; finance columns require
+`finance` perm. Every report returns tabular rows + optional secondary
+sections; CSV export is client-side.
+- `dwell` — the pending-step analyzer: pick an entity (task, approval,
+  delivery, material request, payment request, issue, project stage,
+  contract signature, change request, sync failure, unsigned contract) →
+  per-instance pending-since, age hours, responsible dept/user, **reminders
+  sent count** (from `reminders_log` written by the sweeper — same source
+  of truth), resolved-at, deep link into the module. `min_hours` filter.
+- `variance` — plan vs fact per project line: offer/schedule assumed days
+  vs actual work days (distinct `work_date`s from `progress_entries`),
+  attendance hours where recorded, day-rate context, over/under flags.
+  Crew section aggregates actual-vs-assumed across projects — answers
+  "does this crew run +2 days vs the offer".
+- `exceptions` — aged open issues, failed sync events, overdue tasks,
+  pending approvals/change-requests, negative stock: one digest with age,
+  severity, owner, link.
+- `finance` — per-project contract value / invoiced / received / result
+  (reuses `calc.finance`), money columns hidden without `finance` perm.
+- `attendance` — hours per team/project/week from `attendance`.
+
+**Frontend:** `web/src/pages/Warehouse.tsx` (4 tabs: stock grid with low
+badges + movement modal, request list + detail modal with
+suggest/approve/fulfil/cancel, reservations, movement history) and
+`web/src/pages/Reports.tsx` (report picker, typed params incl. project
+select fed from `/api/projects`, multi-section results, per-table CSV
+download with BOM for Excel). `/warehouse` + `/reports` nav items already
+existed — now route to real pages instead of `Soon`.
+
+**Bug found by tests:** `ageH()` in the reports engine divided the
+julianday diff by 24 instead of multiplying — every dwell/exception row
+under 24 days reported 0 pending hours. Fixed at the helper; all 11 call
+sites corrected at once. `reminders.js` uses JS date math — unaffected.
+
+**Verified:** `npm test` 51/51 (3 new: stock lifecycle incl.
+reserve→fulfil→release, warehouse-vs-commercial perm split, report
+catalog gating + dwell-with-reminder + variance/finance/attendance/
+exceptions), `npm run build` clean (`index-8XJ_SVtq.js`), local :4800
+restarted; `/api/warehouse/stock`, `/api/material-requests`,
+`/api/reports` all 401 without session. Not measured: clicking through
+the UI in a browser.

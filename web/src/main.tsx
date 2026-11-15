@@ -17,6 +17,8 @@ import { Logistics } from './pages/Logistics';
 import { Brigade, BrigadeProject } from './pages/Brigade';
 import { Management } from './pages/Management';
 import { ChangeRequests } from './pages/ChangeRequests';
+import { Warehouse } from './pages/Warehouse';
+import { Reports } from './pages/Reports';
 
 type Nav = { to: string; label: string; res?: string; dept?: string; admin?: boolean };
 const NAV: (Nav | null)[] = [
@@ -59,6 +61,8 @@ function Shell() {
   else if (seg[1] === 'technical' && seg[2]) page = <TechnicalProject id={Number(seg[2])} />;
   else if (seg[1] === 'technical') page = <Technical />;
   else if (seg[1] === 'accounting') page = <Accounting />;
+  else if (seg[1] === 'warehouse') page = <Warehouse />;
+  else if (seg[1] === 'reports') page = <Reports />;
   else if (seg[1] === 'logistics') page = <Logistics />;
   else if (seg[1] === 'brigade' && seg[2]) page = <BrigadeProject id={Number(seg[2])} />;
   else if (seg[1] === 'brigade') page = <Brigade />;

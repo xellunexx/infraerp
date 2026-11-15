@@ -14,10 +14,12 @@ import mountBrigade from './routes_brigade.js';
 import mountManagement from './routes_management.js';
 import mountCatalog from './routes_catalog.js';
 import mountChangeRequests from './routes_change_requests.js';
+import mountWarehouse from './routes_warehouse.js';
+import mountReports from './routes_reports.js';
 import { startReminderWorker } from './reminders.js';
 import { syncProjectStatus } from './domain.js';
 
-export const ROUTES = [mountOffers, mountProjects, mountTechnical, mountAccounting, mountLogistics, mountBrigade, mountManagement, mountCatalog, mountChangeRequests, mountPrint, mountExport];
+export const ROUTES = [mountOffers, mountProjects, mountTechnical, mountAccounting, mountLogistics, mountBrigade, mountManagement, mountCatalog, mountChangeRequests, mountWarehouse, mountReports, mountPrint, mountExport];
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.dirname, 'index.js')) {
   const db = openDb(path.join(DATA_DIR, 'synchro.db'));
   const app = createApp(db, ROUTES);
