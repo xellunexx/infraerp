@@ -17,16 +17,32 @@ export function createApp(db, routeModules = []) {
   bootstrap(db);
   const app = express();
   app.disable('x-powered-by');
+  // ---- internet exposure hardening
+  const viaPublicTunnel = req => !!(req.headers['cf-connecting-ip'] || req.headers['cdn-loop'] || req.headers['cf-ray']);
+  const clientIp = req => String(req.headers['cf-connecting-ip'] || req.socket.remoteAddress || 'unknown');
+  app.use((req, res, next) => { res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Referrer-Policy', 'same-origin');
+    if (viaPublicTunnel(req)) { res.setHeader('Strict-Transport-Security', 'max-age=31536000'); res.setHeader('X-Robots-Tag', 'noindex, nofollow'); } next(); });
+  // password guessing: 5 wrong attempts per user+address (20 per address) within 15 minutes lock that key for 15 minutes
+  const WINDOW = 15 * 60 * 1000, fails = new Map();
+  const failKeys = (req, username) => [[`u:${String(username).toLowerCase()}|${clientIp(req)}`, 5], [`ip:${clientIp(req)}`, 20]];
+  const lockedFor = (req, username) => { const now = Date.now(); let wait = 0;
+    for (const [k, max] of failKeys(req, username)) { const f = fails.get(k); if (f && now - f.first > WINDOW) fails.delete(k); else if (f && f.count >= max) wait = Math.max(wait, f.first + WINDOW - now); }
+    return wait; };
+  const noteFail = (req, username) => { const now = Date.now(); for (const [k] of failKeys(req, username)) { const f = fails.get(k); if (!f || now - f.first > WINDOW) fails.set(k, { first: now, count: 1 }); else f.count++; }
+    if (fails.size > 5000) for (const [k, f] of fails) if (now - f.first > WINDOW) fails.delete(k); };
+  app.locals.loginFails = fails;
   app.use(express.json({ limit: '2mb' }));
   app.locals.db = db;
 
   app.use('/api', (req, _res, next) => { req.user = userFromToken(db, parseCookie(req.headers.cookie || '').synchro_sid); next(); });
-  const setCookie = (res, token) => res.setHeader('Set-Cookie', `synchro_sid=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${token ? 14 * 86400 : 0}`);
+  const setCookie = (res, token) => res.setHeader('Set-Cookie', `synchro_sid=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${token ? 14 * 86400 : 0}${res.req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : ''}`);
 
   app.get('/api/auth/state', h(req => ({ needs_setup: !db.prepare('SELECT 1 FROM users LIMIT 1').get(), user: req.user,
     departments: db.prepare('SELECT * FROM departments').all(), settings: Object.fromEntries(db.prepare('SELECT key, value FROM settings').all().map(s => [s.key, s.value])) })));
   app.post('/api/auth/setup', h((req, res) => tx(db, () => {
     if (db.prepare('SELECT 1 FROM users LIMIT 1').get()) throw new HttpError(403, 'Системата вече е настроена');
+    // the first administrator can only be created from the private address, never through the public internet link
+    if (viaPublicTunnel(req)) throw new HttpError(403, 'Първоначалната настройка не е достъпна през публичния адрес.');
     const b = req.body || {};
     if (String(b.password || '').length < 8) throw bad('Паролата трябва да е поне 8 символа');
     const id = Number(db.prepare("INSERT INTO users(username, full_name, department, role, pass_hash) VALUES (?,?, 'management', 'admin', ?)")
@@ -37,8 +53,16 @@ export function createApp(db, routeModules = []) {
     return { ok: true };
   })));
   app.post('/api/auth/login', h((req, res) => {
-    const u = db.prepare('SELECT * FROM users WHERE username = ? AND active = 1').get(String(req.body?.username || ''));
-    if (!u || !verifyPassword(String(req.body?.password || ''), u.pass_hash)) throw new HttpError(401, 'Грешно потребителско име или парола');
+    const username = String(req.body?.username || '');
+    const wait = lockedFor(req, username);
+    if (wait > 0) throw new HttpError(429, `Твърде много неуспешни опити. Опитайте отново след ${Math.ceil(wait / 60000)} мин.`);
+    const u = db.prepare('SELECT * FROM users WHERE username = ? AND active = 1').get(username);
+    if (!u || !verifyPassword(String(req.body?.password || ''), u.pass_hash)) {
+      noteFail(req, username);
+      audit(db, null, { entity_type: 'login', action: 'failed', after: { username, ip: clientIp(req) }, module: 'auth' });
+      throw new HttpError(401, 'Грешно потребителско име или парола');
+    }
+    fails.delete(`u:${username.toLowerCase()}|${clientIp(req)}`);
     setCookie(res, createSession(db, u.id));
     return { ok: true };
   }));
