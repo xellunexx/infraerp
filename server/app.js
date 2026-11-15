@@ -2,7 +2,7 @@
 import express from 'express';
 import path from 'node:path';
 import fs from 'node:fs';
-import { parse as parseCookie } from 'cookie';
+const parseCookie = header => Object.fromEntries(String(header).split(';').map(p => p.trim().split('=')).filter(p => p[0] && p.length > 1).map(([k, ...v]) => [k, decodeURIComponent(v.join('='))]));
 import { tx, nextCode } from './db.js';
 import { bootstrap, HttpError, bad, hashPassword, verifyPassword, createSession, userFromToken, need, audit, updateRow, reindex, ROLES, RESOURCES } from './core.js';
 import './domain.js';
