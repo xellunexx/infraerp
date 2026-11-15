@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import { tx } from './db.js';
 
 export const DEPARTMENTS = [
@@ -49,6 +50,14 @@ export function bootstrap(db) {
     if (!db.prepare('SELECT 1 FROM stage_templates LIMIT 1').get()) {
       const ins = db.prepare('INSERT INTO stage_templates(code, name, department, sort) VALUES (?,?,?,?)');
       DEFAULT_STAGES.forEach((s, i) => ins.run(s[0], s[1], s[2], (i + 1) * 10));
+    }
+    // offer templates generated from the company's Excel (tools/import_offer_template.py); loaded once, then maintained in the app
+    if (!db.prepare('SELECT 1 FROM offer_templates LIMIT 1').get()) {
+      const file = new URL('./seed/offer_templates.json', import.meta.url);
+      if (fs.existsSync(file)) {
+        const ins = db.prepare('INSERT INTO offer_templates(code, family, title, description, footer, alternative, lines) VALUES (?,?,?,?,?,?,?)');
+        for (const t of JSON.parse(fs.readFileSync(file, 'utf8'))) ins.run(t.code, t.family, t.title, t.description || null, t.footer || null, t.alternative ? 1 : 0, JSON.stringify(t.lines || []));
+      }
     }
     const set = db.prepare('INSERT INTO settings(key, value) VALUES (?,?) ON CONFLICT(key) DO NOTHING');
     for (const [k, v] of [['company_name', ''], ['currency', 'EUR'], ['vat_pct', '20'], ['exceptional_expense_limit', '1000'], ['overconsumption_tolerance_pct', '5'], ['overhead_pct', '3.5'], ['profit_pct', '30'], ['corporate_tax_pct', '10'],

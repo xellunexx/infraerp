@@ -1,0 +1,572 @@
+[
+ {
+  "family": "Equipment",
+  "description": "",
+  "lines": [
+   {
+    "description": "Доставка и анкерен монтаж на детско съоръжение",
+    "unit": "бр.",
+    "qty": 1.0,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   },
+   {
+    "description": "Доставка и анкерен монтаж на детско съоръжение",
+    "unit": "бр.",
+    "qty": 1.0,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   },
+   {
+    "description": "Доставка и анкерен монтаж на детско съоръжение",
+    "unit": "бр.",
+    "qty": 1.0,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   },
+   {
+    "description": "Доставка и анкерен монтаж на детско съоръжение",
+    "unit": "бр.",
+    "qty": 1.0,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   },
+   {
+    "description": "Доставка и анкерен монтаж на детско съоръжение",
+    "unit": "бр.",
+    "qty": 1.0,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   },
+   {
+    "description": "Доставка и анкерен монтаж на детско съоръжение",
+    "unit": "бр.",
+    "qty": 1.0,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   },
+   {
+    "description": "Доставка и анкерен монтаж на детско съоръжение",
+    "unit": "бр.",
+    "qty": 1.0,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   },
+   {
+    "description": "Сертифициране съгласно Наредба №1",
+    "unit": "бр",
+    "qty": 1.0,
+    "material_cost": 260.0,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   },
+   {
+    "description": "Доставка на табела , съгласно Наредба №1 ,включително монтаж и всички свързани с това разходи",
+    "unit": "бр",
+    "qty": 1.0,
+    "material_cost": 130.0,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   }
+  ],
+  "title": "Equipment: Доставка и анкерен монтаж на детско съоръжение",
+  "code": "T001",
+  "alternative": false
+ },
+ {
+  "family": "Play",
+  "description": "Двупластова ударопоглъщаща саморазливна настилка, система \"MultiPLAY 2Е\". Използвани материали: EPDM гранула, биндер - произход Melos GmbH, Германия, SBR гранула - произход България. Използват се разходни норми, съгласно предписания на производителя.",
+  "lines": [
+   {
+    "description": "Доставка и полагане на двупластова разливна каучукова настилка, дебелина 2 см, цвят RAL",
+    "unit": "м²",
+    "qty": 1.0,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   },
+   {
+    "description": "Доставка и полагане на двупластова разливна каучукова настилка, дебелина 2 см, цвят RAL",
+    "unit": "м²",
+    "qty": 1.0,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   }
+  ],
+  "title": "MultiPLAY 2Е",
+  "code": "T002",
+  "alternative": false
+ },
+ {
+  "family": "Play",
+  "description": "Еднопластова ударопоглъщаща саморазливна настилка, система \"MultiPLAY 1Е\". Използвани материали: EPDM гранула, биндер - произход Melos GmbH, Германия. Използват се разходни норми, съгласно предписания на производителя.",
+  "lines": [
+   {
+    "description": "Доставка и полагане на еднопластова разливна каучукова настилка, дебелина 1см, цвят RAL",
+    "unit": "м²",
+    "qty": 1,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   },
+   {
+    "description": "Доставка и полагане на еднопластова разливна каучукова настилка, дебелина 1см, цвят RAL",
+    "unit": "м²",
+    "qty": 1,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   }
+  ],
+  "title": "MultiPLAY 1Е",
+  "code": "T003",
+  "alternative": false
+ },
+ {
+  "family": "Play",
+  "description": "Еднопластова ударопоглъщаща саморазливна настилка, система \"MultiPLAY 1CS\". Използвани материали: биндер - произход Melos GmbH, Германия, SBR гранула - произход България. Използват се разходни норми, съгласно предписания на производителя.",
+  "lines": [
+   {
+    "description": "Доставка и полагане на еднопластова разливна каучукова настилка, дебелина 1см",
+    "unit": "м²",
+    "qty": 1,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   },
+   {
+    "description": "Доставка и полагане на еднопластова разливна каучукова настилка, дебелина 1см",
+    "unit": "м²",
+    "qty": 1,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   }
+  ],
+  "title": "MultiPLAY 1CS",
+  "code": "T004",
+  "alternative": false
+ },
+ {
+  "family": "Play",
+  "description": "Двупластова ударопоглъщаща саморазливна настилка, система \"MultiPLAY 2CS\". Използвани материали: биндер - произход Melos GmbH, Германия, SBR гранула - произход България. Използват се разходни норми, съгласно предписания на производителя.",
+  "lines": [
+   {
+    "description": "Доставка и полагане на двупластова разливна каучукова настилка, дебелина 2см, цвят",
+    "unit": "м²",
+    "qty": 1,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   },
+   {
+    "description": "Доставка и полагане на двупластова разливна каучукова настилка, дебелина 2см, цвят",
+    "unit": "м²",
+    "qty": 1,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   }
+  ],
+  "title": "MultiPLAY 2CS",
+  "code": "T005",
+  "alternative": false
+ },
+ {
+  "family": "Play",
+  "description": "Еднопластова полиуретонава финиш система \"MultiPLAY PU Retop\". Използват се разходни норми, съгласно предписания на производителя.",
+  "lines": [
+   {
+    "description": "Доставка и полагане на еднопластова полиуретонава финиш система цвят по RAL",
+    "unit": "м²",
+    "qty": 1,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   }
+  ],
+  "title": "MultiPLAY PU Retop",
+  "code": "T006",
+  "alternative": false
+ },
+ {
+  "family": "Play",
+  "description": "Corkeen Play Original 40мм., двупластова система: ударопоглъщащ основен пласт 25мм. и устойчив на износване горен пласт 15мм. Използват се разходни норми, съгласно предписания на производителя.",
+  "lines": [
+   {
+    "description": "Доставка и полагане на Corkeen Play Original 40мм., двупластова система: ударопоглъщащ основен пласт 25мм. и устойчив на износване горен пласт 15мм.",
+    "unit": "м²",
+    "qty": 1.0,
+    "material_cost": 59.89,
+    "delivery_cost": 4.92,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   }
+  ],
+  "title": "Play: Corkeen Play Original 40мм., двупластова система: ударопоглъщащ основен пласт 25",
+  "code": "T007",
+  "alternative": false
+ },
+ {
+  "family": "Sport",
+  "description": "Двупластова ударопоглъщаща саморазливна настилка, система \"InfraSPORT 2Е\". Използвани материали: EPDM гранула, биндер - произход Melos GmbH, Германия, SBR гранула - произход България. Използват се разходни норми, съгласно предписания на производителя.",
+  "lines": [
+   {
+    "description": "Доставка и полагане на двупластова разливна каучукова настилка, дебелина 2см, цвят RAL",
+    "unit": "м²",
+    "qty": 1,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   },
+   {
+    "description": "Доставка и полагане на двупластова разливна каучукова настилка, дебелина 2см, цвят RAL",
+    "unit": "м²",
+    "qty": 1,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   }
+  ],
+  "title": "InfraSPORT 2Е",
+  "code": "T008",
+  "alternative": false
+ },
+ {
+  "family": "Sport",
+  "description": "Еднопластова ударопоглъщаща саморазливна настилка, система \"InfraSPORT 1Е\". Използвани материали: EPDM гранула, биндер - произход Melos GmbH, Германия. Използват се разходни норми, съгласно предписания на производителя.",
+  "lines": [
+   {
+    "description": "Доставка и полагане на еднопластова разливна каучукова настилка, дебелина 1см, цвят RAL",
+    "unit": "м²",
+    "qty": 1,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   },
+   {
+    "description": "Доставка и полагане на еднопластова разливна каучукова настилка, дебелина 1см, цвят RAL",
+    "unit": "м²",
+    "qty": 1,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   }
+  ],
+  "title": "InfraSPORT 1Е",
+  "code": "T009",
+  "alternative": false
+ },
+ {
+  "family": "Sport",
+  "description": "Еднопластова ударопоглъщаща саморазливна настилка, система \"InfraSPORT 1CS\". Използвани материали: биндер - произход Melos GmbH, Германия, SBR гранула - произход България. Използват се разходни норми, съгласно предписания на производителя.",
+  "lines": [
+   {
+    "description": "Доставка и полагане на еднопластова разливна каучукова настилка, дебелина 1см, цвят RAL",
+    "unit": "м²",
+    "qty": 1,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   },
+   {
+    "description": "Доставка и полагане на еднопластова разливна каучукова настилка, дебелина 1см, цвят RAL",
+    "unit": "м²",
+    "qty": 1,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   }
+  ],
+  "title": "InfraSPORT 1CS",
+  "code": "T010",
+  "alternative": false
+ },
+ {
+  "family": "Sport",
+  "description": "Двупластова ударопоглъщаща саморазливна настилка, система \"InfraSPORT 2CS\". Използвани материали: биндер - произход Melos GmbH, Германия, SBR гранула - произход България. Използват се разходни норми, съгласно предписания на производителя.",
+  "lines": [
+   {
+    "description": "Доставка и полагане на двупластова разливна каучукова настилка, дебелина 2см, цвят RAL",
+    "unit": "м²",
+    "qty": 1,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   },
+   {
+    "description": "Доставка и полагане на двупластова разливна каучукова настилка, дебелина 2см, цвят RAL",
+    "unit": "м²",
+    "qty": 1,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   }
+  ],
+  "title": "InfraSPORT 2CS",
+  "code": "T011",
+  "alternative": false
+ },
+ {
+  "family": "Sport",
+  "description": "Двупластова ударопоглъщаща саморазливна настилка, система \"InfraSPORT PU Top coat\". Използвани материали: биндер - произход Melos GmbH, Германия, SBR гранула - произход България. Използват се разходни норми, съгласно предписания на производителя.",
+  "lines": [
+   {
+    "description": "Доставка и полагане на двупластова разливна каучукова настилка, дебелина 2см, цвят RAL",
+    "unit": "м²",
+    "qty": 1,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   },
+   {
+    "description": "Доставка и полагане на двупластова разливна каучукова настилка, дебелина 2см, цвят RAL",
+    "unit": "м²",
+    "qty": 1,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   }
+  ],
+  "title": "InfraSPORT PU Top coat",
+  "code": "T012",
+  "alternative": false
+ },
+ {
+  "family": "Sport",
+  "description": "Еднопластова полиуретонава финиш система \"InfraSPORT Retop\". Използват се разходни норми, съгласно предписания на производителя.",
+  "lines": [
+   {
+    "description": "Доставка и полагане на еднопластова полиуретонава финиш система цвят по RAL",
+    "unit": "м²",
+    "qty": 1,
+    "overhead_pct": 2.0,
+    "profit_pct": 30.0
+   }
+  ],
+  "title": "InfraSPORT Retop",
+  "code": "T013",
+  "alternative": false
+ },
+ {
+  "family": "Sport",
+  "description": "Двупластова ударопоглъщаща саморазливна настилка, система \"InfraSPORT Insito\". Използвани материали: EPDM гранула, биндер - произход Melos GmbH, Германия, SBR гранула - произход България. Използват се разходни норми, съгласно предписания на производителя.",
+  "lines": [
+   {
+    "description": "Доставка и полагане на двупластова разливна каучукова настилка, дебелина 2см, цвят RAL",
+    "unit": "м²",
+    "qty": 1,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   },
+   {
+    "description": "Доставка и полагане на двупластова разливна каучукова настилка, дебелина 2см, цвят RAL",
+    "unit": "м²",
+    "qty": 1,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   }
+  ],
+  "title": "InfraSPORT Insito",
+  "code": "T014",
+  "alternative": false
+ },
+ {
+  "family": "Padel",
+  "description": "Първият супер панорамен корт за падел на пазара с въглеродни влакна, издържащ на най-големите бури.",
+  "lines": [
+   {
+    "description": "Доставка и анкерен монтаж на конструкция за падел корт игрище система Steel Vision - Glass court 12mm",
+    "unit": "к-т",
+    "qty": 1.0,
+    "material_cost": 16400.0,
+    "delivery_cost": 2500.0,
+    "labour_days": 15.0,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   },
+   {
+    "description": "Доставка и полагане на тревна настилка за падел Court ADVANCE monof. Green /вкл. Glue for court & Join tape/",
+    "unit": "бр",
+    "qty": 1.0,
+    "material_cost": 2530.0,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   }
+  ],
+  "title": "Padel: Първият супер панорамен корт за падел на пазара с въглеродни влакна, издържащ на",
+  "code": "T015",
+  "alternative": true
+ },
+ {
+  "family": "Padel",
+  "description": "Този супер панорамен корт е специално проектиран и разработен за събития и изложения. Играйте като професионалист!",
+  "lines": [
+   {
+    "description": "Доставка и анкерен монтаж на конструкция за падел корт игрище система Steel Vision - Glass court 12mm",
+    "unit": "к-т",
+    "qty": 1.0,
+    "material_cost": 15520.0,
+    "delivery_cost": 2500.0,
+    "labour_days": 15.0,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   },
+   {
+    "description": "Доставка и полагане на тревна настилка за падел Court ADVANCE monof. Green /вкл. Glue for court & Join tape/",
+    "unit": "бр",
+    "qty": 1.0,
+    "material_cost": 2530.0,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   }
+  ],
+  "title": "Padel: Този супер панорамен корт е специално проектиран и разработен за събития и излож",
+  "code": "T016",
+  "alternative": true
+ },
+ {
+  "family": "Padel",
+  "description": "Единственият корт за падел на пазара със система за регулиране на височината за по-прецизен и безопасен монтаж, предлага панорамна гледка.",
+  "lines": [
+   {
+    "description": "Доставка и анкерен монтаж на конструкция за падел корт игрище система Steel Vision - Glass court 12mm",
+    "unit": "к-т",
+    "qty": 1.0,
+    "material_cost": 14640.0,
+    "delivery_cost": 2500.0,
+    "labour_days": 15.0,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   },
+   {
+    "description": "Доставка и полагане на тревна настилка за падел Court ADVANCE monof. Green /вкл. Glue for court & Join tape/",
+    "unit": "бр",
+    "qty": 1.0,
+    "material_cost": 2530.0,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   }
+  ],
+  "title": "Padel: Единственият корт за падел на пазара със система за регулиране на височината за",
+  "code": "T017",
+  "alternative": true
+ },
+ {
+  "family": "Padel",
+  "description": "Първият корт за падел на пазара със система за регулиране на височината за по-прецизен и безопасен монтаж.",
+  "lines": [
+   {
+    "description": "Доставка и анкерен монтаж на конструкция за падел корт игрище система Steel Vision - Glass court 12mm",
+    "unit": "к-т",
+    "qty": 1.0,
+    "material_cost": 13680.0,
+    "delivery_cost": 2500.0,
+    "labour_days": 15.0,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   },
+   {
+    "description": "Доставка и полагане на тревна настилка за падел Court ADVANCE monof. Green /вкл. Glue for court & Join tape/",
+    "unit": "бр",
+    "qty": 1.0,
+    "material_cost": 2530.0,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   }
+  ],
+  "title": "Padel: Първият корт за падел на пазара със система за регулиране на височината за по-пр",
+  "code": "T018",
+  "alternative": true
+ },
+ {
+  "family": "SBR Tiles",
+  "description": "",
+  "lines": [
+   {
+    "description": "Доставка и монтаж на каучукова настилка на плочи Inno PRO с размери 40см.*40 см. и дебелина 2 см, цвят - черен, зелен, червен",
+    "unit": "м²",
+    "qty": 1.0,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0,
+    "manual_price": 22.75
+   }
+  ],
+  "title": "SBR Tiles: Доставка и монтаж на каучукова настилка на плочи Inno PRO с размери 40",
+  "code": "T019",
+  "alternative": true
+ },
+ {
+  "family": "SBR Tiles",
+  "description": "",
+  "lines": [
+   {
+    "description": "Доставка и монтаж на каучукова настилка на плочи Inno PRO MAX с размери 40см.*40 см. и дебелина 2 см, цвят - черен, зелен, червен, светло / тъмно сив, светло / тъмно син, жълт",
+    "unit": "м²",
+    "qty": 400.0,
+    "delivery_cost": 1.0,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0,
+    "manual_price": 26.84
+   }
+  ],
+  "title": "SBR Tiles: Доставка и монтаж на каучукова настилка на плочи Inno PRO MAX с размер",
+  "code": "T020",
+  "alternative": true
+ },
+ {
+  "family": "GreenSet",
+  "description": "Трипластова акрилна система, система \"TOUR COURT\" от Greenset™. Използвани материали: Акрилна система от свързващ, основен и финиш пласт - произход Greenset™ Испания. Използват се разходни норми, съгласно предписания на производителя.",
+  "lines": [
+   {
+    "description": "Доставка и полагане на трипластова разливна акрилна настилка. TOUR COURT Greenset™",
+    "unit": "м²",
+    "qty": 648.0,
+    "material_cost": 6.4,
+    "delivery_cost": 2.0,
+    "install_cost": 9.26,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   },
+   {
+    "description": "Разчертаване за стандарт Тенис",
+    "unit": "бр",
+    "qty": 1.0,
+    "material_cost": 830.0,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   }
+  ],
+  "title": "TOUR COURT",
+  "code": "T021",
+  "alternative": true
+ },
+ {
+  "family": "GreenSet",
+  "description": "Трипластова акрилна система, система \"GRAND SLAM COURT\" от Greenset™. Използвани материали: Акрилна система от 5 пластa - произход Greenset™ Испания. Използват се разходни норми, съгласно предписания на производителя.",
+  "lines": [
+   {
+    "description": "Доставка и полагане на трипластова разливна акрилна настилка. GRAND SLAM Greenset™",
+    "unit": "м²",
+    "qty": 648.0,
+    "material_cost": 11.5,
+    "delivery_cost": 2.38,
+    "install_cost": 11.83,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   },
+   {
+    "description": "Разчертаване за стандарт Тенис",
+    "unit": "бр",
+    "qty": 1.0,
+    "material_cost": 830.0,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   }
+  ],
+  "title": "GRAND SLAM COURT",
+  "code": "T022",
+  "alternative": true
+ },
+ {
+  "family": "Grass",
+  "description": "",
+  "lines": [
+   {
+    "description": "Доставка и полагане на изкуствена тревна настилка с височина на влакното мм.",
+    "unit": "м²",
+    "qty": 1.0,
+    "material_cost": 13.78,
+    "delivery_cost": 1.44,
+    "install_cost": 3.7,
+    "overhead_pct": 3.5,
+    "profit_pct": 30.0
+   }
+  ],
+  "title": "Grass: Доставка и полагане на изкуствена тревна настилка с височина на влакно",
+  "code": "T023",
+  "alternative": false
+ }
+]

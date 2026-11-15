@@ -37,6 +37,8 @@ export function OfferEditor({ id }: { id: number }) {
   const [showCost, setShowCost] = useState(true);
   const [confirming, setConfirming] = useState(false);
   const [chosen, setChosen] = useState<number[]>([]);
+  const [picking, setPicking] = useState(false);
+  const templates = useLoad<any[]>(picking ? '/offer-templates' : null);
   const o = offer.data;
   const version = o?.versions.find((v: any) => v.version === (viewVersion ?? o.current_version));
   const defaults = { overhead_pct: N(state.settings.overhead_pct || 3.5), profit_pct: N(state.settings.profit_pct || 30), tax_pct: N(state.settings.corporate_tax_pct || 10) };
@@ -66,6 +68,12 @@ export function OfferEditor({ id }: { id: number }) {
   const setH = (k: string, v: any) => { setHead(x => ({ ...x, [k]: v })); touch(); };
   const setS = (i: number, k: keyof Section, v: any) => { setSections(x => x.map((s, j) => j === i ? { ...s, [k]: v } : s)); touch(); };
   const addLine = (section = '') => { setLines(x => [...x, { section, description: '', unit: 'м²', qty: 1, material_cost: '', delivery_cost: '', labour_days: '', day_rate: '', install_cost: '', manual_price: '', ...defaults }]); touch(); };
+  const insertTemplate = (t: any) => {
+    const key = 'tpl' + Date.now();
+    setSections(x => [...x, { key, title: t.title, description: t.description || '', footer: t.footer || '', alternative: !!t.alternative }]);
+    setLines(x => [...x, ...t.lines.map((l: any) => ({ material_cost: '', delivery_cost: '', labour_days: '', day_rate: '', install_cost: '', manual_price: '', ...defaults, ...l, section: key }))]);
+    touch(); setPicking(false);
+  };
   const addSection = () => { setSections(x => [...x, { key: 'new' + Date.now(), title: '', description: '', footer: '', alternative: false }]); touch(); };
   const pickSmr = (i: number, sid: string) => { const s = (smr.data || []).find(x => x.id === Number(sid)); setLines(x => x.map((l, j) => j === i ? { ...l, smr_type_id: s?.id || null, code: s?.code || l.code, description: s ? s.name : l.description, unit: s?.unit || l.unit } : l)); touch(); };
   const payload = () => ({ ...head, row_version: o.row_version, sections, lines: lines.map(l => ({ ...l, section: l.section || null })) });
@@ -117,6 +125,7 @@ export function OfferEditor({ id }: { id: number }) {
     {tab === 'lines' && <>
       <div className="row" style={{ marginBottom: 10 }}>
         {editable && <button onClick={addSection}>+ Раздел (система / вариант)</button>}
+        {editable && <button onClick={() => setPicking(true)}>+ От готов шаблон</button>}
         {money && <label className="row small muted"><input type="checkbox" checked={showCost} onChange={e => setShowCost(e.target.checked)} /> Показвай калкулацията (не се вижда от клиента)</label>}
       </div>
       {groups.map(g => {
@@ -155,6 +164,13 @@ export function OfferEditor({ id }: { id: number }) {
       <tbody>{o.versions.map((v: any) => <tr key={v.id}><td>v{v.version}{v.version === o.confirmed_version ? ' · търговска база' : ''}</td><td><Status value={v.status} /></td><td>{fmtDate(v.created_at)}</td><td>{v.created_by_name}</td><td>{v.notes}</td>
         <td className="num">{fmtMoney(v.totals.net)}</td><td><button className="sm" onClick={() => { setViewVersion(v.version); setTab('lines'); }}>Преглед</button></td></tr>)}</tbody></table></div></Card>}
 
+    {picking && <Modal wide title="Готови системи (от шаблона на офертите)" onClose={() => setPicking(false)}>
+      {!templates.data ? <div className="empty">Зареждане…</div> : templates.data.length === 0 ? <div className="empty">Няма шаблони</div> :
+        <div className="table-wrap"><table className="t"><thead><tr><th>Група</th><th>Система</th><th className="num">Редове</th><th>Вид</th><th /></tr></thead>
+          <tbody>{templates.data.map((t: any) => <tr key={t.id}><td>{t.family}</td><td><b>{t.title}</b><div className="muted small">{(t.description || t.lines[0]?.description || '').slice(0, 160)}</div></td>
+            <td className="num">{t.lines.length}</td><td>{t.alternative ? <span className="badge warn">вариант</span> : ''}</td><td><button className="sm primary" onClick={() => insertTemplate(t)}>Добави</button></td></tr>)}</tbody></table></div>}
+      <p className="muted small">Цените в шаблоните са от Excel файла. Където трудът идва от калкулатора „Труд“, надниците и стойността на надника са празни и се попълват.</p>
+    </Modal>}
     {confirming && <Modal title="Потвърждение от клиента" onClose={() => setConfirming(false)}
       footer={<><button onClick={() => setConfirming(false)}>Отказ</button><button className="primary" disabled={busy || (alternatives.length > 0 && !chosen.length)}
         onClick={async () => { setConfirming(false); await act('confirm', { sections: chosen }, 'Офертата е потвърдена. Създават се Картон на обекта и проект на договор.'); }}>Потвърди</button></>}>

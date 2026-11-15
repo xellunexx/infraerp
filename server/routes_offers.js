@@ -9,6 +9,34 @@ const BREAKDOWN = ['material_cost', 'delivery_cost', 'labour_days', 'day_rate', 
 const optNum = (v, label) => v === undefined || v === null || v === '' ? null : num(v, label);
 
 export default function mountOffers(app, db) {
+  app.get('/api/offer-templates', h(req => { need(req.user, 'offers');
+    return db.prepare('SELECT * FROM offer_templates WHERE active = 1 ORDER BY family, code').all().map(t => ({ ...t, lines: JSON.parse(t.lines) })); }));
+  app.put('/api/offer-templates/:id', h(req => tx(db, () => {
+    need(req.user, 'offers', 'write');
+    const id = Number(req.params.id), before = db.prepare('SELECT * FROM offer_templates WHERE id = ?').get(id);
+    if (!before) throw new HttpError(404, 'Няма такъв шаблон');
+    const b = req.body || {}, f = pick(b, ['family', 'title', 'description', 'footer']);
+    if (b.alternative !== undefined) f.alternative = b.alternative ? 1 : 0;
+    if (b.active !== undefined) f.active = b.active ? 1 : 0;
+    if (Array.isArray(b.lines)) f.lines = JSON.stringify(b.lines.map(l => ({ ...l, description: reqStr(l.description, 'Описание'), unit: reqStr(l.unit, 'Мярка') })));
+    updateRow(db, 'offer_templates', id, f, b.row_version);
+    audit(db, req.user, { entity_type: 'offer_template', entity_id: id, action: 'update', before, after: f, module: 'offers' });
+    return { ok: true };
+  })));
+  /** Save the current section of an offer as a new reusable template. */
+  app.post('/api/offer-templates', h(req => tx(db, () => {
+    need(req.user, 'offers', 'write');
+    const b = req.body || {};
+    db.prepare("INSERT INTO counters(name, value) VALUES ('TPL', (SELECT COUNT(*) FROM offer_templates)) ON CONFLICT(name) DO NOTHING").run();
+    db.prepare("UPDATE counters SET value = value + 1 WHERE name = 'TPL'").run();
+    const code = 'T' + String(db.prepare("SELECT value FROM counters WHERE name = 'TPL'").get().value).padStart(3, '0');
+    const lines = (b.lines || []).map(l => ({ ...l, description: reqStr(l.description, 'Описание'), unit: reqStr(l.unit, 'Мярка') }));
+    const id = Number(db.prepare('INSERT INTO offer_templates(code, family, title, description, footer, alternative, lines) VALUES (?,?,?,?,?,?,?)')
+      .run(code, reqStr(b.family || 'Други', 'Група'), reqStr(b.title, 'Заглавие'), b.description || null, b.footer || null, b.alternative ? 1 : 0, JSON.stringify(lines)).lastInsertRowid);
+    audit(db, req.user, { entity_type: 'offer_template', entity_id: id, action: 'create', after: { code, title: b.title }, module: 'offers' });
+    return { id, code };
+  })));
+
   app.get('/api/inquiries', h(req => { need(req.user, 'offers');
     return db.prepare('SELECT i.*, c.name AS customer_name FROM inquiries i JOIN customers c ON c.id = i.customer_id ORDER BY i.id DESC').all(); }));
   app.post('/api/inquiries', h(req => tx(db, () => {

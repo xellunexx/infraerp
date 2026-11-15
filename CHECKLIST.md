@@ -1,7 +1,7 @@
 # SYNCHRO — implementation checklist (honest status)
 
 A module is ticked only when its operations, persistence, permissions and integrations are tested — not when a screen exists.
-Tests: `npm test` (6 tests, all passing at the last run). Web build: `npm run build` (passes).
+Tests: `npm test` (12 tests, all passing at the last run). Web build: `npm run build` (passes).
 
 ## Phase 1 — Foundation
 - [x] Database schema (SQLite, WAL, foreign keys) — all phases' tables created
@@ -19,8 +19,12 @@ Tests: `npm test` (6 tests, all passing at the last run). Web build: `npm run bu
 - [x] Contract signed → baseline active, dates, linear schedule built from planned days, procurement + technical review tasks — tested
 - [x] Project Card screen: overview, lifecycle (complete / skip / reopen / extra stage), customer and site/logistics data, contract, КС, timeline, audit
 - [x] Search (FTS) across projects, customers, contracts, offers, products — permission-filtered
-- [ ] Offer number rule (running number + preparer's letter G/S/P/T) — schema only
-- [ ] Ready system templates from the Excel (MultiPLAY, InfraSPORT, Padel, tiles, GreenSet, grass, equipment) — not loaded
+- [x] Offer number rule: one company-wide running number + the preparer's letter (e.g. 39G); next number settable in Settings, only forward — tested.
+      Assumption: the running number is shared by all preparers (the Excel note does not say whether each preparer has their own sequence).
+- [x] Ready system templates: 23 templates / 47 lines generated from the Excel by `tools/import_offer_template.py` into `server/seed/offer_templates.json`,
+      loaded once on first start, inserted into an offer with "+ От готов шаблон" — tested (TOUR COURT line prices to 24.11 as in the Excel).
+      Where the Excel takes labour from the Труд sheet (43 cells) man-days / day rate are left empty for the user. Template pictures are not carried over.
+      The insert dialog itself was not clicked through in a browser (API and build are tested).
 - [ ] Labour calculator (Труд) and recipe calculators (SBR/EPDM/Corkeen/grass, pallet rounding) — not built
 - [ ] Printable offer in the company layout (logo, pictures, clauses, footer) and Excel export — not built
 - [ ] Documents and file versioning (uploads, photos, line images) — tables exist, no API
