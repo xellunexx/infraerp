@@ -36,6 +36,14 @@ Tests: `npm test` (6 tests, all passing at the last run). Web build: `npm run bu
 
 ## Hosting
 - [ ] Served as Devin App `synchro` with `deploy_devin_app` — the tool was not available in this session (searched several times)
+- [x] Private preview on port 4800 (Devin sign-in required) — server answers, page loads (checked with HTTP requests)
+- [x] Public internet access through a Cloudflare quick tunnel (`synchro-tools/cloudflared.exe tunnel --url http://127.0.0.1:4800`), checked from the public
+      address: page 200, API 200, first-run setup refused with 403. The address is random and changes every time the tunnel restarts; Cloudflare gives
+      no uptime guarantee for account-less tunnels; it stops when the session machine sleeps.
+- [x] Hardening before exposure (tested, `test/exposure.test.mjs`): first administrator can only be created from the private address; 5 wrong passwords per
+      user+address (20 per address) in 15 minutes lock the login for 15 minutes; failed logins are audited; Secure cookie over HTTPS; noindex header.
+- [ ] Permanent public address: needs a Cloudflare account + domain (named tunnel) and a machine that stays on. Not set up.
+- [ ] Not done for internet exposure: 2-factor login, password strength rules beyond 8 characters, automatic backups.
 ## Weather on the Project Card (requested 15:41) — reachability measured from this machine
 - Geocoding: Nominatim (OpenStreetMap, full address) 200 OK; Open-Meteo geocoding (place names) 200 OK.
 - Forecast sources (keyless): Open-Meteo ECMWF ~15 days, Open-Meteo GFS (NOAA model) 16 days, Open-Meteo ICON (DWD model) ~7 days,
