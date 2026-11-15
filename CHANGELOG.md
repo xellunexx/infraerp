@@ -521,6 +521,13 @@ the file in Excel itself.
   SQLite copies diverging; local `synchro-data` untouched as backup.
   Other tunnels/services on the VM (TenderOps named tunnel, isport
   quick tunnel, :8043/:9000/:7100 apps) verified untouched.
+- Update (same day, later): governance phase 1 + warehouse/reports phase 2
+  deployed — tar sync into `/home/devops/synchro/infraerp/` (the systemd
+  WorkingDirectory; an initial sync to the parent dir was reverted),
+  `synchro.service` restarted, `https://synchro.tenderops.io` serves
+  `index-8XJ_SVtq.js`; `/api/reports`, `/api/warehouse/stock`,
+  `/api/material-requests`, `/api/change-requests` all 401-gated.
+  isport./eop. verified unaffected.
 
 ## Permanent hostnames: isport./synchro.tenderops.io on named tunnel
 
