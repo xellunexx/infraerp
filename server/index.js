@@ -6,8 +6,9 @@ import mountOffers from './routes_offers.js';
 import mountProjects from './routes_projects.js';
 import { startWeatherWorker } from './weather.js';
 import mountPrint from './print.js';
+import mountExport from './export.js';
 
-export const ROUTES = [mountOffers, mountProjects, mountPrint];
+export const ROUTES = [mountOffers, mountProjects, mountPrint, mountExport];
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.dirname, 'index.js')) {
   const db = openDb(path.join(DATA_DIR, 'synchro.db'));
   const app = createApp(db, ROUTES);

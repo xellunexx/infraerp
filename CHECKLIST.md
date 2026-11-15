@@ -1,7 +1,7 @@
 # SYNCHRO — implementation checklist (honest status)
 
 A module is ticked only when its operations, persistence, permissions and integrations are tested — not when a screen exists.
-Tests: `npm test` (13 tests, all passing at the last run). Web build: `npm run build` (passes).
+Tests: `npm test` (14 tests, all passing at the last run). Web build: `npm run build` (passes).
 
 ## Phase 1 — Foundation
 - [x] Database schema (SQLite, WAL, foreign keys) — all phases' tables created
@@ -29,7 +29,10 @@ Tests: `npm test` (13 tests, all passing at the last run). Web build: `npm run b
 - [x] Printable offer in the company layout ("Печат / PDF" on the offer): logo, header block, sections with their own totals, variants marked,
       grand total, four legal clauses (setting `offer_clauses`), footer strip. Customer columns only; a test checks no cost data leaks. Seen on screen in a browser.
       NOT verified: how it paginates on paper / in a saved PDF (footer repeat uses a repeating table footer; untested in print). Line pictures are not printed.
-- [ ] Excel export of an offer — not built
+- [x] Excel export of an offer ("Excel" button): sheet "Оферта" in the customer layout with live formulas (line totals, section sums, VAT) and the logo;
+      sheet "Калкулация" with the cost breakdown only for users who may see costs — tested by reading the produced file back. Not opened in Excel itself.
+      Dependency note: exceljs pulls an old `uuid` with a moderate advisory (GHSA-w5hq-g745-h8pq, buffer bounds check when a caller passes its own buffer).
+      SYNCHRO only writes workbooks and never passes such a buffer; the only offered fix downgrades exceljs, so it is left as is.
 - [ ] Documents and file versioning (uploads, photos, line images) — tables exist, no API
 - [ ] Contract amendments / annexes (new versions after signing) — versioning core exists, no amendment workflow yet
 - [ ] Backups (daily copy + manual backup/restore) — not built
