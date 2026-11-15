@@ -83,11 +83,11 @@ export function OfferEditor({ id }: { id: number }) {
       {o.project_id && <button onClick={() => navigate(`/projects/${o.project_id}`)}>Картон на обекта {o.project_code}</button>}
       {editable && <button className="primary" disabled={busy || !dirty} onClick={save}>Запис</button>}
       {editable && <button disabled={busy || !lines.length} onClick={() => act('send', {}, 'Офертата е изпратена и версията е заключена')}>Изпрати на клиента</button>}
-      {can('offers', 'write') && o.status !== 'confirmed' && version.locked && version.version === o.current_version && <button disabled={busy} onClick={() => act('revise', { reason: window.prompt('Причина за ревизията:') || '' }, 'Създадена е нова ревизия')}>Нова ревизия</button>}
+      {can('offers', 'write') && o.status !== 'confirmed' && !!version.locked && version.version === o.current_version && <button disabled={busy} onClick={() => act('revise', { reason: window.prompt('Причина за ревизията:') || '' }, 'Създадена е нова ревизия')}>Нова ревизия</button>}
       {can('offers', 'write') && ['draft', 'sent'].includes(o.status) && version.version === o.current_version && <button className="primary" disabled={busy || !lines.length} onClick={() => { setChosen([]); setConfirming(true); }}>Потвърдена от клиента</button>}
       {can('offers', 'write') && ['draft', 'sent'].includes(o.status) && <button className="danger" disabled={busy} onClick={() => act('reject', { reason: window.prompt('Причина за отказа:') || '' }, 'Офертата е отказана')}>Отказана</button>}
     </div>
-    {version.locked && o.status !== 'confirmed' && version.version === o.current_version && <div className="alert warn">Тази версия е изпратена и заключена. За промени създайте нова ревизия; старата версия се пази.</div>}
+    {!!version.locked && o.status !== 'confirmed' && version.version === o.current_version && <div className="alert warn">Тази версия е изпратена и заключена. За промени създайте нова ревизия; старата версия се пази.</div>}
     {o.status === 'confirmed' && <div className="alert ok">Офертата е потвърдена (версия {o.confirmed_version}) и е търговската база на обект {o.project_code || '(създава се…)'}. Промени се правят с анекс към договора.</div>}
     {viewVersion != null && viewVersion !== o.current_version && <div className="alert">Преглеждате стара версия v{viewVersion}. <a onClick={() => setViewVersion(null)}>Към текущата</a></div>}
 
