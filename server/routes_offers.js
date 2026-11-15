@@ -47,7 +47,12 @@ export default function mountOffers(app, db) {
   app.get('/api/offers/:id', h(req => { need(req.user, 'offers'); return offerView(Number(req.params.id)); }));
   app.post('/api/offers', h(req => tx(db, () => {
     need(req.user, 'offers', 'write');
-    const b = req.body || {}, code = nextCode(db, 'OFR');
+    const b = req.body || {};
+    // company rule from the Excel template: running offer number + the preparer's letter, e.g. "39G"
+    const letter = db.prepare('SELECT offer_letter FROM users WHERE id = ?').get(req.user.id)?.offer_letter || '';
+    db.prepare("INSERT INTO counters(name, value) VALUES ('OFFER', 0) ON CONFLICT(name) DO NOTHING").run();
+    db.prepare("UPDATE counters SET value = value + 1 WHERE name = 'OFFER'").run();
+    const code = `${db.prepare("SELECT value FROM counters WHERE name = 'OFFER'").get().value}${letter}`;
     if (!db.prepare('SELECT 1 FROM customers WHERE id = ?').get(num(b.customer_id, 'Клиент', { min: 1 }))) throw bad('Няма такъв клиент');
     const id = Number(db.prepare('INSERT INTO offers(code, inquiry_id, customer_id, title, site_address, owner_id) VALUES (?,?,?,?,?,?)')
       .run(code, b.inquiry_id || null, Number(b.customer_id), reqStr(b.title, 'Заглавие'), b.site_address || null, req.user.id).lastInsertRowid);

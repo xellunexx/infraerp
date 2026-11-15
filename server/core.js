@@ -51,7 +51,8 @@ export function bootstrap(db) {
       DEFAULT_STAGES.forEach((s, i) => ins.run(s[0], s[1], s[2], (i + 1) * 10));
     }
     const set = db.prepare('INSERT INTO settings(key, value) VALUES (?,?) ON CONFLICT(key) DO NOTHING');
-    for (const [k, v] of [['company_name', ''], ['currency', 'EUR'], ['vat_pct', '20'], ['exceptional_expense_limit', '1000'], ['overconsumption_tolerance_pct', '5']]) set.run(k, v);
+    for (const [k, v] of [['company_name', ''], ['currency', 'EUR'], ['vat_pct', '20'], ['exceptional_expense_limit', '1000'], ['overconsumption_tolerance_pct', '5'], ['overhead_pct', '3.5'], ['profit_pct', '30'], ['corporate_tax_pct', '10'],
+      ['weather_rain_mm', '2'], ['weather_wind_ms', '10'], ['weather_min_temp', '5'], ['weather_refresh_hours', '3']]) set.run(k, v);
   });
 }
 
@@ -77,7 +78,7 @@ export function createSession(db, userId) {
 }
 export function userFromToken(db, token) {
   if (!token) return null;
-  const u = db.prepare(`SELECT u.id, u.username, u.full_name, u.department, u.role, u.phone, u.email FROM sessions s JOIN users u ON u.id = s.user_id
+  const u = db.prepare(`SELECT u.id, u.username, u.full_name, u.department, u.role, u.phone, u.email, u.offer_letter, u.office FROM sessions s JOIN users u ON u.id = s.user_id
     WHERE s.token = ? AND s.expires_at > datetime('now') AND u.active = 1`).get(token);
   if (!u) return null;
   u.perms = {};

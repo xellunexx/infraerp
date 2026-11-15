@@ -11,6 +11,8 @@ export const pick = (o, keys) => Object.fromEntries(keys.filter(k => o[k] !== un
 export const reqStr = (v, label) => { if (typeof v !== 'string' || !v.trim()) throw bad(`Полето „${label}“ е задължително`); return v.trim(); };
 export const num = (v, label, { min = 0 } = {}) => { const n = Number(v); if (v === null || v === '' || !Number.isFinite(n) || n < min) throw bad(`Невалидна стойност за „${label}“`); return n; };
 /** Wrap a synchronous handler: returned value becomes JSON, thrown errors go to the error middleware. */
+/** Letter put after the offer number to show who prepared it (G, S, P, T ...). */
+export const offerLetter = v => { const s = String(v ?? '').trim().toUpperCase(); if (!s) return null; if (!/^[A-ZА-Я]{1,3}$/u.test(s)) throw bad('Буквата за оферти е от 1 до 3 букви'); return s; };
 export const h = fn => (req, res, next) => { try { const r = fn(req, res); if (r !== undefined && !res.headersSent) res.json(r); } catch (e) { next(e); } };
 
 export function createApp(db, routeModules = []) {
@@ -38,7 +40,8 @@ export function createApp(db, routeModules = []) {
   const setCookie = (res, token) => res.setHeader('Set-Cookie', `synchro_sid=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${token ? 14 * 86400 : 0}${res.req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : ''}`);
 
   app.get('/api/auth/state', h(req => ({ needs_setup: !db.prepare('SELECT 1 FROM users LIMIT 1').get(), user: req.user,
-    departments: db.prepare('SELECT * FROM departments').all(), settings: Object.fromEntries(db.prepare('SELECT key, value FROM settings').all().map(s => [s.key, s.value])) })));
+    departments: db.prepare('SELECT * FROM departments').all(), settings: { ...Object.fromEntries(db.prepare('SELECT key, value FROM settings').all().map(s => [s.key, s.value])),
+      offer_last_number: String(db.prepare("SELECT value FROM counters WHERE name = 'OFFER'").get()?.value ?? 0) } })));
   app.post('/api/auth/setup', h((req, res) => tx(db, () => {
     if (db.prepare('SELECT 1 FROM users LIMIT 1').get()) throw new HttpError(403, 'Системата вече е настроена');
     // the first administrator can only be created from the private address, never through the public internet link
@@ -70,15 +73,15 @@ export function createApp(db, routeModules = []) {
   app.use('/api', (req, _res, next) => req.user ? next() : next(new HttpError(401, 'Необходим е вход')));
 
   // ---- users, permissions, settings
-  app.get('/api/users', h(() => db.prepare('SELECT id, username, full_name, department, role, phone, email, active, row_version FROM users ORDER BY full_name').all()));
+  app.get('/api/users', h(() => db.prepare('SELECT id, username, full_name, department, role, phone, email, offer_letter, office, active, row_version FROM users ORDER BY full_name').all()));
   app.post('/api/users', h(req => tx(db, () => {
     need(req.user, 'users', 'write');
     const b = req.body || {};
     if (!ROLES[b.role]) throw bad('Невалидна роля');
     if (String(b.password || '').length < 8) throw bad('Паролата трябва да е поне 8 символа');
     if (db.prepare('SELECT 1 FROM users WHERE username = ?').get(reqStr(b.username, 'Потребителско име'))) throw bad('Потребителското име е заето');
-    const id = Number(db.prepare('INSERT INTO users(username, full_name, department, role, phone, email, pass_hash) VALUES (?,?,?,?,?,?,?)')
-      .run(b.username.trim(), reqStr(b.full_name, 'Име'), ROLES[b.role], b.role, b.phone || null, b.email || null, hashPassword(b.password)).lastInsertRowid);
+    const id = Number(db.prepare('INSERT INTO users(username, full_name, department, role, phone, email, offer_letter, office, pass_hash) VALUES (?,?,?,?,?,?,?,?,?)')
+      .run(b.username.trim(), reqStr(b.full_name, 'Име'), ROLES[b.role], b.role, b.phone || null, b.email || null, offerLetter(b.offer_letter), b.office || null, hashPassword(b.password)).lastInsertRowid);
     audit(db, req.user, { entity_type: 'user', entity_id: id, action: 'create', after: { username: b.username, role: b.role }, module: 'settings' });
     return { id };
   })));
@@ -87,7 +90,8 @@ export function createApp(db, routeModules = []) {
     const b = req.body || {}, id = Number(req.params.id);
     const before = db.prepare('SELECT username, full_name, role, department, active, phone, email FROM users WHERE id = ?').get(id);
     if (!before) throw new HttpError(404, 'Няма такъв потребител');
-    const f = pick(b, ['full_name', 'phone', 'email']);
+    const f = pick(b, ['full_name', 'phone', 'email', 'office']);
+    if (b.offer_letter !== undefined) f.offer_letter = offerLetter(b.offer_letter);
     if (b.role !== undefined) { if (!ROLES[b.role]) throw bad('Невалидна роля'); f.role = b.role; f.department = ROLES[b.role]; }
     const lastAdmin = before.role === 'admin' && before.active && db.prepare("SELECT COUNT(*) n FROM users WHERE role = 'admin' AND active = 1").get().n <= 1;
     if (lastAdmin && ((b.role !== undefined && b.role !== 'admin') || b.active === false || b.active === 0)) throw bad('Не може да премахнете последния администратор');
@@ -108,7 +112,15 @@ export function createApp(db, routeModules = []) {
   app.put('/api/settings', h(req => tx(db, () => {
     need(req.user, 'settings', 'write');
     const up = db.prepare('INSERT INTO settings(key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
-    for (const [k, v] of Object.entries(req.body || {})) up.run(k, String(v));
+    const body = { ...(req.body || {}) };
+    if (body.offer_next_number !== undefined && body.offer_next_number !== '') {
+      const n = Math.round(num(body.offer_next_number, 'Следващ номер на оферта', { min: 1 }));
+      const cur = db.prepare("SELECT value FROM counters WHERE name = 'OFFER'").get()?.value ?? 0;
+      if (n <= cur) throw bad(`Следващият номер трябва да е по-голям от последния издаден (${cur})`);
+      db.prepare("INSERT INTO counters(name, value) VALUES ('OFFER', ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value").run(n - 1);
+    }
+    delete body.offer_next_number;
+    for (const [k, v] of Object.entries(body)) up.run(k, String(v));
     audit(db, req.user, { entity_type: 'settings', action: 'update', after: req.body, module: 'settings' });
     return { ok: true };
   })));

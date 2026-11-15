@@ -27,7 +27,7 @@ export function Notifications({ onChange }: { onChange: () => void }) {
 }
 
 function UserForm({ initial, onClose, onSaved }: { initial?: any; onClose: () => void; onSaved: () => void }) {
-  const f = useForm({ username: '', full_name: '', role: 'commercial', phone: '', email: '', password: '', active: 1, ...(initial || {}) });
+  const f = useForm({ username: '', full_name: '', role: 'commercial', phone: '', email: '', offer_letter: '', office: '', password: '', active: 1, ...(initial || {}) });
   const { run, busy } = useAction();
   const save = () => run(async () => {
     const body: any = { ...f.v, active: !!Number(f.v.active) };
@@ -44,6 +44,8 @@ function UserForm({ initial, onClose, onSaved }: { initial?: any; onClose: () =>
       <Field label="Статус"><select {...f.bind('active')}><option value={1}>Активен</option><option value={0}>Деактивиран</option></select></Field>
       <Field label="Телефон"><input {...f.bind('phone')} /></Field>
       <Field label="Имейл"><input type="email" {...f.bind('email')} /></Field>
+      <Field label="Буква за номер на оферта (напр. G)"><input maxLength={3} {...f.bind('offer_letter')} placeholder="само за съставители на оферти" /></Field>
+      <Field label="Офис"><input {...f.bind('office')} placeholder="Бургас, София, Варна" /></Field>
       <Field label={initial?.id ? 'Нова парола (празно = без промяна)' : 'Парола (поне 8 символа)'} full><input type="password" {...f.bind('password')} autoComplete="new-password" /></Field>
     </div>
   </Modal>;
@@ -96,7 +98,7 @@ export function Settings() {
   const [tab, setTab] = useState('users');
   const users = useLoad<any[]>('/users');
   const [edit, setEdit] = useState<any | null>(null);
-  const f = useForm({ company_name: '', currency: 'EUR', vat_pct: '20', overhead_pct: '3.5', profit_pct: '30', corporate_tax_pct: '10', exceptional_expense_limit: '1000', overconsumption_tolerance_pct: '5', ...state.settings });
+  const f = useForm({ company_name: '', currency: 'EUR', vat_pct: '20', overhead_pct: '3.5', profit_pct: '30', corporate_tax_pct: '10', exceptional_expense_limit: '1000', overconsumption_tolerance_pct: '5', weather_rain_mm: '2', weather_wind_ms: '10', weather_min_temp: '5', weather_refresh_hours: '3', ...state.settings, offer_next_number: '' });
   const { run, busy } = useAction();
   const write = can('settings', 'write');
   return <>
@@ -104,11 +106,11 @@ export function Settings() {
     <Tabs tabs={[['users', 'Потребители'], ['perms', 'Права'], ['company', 'Фирма и параметри'], ...(can('events') ? [['events', 'Синхронизация'] as [string, string]] : [])]} value={tab} onChange={setTab} />
     {tab === 'users' && <Card pad={false}><Loader state={users}><Table rows={users.data || []} onRow={can('users', 'write') ? setEdit : undefined} cols={[
       { key: 'full_name', title: 'Име' }, { key: 'username', title: 'Потребител' }, { key: 'role', title: 'Роля', render: r => ROLE_LABEL[r.role] || r.role },
-      { key: 'department', title: 'Отдел', render: r => <DeptBadge code={r.department} /> }, { key: 'phone', title: 'Телефон' }, { key: 'email', title: 'Имейл' },
+      { key: 'department', title: 'Отдел', render: r => <DeptBadge code={r.department} /> }, { key: 'phone', title: 'Телефон' }, { key: 'email', title: 'Имейл' }, { key: 'offer_letter', title: 'Буква оферти' }, { key: 'office', title: 'Офис' },
       { key: 'active', title: 'Статус', render: r => r.active ? <span className="badge ok">активен</span> : <span className="badge">деактивиран</span> }]} /></Loader></Card>}
     {tab === 'perms' && <Permissions />}
     {tab === 'events' && <Events />}
-    {tab === 'company' && <Card title="Фирма и параметри" actions={write && <button className="primary" disabled={busy} onClick={() => run(async () => { await api.put('/settings', f.v); await reload(); }, 'Настройките са записани')}>Запис</button>}>
+    {tab === 'company' && <Card title="Фирма и параметри" actions={write && <button className="primary" disabled={busy} onClick={() => run(async () => { const { offer_last_number, ...body } = f.v as any; await api.put('/settings', body); f.set('offer_next_number', ''); await reload(); }, 'Настройките са записани')}>Запис</button>}>
       <div className="form c3">
         <Field label="Фирма" full><input {...f.bind('company_name')} disabled={!write} /></Field>
         <Field label="Валута"><input {...f.bind('currency')} disabled={!write} /></Field>
@@ -118,6 +120,11 @@ export function Settings() {
         <Field label="Корпоративен данък % върху печалбата"><input type="number" step="0.1" {...f.bind('corporate_tax_pct')} disabled={!write} /></Field>
         <Field label="Праг за извънреден разход"><input type="number" step="1" {...f.bind('exceptional_expense_limit')} disabled={!write} /></Field>
         <Field label="Допуск за преразход на материали %"><input type="number" step="0.1" {...f.bind('overconsumption_tolerance_pct')} disabled={!write} /></Field>
+        <Field label={`Следващ номер на оферта (последен издаден: ${state.settings.offer_last_number || 0})`}><input type="number" min="1" step="1" {...f.bind('offer_next_number')} disabled={!write} placeholder="празно = продължава поред" /></Field>
+        <Field label="Време: предупреждение при валеж от (мм)"><input type="number" step="0.5" {...f.bind('weather_rain_mm')} disabled={!write} /></Field>
+        <Field label="Време: предупреждение при вятър от (м/с)"><input type="number" step="0.5" {...f.bind('weather_wind_ms')} disabled={!write} /></Field>
+        <Field label="Време: предупреждение при минимум под (°C)"><input type="number" step="0.5" {...f.bind('weather_min_temp')} disabled={!write} /></Field>
+        <Field label="Време: обновяване на всеки (часа)"><input type="number" min="1" step="1" {...f.bind('weather_refresh_hours')} disabled={!write} /></Field>
       </div></Card>}
     {edit && <UserForm initial={edit.id ? edit : undefined} onClose={() => setEdit(null)} onSaved={users.reload} />}
   </>;
