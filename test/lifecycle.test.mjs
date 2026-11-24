@@ -157,6 +157,34 @@ test('contract calendar: delivery deadline anchors to the real advance payment',
   } finally { await t.stop(); }
 });
 
+test('contract calendar: post-signing production days are enterable; missing days never resurrect the stale typed date', async () => {
+  const t = await start();
+  try {
+    const { project } = await signedProject(t); // срок за производство не е уточнен — идва след потвърждение от доставчик
+    const pid = project.id;
+    const pay = await t.admin.put(`/api/projects/${pid}/contract/payments`, { kind: 'advance', paid_at: '2026-01-10' });
+    assert.equal(pay.status, 200);
+
+    // авансът е реален, дните липсват -> въведеният преди подписа срок не може да позира като прогноза
+    let c = (await t.admin.get(`/api/projects/${pid}/contract`)).data;
+    assert.equal(c.advance_paid_at, '2026-01-10');
+    assert.equal(c.delivery_due, null, 'typed delivery_deadline must not pose as forecast once the advance is real');
+    assert.equal(c.delivery_due_real, false);
+
+    // доставчикът потвърждава срока СЛЕД подписване — собственият поток на системата
+    const upd = await t.admin.patch(`/api/projects/${pid}/contract`, { prod_delivery_days: 30, install_days: 10, row_version: c.row_version });
+    assert.equal(upd.status, 200, JSON.stringify(upd.data));
+    c = upd.data;
+    assert.equal(c.prod_delivery_days, 30);
+    assert.equal(c.delivery_due, '2026-02-09');
+    assert.equal(c.delivery_due_real, true);
+
+    // договорените клаузи остават заключени след подпис — само дневните срокове се уточняват
+    const bad = await t.admin.patch(`/api/projects/${pid}/contract`, { delivery_deadline: '2026-06-01', row_version: c.row_version });
+    assert.equal(bad.status, 400);
+  } finally { await t.stop(); }
+});
+
 test('lifecycle: skipped stages count as finished; reopening regresses status', async () => {
   const t = await start();
   try {

@@ -21,9 +21,11 @@ export default function mountProjects(app, db) {
     const days = (a, n) => new Date(Date.parse(a) + Math.round(Number(n)) * 86400000).toISOString().slice(0, 10);
     c.final_deadline = c.advance_paid_at && c.prod_delivery_days != null && c.install_days != null
       ? days(days(c.advance_paid_at, c.prod_delivery_days), c.install_days) : null;
-    // §14.3: delivery deadline anchors to the real advance payment once paid; before that the typed date is only a forecast
-    c.delivery_due = c.advance_paid_at && c.prod_delivery_days != null
-      ? days(c.advance_paid_at, c.prod_delivery_days) : c.delivery_deadline;
+    // §14.3: delivery deadline anchors to the real advance payment once paid; before that the typed date is only a forecast.
+    // Once the advance is real, a missing production term means "not specified yet" — the stale typed date must not pose as a forecast.
+    c.delivery_due = c.advance_paid_at
+      ? (c.prod_delivery_days != null ? days(c.advance_paid_at, c.prod_delivery_days) : null)
+      : c.delivery_deadline;
     c.delivery_due_real = !!(c.advance_paid_at && c.prod_delivery_days != null);
     c.total = progressSummary(db, projectId).contract_value;
     return c;
@@ -40,9 +42,13 @@ export default function mountProjects(app, db) {
     need(req.user, 'contracts', 'write');
     const pid = Number(req.params.pid), c = db.prepare('SELECT * FROM contracts WHERE project_id = ?').get(pid);
     if (!c) throw new HttpError(404, 'Няма договор');
-    if (c.status !== 'draft') throw bad('Договорът вече е изпратен за одобрение. Променя се само след връщане или с анекс.');
     const f = pick(req.body || {}, ['template', 'special_terms', 'delivery_deadline', 'install_start', 'install_deadline', 'advance_pct', 'payment_terms_days',
       'contract_kind', 'prod_delivery_days', 'install_days']);
+    // Дневните срокове се уточняват и след подпис (доставчикът/оферантът ги потвърждава по-късно);
+    // договорените клаузи са заключени след изпращане за одобрение и се менят само с анекс.
+    const OPERATIONAL = ['prod_delivery_days', 'install_days'];
+    if (c.status !== 'draft' && Object.keys(f).some(k => !OPERATIONAL.includes(k)))
+      throw bad('Договорът вече е изпратен за одобрение. Променя се само след връщане или с анекс. Дневните срокове се уточняват и след подпис.');
     if (f.contract_kind !== undefined && f.contract_kind != null && !['standard', 'client_template'].includes(f.contract_kind)) throw bad('Невалиден вид договор');
     for (const k of ['prod_delivery_days', 'install_days']) if (f[k] !== undefined && f[k] != null && f[k] !== '') { const n = Number(f[k]); if (!Number.isFinite(n) || n < 0) throw bad('Невалиден срок в дни'); f[k] = n; } else if (f[k] === '') f[k] = null;
     const s = f.install_start ?? c.install_start, e = f.install_deadline ?? c.install_deadline;

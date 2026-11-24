@@ -27,24 +27,29 @@ function ContractTab({ pid, onChange }: { pid: number; onChange: () => void }) {
   const d = c.data;
   if (!d) return <Loader state={c}><Empty title="Няма договор за този обект" /></Loader>;
   const write = can('contracts', 'write'), draft = d.status === 'draft' && write;
+  const daysDirty = !draft && write && (String(f.v.prod_delivery_days ?? '') !== String(d.prod_delivery_days ?? '') || String(f.v.install_days ?? '') !== String(d.install_days ?? ''));
+  const saveContract = () => run(async () => {
+    const body = draft ? { ...f.v } : { prod_delivery_days: f.v.prod_delivery_days === '' ? null : f.v.prod_delivery_days, install_days: f.v.install_days === '' ? null : f.v.install_days };
+    await api.patch(`/projects/${pid}/contract`, { ...body, row_version: d.row_version }); await c.reload();
+  }, 'Договорът е записан');
   const special = d.template !== 'standard' || !!d.special_terms;
   const act = (name: string, body: any = {}, ok?: string) => run(async () => { await api.post(`/projects/${pid}/contract/${name}`, body); await c.reload(); onChange(); }, ok);
   return <>
     <Card title={<span>Договор {d.code} <Status value={d.status} /> {d.active_version ? <span className="badge">версия {d.active_version}</span> : null}</span>} actions={<>
-      {draft && <button disabled={busy} onClick={() => run(async () => { await api.patch(`/projects/${pid}/contract`, { ...f.v, row_version: d.row_version }); await c.reload(); }, 'Договорът е записан')}>Запис</button>}
+      {(draft || daysDirty) && <button disabled={busy} onClick={saveContract}>Запис</button>}
       {draft && <button className="primary" disabled={busy} onClick={() => act('submit', {}, 'Изпратен за одобрение')}>Изпрати за одобрение</button>}
       {d.status === 'review' && write && <button disabled={busy} onClick={() => act('return', { note: window.prompt('Причина за връщане:') || '' }, 'Върнат за корекция')}>Върни за корекция</button>}
       {d.status === 'review' && (special ? can('approvals', 'approve') : write) && <button className="primary" disabled={busy} onClick={() => act('approve', {}, 'Договорът е одобрен. Създадена е версия 1.')}>Одобри</button>}
       {d.status === 'approved' && write && <button className="primary" disabled={busy} onClick={() => act('sign', { signed_on: window.prompt('Дата на подписване (ГГГГ-ММ-ДД):', new Date().toISOString().slice(0, 10)) || undefined }, 'Договорът е подписан. Сроковете са активни.')}>Отбележи като подписан</button>}</>}>
       {d.status === 'review' && special && <div className="alert warn">Договорът е със специални условия и се одобрява от Управител.</div>}
-      {d.status !== 'draft' && <div className="alert">Одобрен договор не се редактира. Промени в количества, цени и срокове се правят с анекс, който създава нова версия.</div>}
+      {d.status !== 'draft' && <div className="alert">Договорените клаузи са заключени — промени в количества, цени и дати се правят с анекс. Дневните срокове се уточняват и след подпис.</div>}
       <div className="form c3">
         <Field label="Образец"><select {...f.bind('template')} disabled={!draft}><option value="standard">Стандартен</option><option value="special">Със специални условия</option></select></Field>
         <Field label="Вид на договора"><select {...f.bind('contract_kind')} disabled={!draft}><option value="standard">Наш образец</option><option value="client_template">По образец на възложителя</option></select></Field>
         <Field label="Аванс %"><input type="number" min="0" max="100" {...f.bind('advance_pct')} disabled={!draft} /></Field>
         <Field label="Срок за плащане (дни)"><input type="number" min="0" {...f.bind('payment_terms_days')} disabled={!draft} /></Field>
-        <Field label="Срок производство + доставка (дни)"><input type="number" min="0" {...f.bind('prod_delivery_days')} disabled={!draft} /></Field>
-        <Field label="Срок за монтаж (дни)"><input type="number" min="0" {...f.bind('install_days')} disabled={!draft} /></Field>
+        <Field label="Срок производство + доставка (дни)"><input type="number" min="0" {...f.bind('prod_delivery_days')} disabled={!write} /></Field>
+        <Field label="Срок за монтаж (дни)"><input type="number" min="0" {...f.bind('install_days')} disabled={!write} /></Field>
         <Field label="Срок за доставка"><input type="date" {...f.bind('delivery_deadline')} disabled={!draft} /></Field>
         <Field label="Начало на монтажа"><input type="date" {...f.bind('install_start')} disabled={!draft} /></Field>
         <Field label="Краен срок за монтаж"><input type="date" {...f.bind('install_deadline')} disabled={!draft} /></Field>
@@ -118,7 +123,7 @@ function ContractTimeline({ d }: { d: any }) {
 
   const unpaid = (d.payments || []).some((p: any) => !p.paid_at);
   const pastDeadline = ts(d.final_deadline) && ts(d.final_deadline) < T;
-  const deliveryDue = ts(d.delivery_due || d.delivery_deadline);
+  const deliveryDue = ts(d.delivery_due); // delivery_due се дерива на сървъра — отпада когато срокът не е уточнен
   type Pt = { t: number; label: string; state: 'done' | 'active' | 'pending' | 'late' };
   const pts: Pt[] = ([
     { t: ts(d.signed_on), label: 'Подписан', state: d.signed_on ? 'done' : 'pending' },
@@ -152,7 +157,7 @@ function ContractTimeline({ d }: { d: any }) {
       <div className="ctl-today" style={{ left: X(T) + '%' }}><span>днес</span></div>
     </div>
     {d.advance_paid_at && <div className="muted small" style={{ marginTop: 10 }}>
-      Аванс {fmtDate(d.advance_paid_at)}{d.prod_delivery_days != null ? ` → производство/доставка до ${fmtDate(iso(prodEnd))}` : ''}{d.install_days != null && d.final_deadline ? ` → монтаж до ${fmtDate(d.final_deadline)}` : ''}</div>}
+      Аванс {fmtDate(d.advance_paid_at)}{d.prod_delivery_days != null ? ` → производство/доставка до ${fmtDate(iso(prodEnd))}` : ' — въведете срок производство + доставка за реална дата'}{d.install_days != null && d.final_deadline ? ` → монтаж до ${fmtDate(d.final_deadline)}` : ''}</div>}
   </Card>;
 }
 
