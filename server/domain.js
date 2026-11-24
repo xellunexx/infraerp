@@ -71,15 +71,20 @@ function writeAppendices(db, contractId, projectId, version) {
   ins.run(contractId, 3, 'Приложение №3 — Срокове и условия на плащане', a3, version);
 }
 
-export function signContract(db, user, projectId, signedOn) {
+export function signContract(db, user, projectId, { signed_on, install_start, install_deadline } = {}) {
   return tx(db, () => {
     const c = db.prepare('SELECT * FROM contracts WHERE project_id = ?').get(projectId);
     if (!c) throw new HttpError(404, 'Няма договор за този обект');
     if (c.status === 'signed') throw bad('Договорът вече е подписан');
     if (c.status !== 'approved') throw bad('Договорът трябва първо да бъде одобрен');
-    if (!c.install_start || !c.install_deadline) throw bad('Въведете начало и краен срок за монтаж преди подписване');
-    const signDate = signedOn || new Date().toISOString().slice(0, 10);
-    db.prepare("UPDATE contracts SET status = 'signed', signed_on = ?, row_version = row_version + 1 WHERE id = ?").run(signDate, c.id);
+    // Монтажният прозорец се уточнява при подписване — актът го записва атомарно със статуса,
+    // защото печатните клаузи са заключени след изпращане и няма друг легален вход за тях.
+    const instStart = c.install_start || install_start || null;
+    const instEnd = c.install_deadline || install_deadline || null;
+    if (!instStart || !instEnd) throw bad('Въведете начало и краен срок за монтаж при подписване');
+    if (instEnd < instStart) throw bad('Крайният срок е преди началото на монтажа');
+    const signDate = signed_on || new Date().toISOString().slice(0, 10);
+    db.prepare("UPDATE contracts SET status = 'signed', signed_on = ?, install_start = ?, install_deadline = ?, row_version = row_version + 1 WHERE id = ?").run(signDate, instStart, instEnd, c.id);
 
     // Разплащателен график се ражда при подписване: аванс % от договора (по подразбиране 50),
     // междинно 30, окончателно — остатъкът. Ръчно въведени редове не се презаписват.
@@ -109,7 +114,7 @@ export function signContract(db, user, projectId, signedOn) {
     }
     audit(db, user, { project_id: projectId, entity_type: 'contract', entity_id: c.id, action: 'sign', before: { status: c.status }, after: { status: 'signed' }, module: 'contracts' });
     return emit(db, user, { type: 'contract.signed', origin: 'contracts', project_id: projectId, entity_type: 'contract', entity_id: c.id, dedupe_key: `contract.signed:${c.id}`,
-      prev: { status: c.status }, next: { status: 'signed', install_start: c.install_start, install_deadline: c.install_deadline, delivery_deadline: c.delivery_deadline },
+      prev: { status: c.status }, next: { status: 'signed', install_start: instStart, install_deadline: instEnd, delivery_deadline: c.delivery_deadline },
       affected: ['technical', 'warehouse', 'logistics', 'accounting', 'management'] });
   });
 }
@@ -145,7 +150,13 @@ export function syncProjectStatus(db, projectId) {
 export function setStage(db, projectId, code, status, user = null, note = null) {
   const s = db.prepare('SELECT * FROM project_stages WHERE project_id = ? AND code = ?').get(projectId, code);
   if (!s || s.status === status) return false;
-  db.prepare("UPDATE project_stages SET status = ?, done_at = CASE WHEN ? = 'done' THEN datetime('now') ELSE done_at END, done_by = ?, note = COALESCE(?, note) WHERE id = ?").run(status, status, user?.id ?? null, note, s.id);
+  // Печатът на изпълнение живее само докато етапът е done — връщане го чисти (както reopen-ляната)
+  // и маркира „reverted“, за да не изглежда върнатият етап все едно е завършен.
+  db.prepare(`UPDATE project_stages SET status = ?,
+    done_at = CASE WHEN ? = 'done' THEN datetime('now') ELSE NULL END,
+    done_by = CASE WHEN ? = 'done' THEN ? ELSE NULL END,
+    reverted = CASE WHEN ? NOT IN ('done','skipped') AND status IN ('done','skipped') THEN 1 WHEN ? IN ('done','skipped') THEN 0 ELSE reverted END,
+    note = COALESCE(?, note) WHERE id = ?`).run(status, status, status, user?.id ?? null, status, status, note, s.id);
   syncProjectStatus(db, projectId);
   return true;
 }

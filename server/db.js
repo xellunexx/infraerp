@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS project_members (project_id INTEGER NOT NULL REFERENC
 CREATE TABLE IF NOT EXISTS project_stages (
   id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL REFERENCES projects(id), code TEXT NOT NULL, name TEXT NOT NULL,
   department TEXT, sort INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending', requires_approval INTEGER NOT NULL DEFAULT 0,
-  due_date TEXT, done_at TEXT, done_by INTEGER REFERENCES users(id), note TEXT, UNIQUE (project_id, code));
+  due_date TEXT, done_at TEXT, done_by INTEGER REFERENCES users(id), note TEXT, reverted INTEGER NOT NULL DEFAULT 0, UNIQUE (project_id, code));
 CREATE TABLE IF NOT EXISTS project_lines (
   id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL REFERENCES projects(id), sort INTEGER NOT NULL DEFAULT 0,
   source_offer_line_id INTEGER REFERENCES offer_lines(id), smr_type_id INTEGER REFERENCES smr_types(id), product_id INTEGER REFERENCES products(id),

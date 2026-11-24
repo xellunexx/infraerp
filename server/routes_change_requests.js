@@ -88,7 +88,10 @@ const ENT = {
     softDelete: db => db.prepare('UPDATE project_lines SET removed = 1 WHERE id = ?') },
   contract: { table: 'contracts', resource: 'contracts', label: 'Договор', labelOf: r => r.code,
     cols: ['template', 'special_terms', 'delivery_deadline', 'install_start', 'install_deadline', 'advance_pct', 'payment_terms_days'],
-    picker: db => db.prepare('SELECT id, code, status FROM contracts ORDER BY id DESC LIMIT 200').all() },
+    picker: db => db.prepare('SELECT id, code, status FROM contracts ORDER BY id DESC LIMIT 200').all(),
+    // договорът носи версии/приложения/плащания още от чернова — заявка за изтриване винаги ще се провали на FK;
+    // отказваме я при подаване и сочим истинските пътища (анекс за промени, архив за обекта)
+    noDelete: 'Договорът е юридически документ и не се изтрива. Промените се правят с анекс; обектът се затваря чрез архивиране.' },
   transaction: { table: 'transactions', resource: 'finance', label: 'Транзакция', labelOf: r => `${r.code} — ${r.amount}`,
     cols: ['direction', 'category', 'amount', 'status', 'tx_date', 'due_on', 'counterparty', 'document_ref', 'note'],
     picker: db => db.prepare('SELECT id, code, direction, amount, status FROM transactions ORDER BY id DESC LIMIT 200').all() },
@@ -164,6 +167,7 @@ function applyDelete(db, type, id, user) {
   if (!before) throw new HttpError(404, 'Записът не е намерен');
   // корекциите са одитируеми, никога разрушителни: физическо изтриване, когато е безопасно;
   // при свързани записи типът с надгробен флаг се архивира/деактивира вместо заявката да виси с FK грешка
+  if (e.noDelete) throw bad(e.noDelete);
   if (e.softDelete) {
     try { db.prepare(`DELETE FROM ${e.table} WHERE id = ?`).run(id); return { before }; }
     catch { e.softDelete(db).run(id); return { before, result: { archived: true } }; }
@@ -211,6 +215,7 @@ export default function mountChangeRequests(app, db) {
     if (!Number.isInteger(id) || id < 1) throw bad('Невалиден запис');
     const kind = String(b.kind || '');
     if (!['edit', 'delete'].includes(kind)) throw bad('Видът трябва да е „промяна“ или „изтриване“');
+    if (kind === 'delete' && e.noDelete) throw bad(e.noDelete);
     const reason = reqStr(b.reason, 'Причина');
     const row = entRow(db, type, id);
     if (!row) throw new HttpError(404, 'Записът не е намерен');

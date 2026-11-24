@@ -13,6 +13,9 @@ const EVENT_LABEL: Record<string, string> = { 'offer.confirmed': 'Потвърд
   'material_request.cancelled': 'Отменена заявка', 'warehouse.transfer': 'Пренос на материали', 'warehouse.movement': 'Складово движение' };
 const PLANNED = ['Технически спецификации', 'Склад'];
 
+// Етапите на договора са огледало на домейн факти — сървърът отказва ръчни отметки по тях.
+const DOMAIN_STAGES = new Set(['project_card', 'contract_generation', 'contract_approval']);
+
 function ContractTab({ pid, onChange }: { pid: number; onChange: () => void }) {
   const c = useLoad<any>(`/projects/${pid}/contract`);
   const can = useCan();
@@ -33,6 +36,7 @@ function ContractTab({ pid, onChange }: { pid: number; onChange: () => void }) {
     await api.patch(`/projects/${pid}/contract`, { ...body, row_version: d.row_version }); await c.reload();
   }, 'Договорът е записан');
   const special = d.template !== 'standard' || !!d.special_terms;
+  const [signF, setSignF] = useState<any | null>(null);
   const act = (name: string, body: any = {}, ok?: string) => run(async () => { await api.post(`/projects/${pid}/contract/${name}`, body); await c.reload(); onChange(); }, ok);
   return <>
     <Card title={<span>Договор {d.code} <Status value={d.status} /> {d.active_version ? <span className="badge">версия {d.active_version}</span> : null}</span>} actions={<>
@@ -40,7 +44,7 @@ function ContractTab({ pid, onChange }: { pid: number; onChange: () => void }) {
       {draft && <button className="primary" disabled={busy} onClick={() => act('submit', {}, 'Изпратен за одобрение')}>Изпрати за одобрение</button>}
       {d.status === 'review' && write && <button disabled={busy} onClick={() => act('return', { note: window.prompt('Причина за връщане:') || '' }, 'Върнат за корекция')}>Върни за корекция</button>}
       {d.status === 'review' && (special ? can('approvals', 'approve') : write) && <button className="primary" disabled={busy} onClick={() => act('approve', {}, 'Договорът е одобрен. Създадена е версия 1.')}>Одобри</button>}
-      {d.status === 'approved' && write && <button className="primary" disabled={busy} onClick={() => act('sign', { signed_on: window.prompt('Дата на подписване (ГГГГ-ММ-ДД):', new Date().toISOString().slice(0, 10)) || undefined }, 'Договорът е подписан. Сроковете са активни.')}>Отбележи като подписан</button>}</>}>
+      {d.status === 'approved' && write && <button className="primary" disabled={busy} onClick={() => setSignF({ signed_on: new Date().toISOString().slice(0, 10), install_start: d.install_start || '', install_deadline: d.install_deadline || '' })}>Отбележи като подписан</button>}</>}>
       {d.status === 'review' && special && <div className="alert warn">Договорът е със специални условия и се одобрява от Управител.</div>}
       {d.status !== 'draft' && <div className="alert">Договорените клаузи са заключени — промени в количества, цени и дати се правят с анекс. Дневните срокове се уточняват и след подпис.</div>}
       <div className="form c3">
@@ -56,6 +60,16 @@ function ContractTab({ pid, onChange }: { pid: number; onChange: () => void }) {
         <Field label="Специални условия (от Управител или Оферти)" full><textarea {...f.bind('special_terms')} disabled={!draft} /></Field>
       </div>
     </Card>
+    {signF && <Modal title={`Подписване на ${d.code}`} onClose={() => setSignF(null)}>
+      <p className="muted">Монтажният прозорец се уточнява при подписване и се записва в договора.</p>
+      <div className="form c3">
+        <Field label="Дата на подписване"><input type="date" value={signF.signed_on} onChange={e => setSignF({ ...signF, signed_on: e.target.value })} /></Field>
+        <Field label="Начало на монтажа"><input type="date" value={signF.install_start} onChange={e => setSignF({ ...signF, install_start: e.target.value })} /></Field>
+        <Field label="Краен срок за монтаж"><input type="date" value={signF.install_deadline} onChange={e => setSignF({ ...signF, install_deadline: e.target.value })} /></Field>
+      </div>
+      <div className="row" style={{ justifyContent: 'flex-end' }}><button className="primary" disabled={busy || !signF.install_start || !signF.install_deadline}
+        onClick={() => run(async () => { await api.post(`/projects/${pid}/contract/sign`, signF); setSignF(null); await c.reload(); onChange(); }, 'Договорът е подписан. Сроковете са активни.')}>Подпиши</button></div>
+    </Modal>}
     <ContractTimeline d={d} />
     <PaymentsCard pid={pid} d={d} cur={cur} write={write} busy={busy} onSaved={async () => { await c.reload(); onChange(); }} />
     <ContractFiles pid={pid} contract={d} docs={docs} write={write} />
@@ -233,6 +247,7 @@ export function ProjectCard({ id }: { id: number }) {
         <button className="sm primary" disabled={busy} onClick={() => run(async () => { await api.post(`/projects/${id}/reopen-decide`, { action: 'approve' }); await p.reload(); }, 'Обектът е върнат в изпълнение')}>Върни в изпълнение</button>
         <button className="sm ghost" disabled={busy} onClick={() => { const note = window.prompt('Причина за отказ:'); if (note != null) run(async () => { await api.post(`/projects/${id}/reopen-decide`, { action: 'reject', note }); await p.reload(); }, 'Заявката е отхвърлена'); }}>Откажи</button></span>}
     </div>}
+    {d.archived ? <div className="alert bad">Обектът е архивиран — показан е архивният запис, не активна работа.{write ? ' „Възстанови от архив“ го връща в списъка.' : ''}</div> : null}
     <div className="grid g4 kpis-m" style={{ marginBottom: 14 }}>
       <Kpi label="Изпълнение" value={d.progress_pct + '%'} sub={<Progress pct={d.progress_pct} />} />
       {money ? <Kpi label={`Договорна стойност, ${cur}`} value={fmtMoney(d.finance.contract_value)} sub={`себестойност ${fmtMoney(d.finance.cost_price)}`} /> : <Kpi label="Договор" value={d.contract ? d.contract.code : '—'} sub={d.contract && <Status value={d.contract.status} />} />}
@@ -245,8 +260,9 @@ export function ProjectCard({ id }: { id: number }) {
 
     {tab === 'overview' && <div className="grid g2">
       <Card title="Жизнен цикъл на обекта"><div className="stages">{d.stages.map((s: any) => <div key={s.code} className={'stage ' + s.status}><i /><div><b>{s.name}</b> <DeptBadge code={s.department} />
+        {s.reverted ? <span className="badge">върнат</span> : null}
         {s.done_at && <span className="muted small"> · {fmtDate(s.done_at)}{s.done_by_name ? ', ' + s.done_by_name : ''}</span>}</div>
-        {write && <span className="row" style={{ flexWrap: 'nowrap' }}>{s.status !== 'done' && <button className="sm" disabled={busy} onClick={() => stage(s.code, 'done')}>Готово</button>}
+        {write && !DOMAIN_STAGES.has(s.code) && <span className="row" style={{ flexWrap: 'nowrap' }}>{s.status !== 'done' && <button className="sm" disabled={busy} onClick={() => stage(s.code, 'done')}>Готово</button>}
           {s.status === 'pending' && <button className="sm ghost" disabled={busy} onClick={() => stage(s.code, 'skipped')}>Пропусни</button>}
           {(s.status === 'done' || s.status === 'skipped') && <button className="sm ghost" disabled={busy} onClick={() => stage(s.code, 'pending')}>Върни</button>}</span>}</div>)}</div>
         {write && <button className="sm" style={{ marginTop: 10 }} onClick={() => { const name = window.prompt('Име на допълнителния етап:'); if (name) run(async () => { await api.post(`/projects/${id}/stages`, { add: name }); await p.reload(); }); }}>+ Допълнителен етап</button>}</Card>

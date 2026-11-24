@@ -110,6 +110,23 @@ test('change requests: project delete-request archives the object (FK-safe tombs
   } finally { await t.stop(); }
 });
 
+test('change requests: contract delete-requests refused at filing — the contract is a legal record', async () => {
+  const t = await start();
+  try {
+    const s = await seedOffer(t);
+    await t.admin.post(`/api/offers/${s.offer.id}/confirm`);
+    t.sync();
+    const p = (await t.admin.get('/api/projects')).data[0];
+    const c = (await t.admin.get(`/api/projects/${p.id}/contract`)).data;
+    const cr = await t.admin.post('/api/change-requests', { entity_type: 'contract', entity_id: c.id, kind: 'delete', reason: 'грешен договор' });
+    assert.equal(cr.status, 400, 'договорът не се изтрива — отказва се още при подаване');
+    assert.match(cr.data.error || '', /договор/i);
+    // редакция по бял списък остава позволена — само изтриването е отказано
+    const edit = await t.admin.post('/api/change-requests', { entity_type: 'contract', entity_id: c.id, kind: 'edit', payload: { advance_pct: 40 }, reason: 'корекция на аванс' });
+    assert.equal(edit.status, 200, 'edit-заявка по договор продължава да работи');
+  } finally { await t.stop(); }
+});
+
 test('change requests: validation — unknown entity/col, missing reason, non-admin queue', async () => {
   const t = await start();
   try {

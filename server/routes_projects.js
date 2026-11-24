@@ -7,6 +7,8 @@ import { h, pick } from './app.js';
 import { refreshProject, weatherView } from './weather.js';
 
 export default function mountProjects(app, db) {
+  // Етапи, управлявани изцяло от домейн действия върху договора — никога ръчни отметки.
+  const CONTRACT_STAGES = new Set(['project_card', 'contract_generation', 'contract_approval']);
   const contractView = projectId => {
     const c = db.prepare(`SELECT c.*, p.code AS project_code, p.name AS project_name, cu.name AS customer_name FROM contracts c
       JOIN projects p ON p.id = c.project_id JOIN customers cu ON cu.id = p.customer_id WHERE c.project_id = ?`).get(projectId);
@@ -60,7 +62,7 @@ export default function mountProjects(app, db) {
   /** draft -> review -> approved (immutable version 1) -> signed (event). */
   app.post('/api/projects/:pid/contract/:action', h(req => {
     const pid = Number(req.params.pid), action = req.params.action;
-    if (action === 'sign') { need(req.user, 'contracts', 'write'); return { event_id: signContract(db, req.user, pid, req.body?.signed_on) }; }
+    if (action === 'sign') { need(req.user, 'contracts', 'write'); return { event_id: signContract(db, req.user, pid, req.body || {}) }; }
     return tx(db, () => {
       const c = db.prepare('SELECT * FROM contracts WHERE project_id = ?').get(pid);
       if (!c) throw new HttpError(404, 'Няма договор');
@@ -184,7 +186,7 @@ export default function mountProjects(app, db) {
     // Reopening invalidates the downstream too: stages completed after the target belonged
     // to the closed reality and go back to pending (their done audit rows stay in the log).
     const target = db.prepare('SELECT sort FROM project_stages WHERE project_id = ? AND code = ?').get(id, stage_code);
-    db.prepare("UPDATE project_stages SET status = 'pending', done_at = NULL, done_by = NULL WHERE project_id = ? AND sort > ?").run(id, target?.sort ?? 0);
+    db.prepare("UPDATE project_stages SET status = 'pending', done_at = NULL, done_by = NULL, reverted = CASE WHEN status IN ('done','skipped') THEN 1 ELSE reverted END WHERE project_id = ? AND sort > ?").run(id, target?.sort ?? 0);
     setStage(db, id, stage_code, 'active', req.user, 'Върнат след решение на Управител');
     db.prepare("UPDATE projects SET archived = 0, row_version = row_version + 1 WHERE id = ?").run(id);
     syncProjectStatus(db, id);
@@ -280,6 +282,9 @@ export default function mountProjects(app, db) {
     const s = db.prepare('SELECT * FROM project_stages WHERE project_id = ? AND code = ?').get(id, b.code);
     if (!s) throw new HttpError(404, 'Няма такъв етап');
     if (!['pending', 'active', 'done', 'skipped'].includes(b.status)) throw bad('Невалиден статус');
+    // Договорните етапи са огледало на факти (създаден/изпратен/одобрен договор) —
+    // отметка по тях би откъснала картона от действителността; променят се само с действията върху договора.
+    if (s.status !== b.status && CONTRACT_STAGES.has(b.code)) throw bad('Етапът се управлява автоматично от договора и отразява свършен факт');
     if (s.requires_approval && b.status === 'done') need(req.user, 'approvals', 'approve');
     setStage(db, id, b.code, b.status, req.user, b.note || null);
     audit(db, req.user, { project_id: id, entity_type: 'stage', entity_id: s.id, action: 'status', before: { status: s.status }, after: { status: b.status, note: b.note }, module: 'projects' });

@@ -185,6 +185,55 @@ test('contract calendar: post-signing production days are enterable; missing day
   } finally { await t.stop(); }
 });
 
+test('contract sign collects the install window agreed at signing; papered dates stay locked', async () => {
+  const t = await start();
+  try {
+    const s = await seedOffer(t);
+    await t.admin.post(`/api/offers/${s.offer.id}/confirm`);
+    t.sync();
+    const p = (await t.admin.get('/api/projects')).data[0];
+    await t.admin.post(`/api/projects/${p.id}/contract/submit`);
+    await t.admin.post(`/api/projects/${p.id}/contract/approve`);
+    // одобрен договор без монтажен прозорец — а датите са заключени след чернова:
+    // актът на подписване събира ги сам, не изисква ги предварително
+    assert.equal((await t.admin.post(`/api/projects/${p.id}/contract/sign`, { signed_on: '2025-12-29' })).status, 400, 'без прозорец — отказ');
+    assert.equal((await t.admin.post(`/api/projects/${p.id}/contract/sign`, { signed_on: '2025-12-29', install_start: '2026-06-01', install_deadline: '2026-01-05' })).status, 400, 'край преди начало — отказ');
+    const c0 = (await t.admin.get(`/api/projects/${p.id}/contract`)).data;
+    assert.equal((await t.admin.patch(`/api/projects/${p.id}/contract`, { install_start: '2026-01-05', row_version: c0.row_version })).status, 400, 'печатните дати остават заключени');
+    const sign = await t.admin.post(`/api/projects/${p.id}/contract/sign`, { signed_on: '2025-12-29', install_start: '2026-01-05', install_deadline: '2026-12-20' });
+    assert.equal(sign.status, 200, JSON.stringify(sign.data));
+    const c = (await t.admin.get(`/api/projects/${p.id}/contract`)).data;
+    assert.equal(c.status, 'signed');
+    assert.equal(c.install_start, '2026-01-05');
+    assert.equal(c.install_deadline, '2026-12-20');
+  } finally { await t.stop(); }
+});
+
+test('stage revert clears the completion stamp and marks „върнат“; contract stages are domain-owned', async () => {
+  const t = await start();
+  try {
+    const { project } = await signedProject(t);
+    const stagesOf = async () => (await t.admin.get(`/api/projects/${project.id}`)).data.stages;
+    await setStage(t, project.id, 'execution', 'done');
+    let exec = (await stagesOf()).find(s => s.code === 'execution');
+    assert.ok(exec.done_at && exec.done_by, 'done носи печат на изпълнение');
+    assert.equal((await setStage(t, project.id, 'execution', 'pending')).status, 200);
+    exec = (await stagesOf()).find(s => s.code === 'execution');
+    assert.equal(exec.status, 'pending');
+    assert.equal(exec.done_at, null, 'връщането чисти датата на изпълнение');
+    assert.equal(exec.done_by, null, 'връщането чисти изпълнилия');
+    assert.equal(exec.reverted, 1, 'етапът е маркиран „върнат“');
+    await setStage(t, project.id, 'execution', 'done');
+    exec = (await stagesOf()).find(s => s.code === 'execution');
+    assert.equal(exec.reverted, 0, 'ново завършване чисти маркера');
+    // етапите на договора са огледало на подписания факт — не се пипат с отметка
+    assert.equal((await setStage(t, project.id, 'contract_approval', 'pending')).status, 400, 'няма ръчно връщане на одобрението');
+    assert.equal((await setStage(t, project.id, 'contract_approval', 'done')).status, 200, 'done→done остава no-op');
+    const ca = (await stagesOf()).find(s => s.code === 'contract_approval');
+    assert.equal(ca.status, 'done', 'етапът остава отражение на подписания договор');
+  } finally { await t.stop(); }
+});
+
 test('lifecycle: skipped stages count as finished; reopening regresses status', async () => {
   const t = await start();
   try {
