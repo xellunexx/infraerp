@@ -58,23 +58,27 @@ function UserForm({ initial, onClose, onSaved }: { initial?: any; onClose: () =>
   const { run, busy } = useAction();
   const [uid, setUid] = useState<number | undefined>(initial?.id);
   const ov = useLoad<any[]>(uid ? `/users/${uid}/overrides` : null);
-  const perms = useLoad<any>(uid ? '/permissions' : null);
+  const perms = useLoad<any>('/permissions');
   const [preset, setPreset] = useState<Record<string, string>>({});
   const [ovRaw, setOvRaw] = useState<Record<string, any>>({});
   useEffect(() => { if (ov.data) { const p: Record<string, string> = {}, raw: Record<string, any> = {};
     for (const o of ov.data) { p[o.resource] = presetOf(o); raw[o.resource] = o; } setPreset(p); setOvRaw(raw); } }, [ov.data]);
+  const ovRows = () => Object.entries(preset).filter(([, p]) => p && p !== 'inherit').map(([res, p]) => {
+    const [r, w, a] = p === 'custom' ? [+!!ovRaw[res].can_read, +!!ovRaw[res].can_write, +!!ovRaw[res].can_approve] : OVR_PRESETS[p];
+    return { resource: res, can_read: r, can_write: w, can_approve: a };
+  });
   const save = () => run(async () => {
     const body: any = { ...f.v, active: !!Number(f.v.active) };
     if (!body.password) delete body.password;
-    if (!uid) { const r = await api.post<any>('/users', body); setUid(r.id); return; } // остава отворено — следва задаване на ограничения
-    await api.patch(`/users/${uid}`, body);
-    if (ov.data) {
-      const rows = Object.entries(preset).filter(([, p]) => p && p !== 'inherit').map(([res, p]) => {
-        const [r, w, a] = p === 'custom' ? [+!!ovRaw[res].can_read, +!!ovRaw[res].can_write, +!!ovRaw[res].can_approve] : OVR_PRESETS[p];
-        return { resource: res, can_read: r, can_write: w, can_approve: a };
-      });
-      await api.put(`/users/${uid}/overrides`, { rows });
+    if (!uid) {
+      const r = await api.post<any>('/users', body);
+      setUid(r.id);
+      const rows = ovRows();
+      if (rows.length) await api.put(`/users/${r.id}/overrides`, { rows });
+      onSaved(); return; // остава отворено — модулите вече са приложени, остава донастройка при нужда
     }
+    await api.patch(`/users/${uid}`, body);
+    if (ov.data) await api.put(`/users/${uid}/overrides`, { rows: ovRows() });
     onSaved(); onClose();
   }, 'Потребителят е записан');
   return <Modal wide title={uid ? `Потребител ${f.v.username}` : 'Нов потребител'} onClose={onClose}
@@ -90,13 +94,13 @@ function UserForm({ initial, onClose, onSaved }: { initial?: any; onClose: () =>
       <Field label="Офис"><input {...f.bind('office')} placeholder="Бургас, София, Варна" /></Field>
       <Field label={uid ? 'Нова парола (празно = без промяна)' : 'Парола (поне 8 символа)'} full><input type="password" {...f.bind('password')} autoComplete="new-password" /></Field>
     </div>
-    {uid && <div style={{ marginTop: 14 }}>
+    <div style={{ marginTop: 14 }}>
       <h3 style={{ margin: '0 0 4px' }}>Достъп по модули</h3>
       <div className="muted small" style={{ marginBottom: 8 }}>Ролята определя основния достъп. Тук може да добавите други модули към потребителя или да ограничите част от тях — така един човек покрива няколко звена. Промените важат веднага.</div>
       {perms.data && <EffectiveAccess role={f.v.role} rows={perms.data.rows} preset={preset} ovRaw={ovRaw} />}
       <div style={{ maxHeight: 240, overflow: 'auto' }}><table className="t"><tbody>
         {Object.keys(RES_LABEL).map(res => <tr key={res}><td style={{ width: '55%' }}>{RES_LABEL[res]}</td><td>
-          <select value={preset[res] ?? 'inherit'} disabled={!ov.data} onChange={e => setPreset(p => ({ ...p, [res]: e.target.value }))}>
+          <select value={preset[res] ?? 'inherit'} disabled={!perms.data} onChange={e => setPreset(p => ({ ...p, [res]: e.target.value }))}>
             <option value="inherit">По подразбиране (ролята)</option>
             <option value="none">Без достъп</option>
             <option value="read">Само четене</option>
@@ -105,8 +109,7 @@ function UserForm({ initial, onClose, onSaved }: { initial?: any; onClose: () =>
             {preset[res] === 'custom' && <option value="custom">Персонализирано</option>}
           </select></td></tr>)}
       </tbody></table></div>
-    </div>}
-    {!uid && <div className="muted small" style={{ marginTop: 10 }}>След създаването ще можете да зададете ограничения по модули за този потребител.</div>}
+    </div>
   </Modal>;
 }
 
