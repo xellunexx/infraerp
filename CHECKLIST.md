@@ -72,8 +72,12 @@ Tests: `npm test` (21 tests, all passing at the last run). Web build: `npm run b
 - [x] Photos/documents: multipart upload/list/download API under `documents` permission — tested (versioning tables pre-existing)
 - [ ] Растер на настилките — not built (operator deferred)
 - [x] Issues workflow: report → in_progress → resolved (resolution required) → reopen/cancel, dept routing + notify, UI in Бригадир — tested
-- [ ] Material requests (`request.created` handlers), machinery/asset allocation — Phase 3
-## Phase 3 — Resources: NOT started (Warehouse, requests, reservations, Logistics, machinery, transfers, returns)
+- [x] Material requests: MRQ lifecycle (submit → approve+reserve → fulfil → issue) — tested; requests filed from Warehouse AND from Technical/Contracts via `/api/projects/:pid/material-requests` (origin stamped)
+- [x] Machinery/asset allocation lives under Logistics (`assets` + `asset_allocations`); Warehouse gets a read-only fleet view (`/api/warehouse/fleet`)
+## Phase 3 — Resources: BUILT (`/warehouse` live: stock, movements, requests, reservations, transfers, returns)
+- [x] Movements: receipt/issue/return/adjust + project↔project transfer (paired `transfer_out`+`transfer_in` in one transaction, warehouse total unchanged, on-site shifts) — tested
+- [x] Issue movements carry `project_line_id` from the request item → on-site consumption is attributable to a КС line — tested
+- [x] Demand assistant (`/warehouse/demand`): required vs free vs reserved → suggest_qty + short — tested; now also lists products physically on-site but not in the plan (`issued > 0`)
 ## Phase 3.5 — Logistics: BUILT (`/logistics` live)
 - [x] Portfolio: per-project delivery counts by status + live allocations + fleet status — tested
 - [x] Deliveries: DLV-####, items[] (product+qty), carrier/courier/pallets/vehicle, request link, planned→in_transit→delivered/cancelled flow, 409 edits — tested
@@ -89,6 +93,16 @@ Tests: `npm test` (21 tests, all passing at the last run). Web build: `npm run b
 - [x] Accommodations: per-project records (place, dates, beds, cost/night, payment method) — tested
 - [x] Finance views: portfolio KPIs + per-project reconciliation (`calc.finance()`) + Project Card "Финанси" tab — tested
 - [x] Project lifecycle status: `projects.status` derives from the stage checklist (leading edge), on_hold/archive manual — tested; startup sweep heals existing rows
+- [x] Shared ledger `/api/ledger`: fixed `tx_kind` vocabulary + free-text category, method bank/cash/card, `company` legal entity (ЕВРОВАГ), cost centers, accountable persons, assets, VAT flag+amount, PKO/RKO, labour worker×days×rate; filters + totals — tested + live-checked on a real-DB clone
+- [x] Document→settlement matching: `open_amount` computed from linked paid rows, partial payments supported, payment→payment and direction-mismatch rejected — tested + live
+- [x] Accountable-person cards (`/api/accountable-persons/:id/card`): given / spent / returned / balance — tested + live
+- [x] Cost centers CRUD (`/api/cost-centers`) — live-checked
+- [x] Supplier orders `/api/supplier-orders`: ready date from advance+prod days, days-left countdown, final amount, expected-vs-forecast delivery, auto status — tested + live
+- [x] Contract payment milestones `PUT .../contract/payments` (advance/interim/final, real paid dates) + computed `final_deadline` (never typed); `contract_kind` + prod/install days editable while draft — tested + live
+- [x] Dashboard buckets `/api/dashboard`: negotiating / upcoming (awaiting_advance flag) / executing — tested + live
+- [x] Project reopen flow: reasoned request → Management approval → target stage active + downstream stages reset → status re-derived; events + notifications — tested
+- [x] Notifications carry project + author + linked-entity status; unread filter on the page — tested
+- [ ] Import of the real workbook (`Таблица ексел.xlsx`, 578-row master sheet) — analyzed as the design reference, no import tool yet
 - [ ] Proforma document printing (records exist, no printable invoice yet)
 - [ ] Automatic postings from completed work / cost allocations (kept manual per design — traceable + approval rules)
 - [ ] Worker communication about accommodation/parking — records only

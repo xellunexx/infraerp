@@ -1,8 +1,8 @@
 // Счетоводство: проформи, приходи/разходи, заявки за плащане с одобрение от Управител, настаняване, финансов преглед по обект и портфолио.
 import crypto from 'node:crypto';
 import { tx, nextCode } from './db.js';
-import { HttpError, bad, need, canSeeProject, audit, updateRow, emit, notify, on, setting, resolveApproval } from './core.js';
-import { finance } from './calc.js';
+import { HttpError, bad, need, can, canSeeProject, audit, updateRow, emit, notify, on, setting, resolveApproval } from './core.js';
+import { finance, personCard, supplierOrderView, round2 } from './calc.js';
 import { h, pick, num, reqStr } from './app.js';
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -15,6 +15,10 @@ const reqDate = (v, label, { required = true } = {}) => {
 const today = () => new Date().toISOString().slice(0, 10);
 const PROFORMA_KINDS = ['advance', 'interim', 'final', 'other'];
 const TX_STATUSES = ['planned', 'committed', 'paid', 'voided'];
+// §14.1: the workbook's hand-typed „вид" column becomes a fixed vocabulary; category stays free text below it
+const TX_KINDS = ['client', 'supplier_doc', 'bank_in', 'bank_out', 'proforma', 'labour', 'fiscal', 'card', 'no_doc', 'store', 'other'];
+const TX_METHODS = ['bank', 'cash', 'card'];
+const SO_MANUAL_STATUSES = ['ordered', 'delivered', 'cancelled']; // 'ordered' resets to auto-derived status
 
 export default function mountAccounting(app, db) {
   const project = id => db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
@@ -26,9 +30,15 @@ export default function mountAccounting(app, db) {
   // ---- views
   const proformaView = `SELECT f.*, p.code AS project_code, p.name AS project_name, c.name AS customer_name, u.full_name AS created_by_name
     FROM proformas f JOIN projects p ON p.id = f.project_id JOIN customers c ON c.id = p.customer_id LEFT JOIN users u ON u.id = f.created_by`;
-  const txView = `SELECT t.*, p.code AS project_code, p.name AS project_name, c.name AS customer_name, pf.code AS proforma_code, u.full_name AS created_by_name
+  const txView = `SELECT t.*, p.code AS project_code, p.name AS project_name, c.name AS customer_name, pf.code AS proforma_code, u.full_name AS created_by_name,
+      ap.name AS person_name, cc.name AS cost_center_name, ast.name AS asset_name, ast.plate AS asset_plate, d.code AS document_code,
+      (SELECT COALESCE(SUM(c2.amount), 0) FROM transactions c2 WHERE c2.document_id = t.id AND c2.status = 'paid') AS paid_sum
     FROM transactions t LEFT JOIN projects p ON p.id = t.project_id LEFT JOIN customers c ON c.id = p.customer_id
-    LEFT JOIN proformas pf ON pf.id = t.proforma_id LEFT JOIN users u ON u.id = t.created_by`;
+    LEFT JOIN proformas pf ON pf.id = t.proforma_id LEFT JOIN users u ON u.id = t.created_by
+    LEFT JOIN accountable_persons ap ON ap.id = t.person_id LEFT JOIN cost_centers cc ON cc.id = t.cost_center_id
+    LEFT JOIN assets ast ON ast.id = t.asset_id LEFT JOIN transactions d ON d.id = t.document_id`;
+  // open balance lives on document rows: what the invoice is still owed after its settlement rows
+  const withOpen = t => t ? { ...t, open_amount: t.document_id == null ? round2(Math.max(0, t.amount - (t.paid_sum || 0))) : null } : t;
   const prView = `SELECT r.*, p.code AS project_code, p.name AS project_name, c.name AS customer_name, u.full_name AS requested_by_name,
       a.decided_by AS approval_decided_by, du.full_name AS decided_by_name, a.decision_note AS approval_note
     FROM payment_requests r LEFT JOIN projects p ON p.id = r.project_id LEFT JOIN customers c ON c.id = p.customer_id
@@ -58,7 +68,7 @@ export default function mountAccounting(app, db) {
     const w = [pid];
     return { ...finance(db, pid),
       proformas: db.prepare(`${proformaView} WHERE f.project_id = ? ORDER BY f.id DESC`).all(...w),
-      transactions: db.prepare(`${txView} WHERE t.project_id = ? ORDER BY t.tx_date DESC, t.id DESC`).all(...w),
+      transactions: db.prepare(`${txView} WHERE t.project_id = ? ORDER BY t.tx_date DESC, t.id DESC`).all(...w).map(withOpen),
       payment_requests: db.prepare(`${prView} WHERE r.project_id = ? ORDER BY r.id DESC`).all(...w),
       accommodations: db.prepare(`${accoView} WHERE a.project_id = ? ORDER BY a.id DESC`).all(...w) };
   }));
@@ -117,6 +127,21 @@ export default function mountAccounting(app, db) {
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
       .run(nextCode(db, 'TXN'), crypto.randomUUID(), pf.project_id, 'in', pf.kind, pf.amount, 'paid', today(), cust?.name || null, pf.code, pf.id, req.user.id).lastInsertRowid);
     db.prepare("UPDATE proformas SET status = 'paid', row_version = row_version + 1 WHERE id = ?").run(pf.id);
+    // Платена проформа по етап (аванс/междинно/окончателно) маркира съответния ред на разплащателния
+    // график — когато платеното по вида стигне сумата на етапа. Авансът от тук стартира крайния срок.
+    if (['advance', 'interim', 'final'].includes(pf.kind)) {
+      const cn = db.prepare('SELECT id FROM contracts WHERE project_id = ?').get(pf.project_id);
+      const ms = cn && db.prepare('SELECT * FROM contract_payments WHERE contract_id = ? AND kind = ?').get(cn.id, pf.kind);
+      if (cn && (!ms || !ms.paid_at)) {
+        const paidSum = db.prepare("SELECT COALESCE(SUM(amount), 0) s FROM proformas WHERE project_id = ? AND kind = ? AND status = 'paid'").get(pf.project_id, pf.kind).s;
+        if (!ms || ms.amount == null || paidSum >= ms.amount - 0.005) {
+          db.prepare(`INSERT INTO contract_payments(contract_id, kind, paid_at) VALUES (?,?,?)
+            ON CONFLICT(contract_id, kind) DO UPDATE SET paid_at = excluded.paid_at, updated_at = datetime('now')`).run(cn.id, pf.kind, today());
+          emit(db, req.user, { type: 'contract.payment_recorded', origin: 'contracts', project_id: pf.project_id, entity_type: 'contract', entity_id: cn.id,
+            dedupe_key: `contract.payment:${cn.id}:${pf.kind}:${today()}`, next: { kind: pf.kind, amount: pf.amount, paid_at: today() }, affected: ['accounting', 'management', 'technical'] });
+        }
+      }
+    }
     audit(db, req.user, { project_id: pf.project_id, entity_type: 'proforma', entity_id: pf.id, action: 'paid', before: { status: 'issued' }, after: { status: 'paid', transaction_id: tid }, module: 'accounting' });
     emit(db, req.user, { type: 'proforma.paid', origin: 'accounting', project_id: pf.project_id, entity_type: 'proforma', entity_id: pf.id,
       dedupe_key: `proforma.paid:${pf.id}`, prev: { status: 'issued' }, next: { status: 'paid', amount: pf.amount }, affected: ['accounting'] });
@@ -124,11 +149,76 @@ export default function mountAccounting(app, db) {
   })));
 
   // ---- Транзакции (приходи и разходи)
+  const txFilters = req => {
+    const w = [], args = [];
+    const q = req.query || {};
+    if (q.project_id) { w.push('t.project_id = ?'); args.push(Number(q.project_id)); }
+    if (q.person_id) { w.push('t.person_id = ?'); args.push(Number(q.person_id)); }
+    if (q.cost_center_id) { w.push('t.cost_center_id = ?'); args.push(Number(q.cost_center_id)); }
+    if (q.asset_id) { w.push('t.asset_id = ?'); args.push(Number(q.asset_id)); }
+    if (q.company) { w.push('t.company = ?'); args.push(String(q.company)); }
+    if (q.tx_kind) { w.push('t.tx_kind = ?'); args.push(String(q.tx_kind)); }
+    if (q.direction) { w.push('t.direction = ?'); args.push(String(q.direction)); }
+    if (q.from) { w.push('t.tx_date >= ?'); args.push(String(q.from)); }
+    if (q.to) { w.push('t.tx_date <= ?'); args.push(String(q.to)); }
+    if (q.document_id === 'null' || q.roots === '1') w.push('t.document_id IS NULL');
+    else if (q.document_id) { w.push('t.document_id = ?'); args.push(Number(q.document_id)); }
+    return { sql: w.length ? ' WHERE ' + w.join(' AND ') : '', args };
+  };
   app.get('/api/transactions', h(req => {
     need(req.user, 'finance');
     const w = wherePid(req, 't.project_id');
-    return db.prepare(`${txView}${w ? ' WHERE ' + w : ''} ORDER BY t.tx_date DESC, t.id DESC`).all(...(w ? [Number(req.query.project_id)] : []));
+    return db.prepare(`${txView}${w ? ' WHERE ' + w : ''} ORDER BY t.tx_date DESC, t.id DESC`).all(...(w ? [Number(req.query.project_id)] : [])).map(withOpen);
   }));
+  // ---- Книга: the single ledger, filtered into views (§14.1) — project / person / company / cost center / period
+  app.get('/api/ledger', h(req => {
+    need(req.user, 'finance');
+    const { sql, args } = txFilters(req);
+    const rows = db.prepare(`${txView}${sql} ORDER BY t.tx_date DESC, t.id DESC`).all(...args).map(withOpen);
+    const live = rows.filter(t => t.status !== 'voided');
+    const totals = { in: round2(live.filter(t => t.direction === 'in' && t.status === 'paid').reduce((s, t) => s + t.amount, 0)),
+      out: round2(live.filter(t => t.direction === 'out' && t.status === 'paid').reduce((s, t) => s + t.amount, 0)),
+      open_in: round2(live.filter(t => t.direction === 'in' && t.open_amount > 0).reduce((s, t) => s + t.open_amount, 0)),
+      open_out: round2(live.filter(t => t.direction === 'out' && t.open_amount > 0).reduce((s, t) => s + t.open_amount, 0)) };
+    const by_company = {};
+    for (const t of live.filter(t => t.status === 'paid')) {
+      const k = t.company || '—';
+      by_company[k] = by_company[k] || { in: 0, out: 0 };
+      by_company[k][t.direction] = round2(by_company[k][t.direction] + t.amount);
+    }
+    return { rows, totals, by_company, companies: JSON.parse(setting(db, 'finance_companies', '[]')) };
+  }));
+  // shared field parsing for POST + PATCH (the workbook's money columns as real fields)
+  const txFields = (req, b, pid, direction) => {
+    const f = {};
+    if (b.tx_kind !== undefined) { if (b.tx_kind != null && !TX_KINDS.includes(b.tx_kind)) throw bad('Невалиден вид операция'); f.tx_kind = b.tx_kind || null; }
+    if (b.method !== undefined) { if (b.method != null && !TX_METHODS.includes(b.method)) throw bad('Невалиден начин на плащане'); f.method = b.method || null; }
+    if (b.company !== undefined) f.company = b.company || null;
+    if (b.counterparty !== undefined) f.counterparty = b.counterparty || null;
+    if (b.document_ref !== undefined) f.document_ref = b.document_ref || null;
+    if (b.pko_no !== undefined) f.pko_no = b.pko_no || null;
+    if (b.rko_no !== undefined) f.rko_no = b.rko_no || null;
+    if (b.has_vat !== undefined) f.has_vat = b.has_vat ? 1 : 0;
+    if (b.vat_amount !== undefined) f.vat_amount = b.vat_amount == null || b.vat_amount === '' ? null : num(b.vat_amount, 'ДДС сума', { min: 0 });
+    if (b.labour_worker !== undefined) f.labour_worker = b.labour_worker || null;
+    if (b.labour_days !== undefined) f.labour_days = b.labour_days == null || b.labour_days === '' ? null : num(b.labour_days, 'Дни', { min: 0 });
+    if (b.labour_rate !== undefined) f.labour_rate = b.labour_rate == null || b.labour_rate === '' ? null : num(b.labour_rate, 'Надница', { min: 0 });
+    if (b.person_id !== undefined) f.person_id = b.person_id == null || b.person_id === '' ? null : (db.prepare('SELECT id FROM accountable_persons WHERE id = ?').get(Number(b.person_id)) || (() => { throw bad('Няма такова подотчетно лице'); })()).id;
+    if (b.cost_center_id !== undefined) f.cost_center_id = b.cost_center_id == null || b.cost_center_id === '' ? null : (db.prepare('SELECT id FROM cost_centers WHERE id = ?').get(Number(b.cost_center_id)) || (() => { throw bad('Няма такъв център на разходите'); })()).id;
+    if (b.asset_id !== undefined) f.asset_id = b.asset_id == null || b.asset_id === '' ? null : (db.prepare('SELECT id FROM assets WHERE id = ?').get(Number(b.asset_id)) || (() => { throw bad('Няма такова МПС'); })()).id;
+    // a settlement row must point at an existing document row of the same direction
+    if (b.document_id !== undefined) {
+      if (b.document_id == null || b.document_id === '') f.document_id = null;
+      else {
+        const doc = db.prepare('SELECT * FROM transactions WHERE id = ?').get(Number(b.document_id));
+        if (!doc || doc.status === 'voided') throw bad('Няма такъв документ за плащане');
+        if (doc.direction !== direction) throw bad('Плащането и документът трябва да са в една посока');
+        if (doc.document_id != null) throw bad('Плащане не може да се връзва към друго плащане — изберете документа');
+        f.document_id = doc.id;
+      }
+    }
+    return f;
+  };
   app.post('/api/transactions', h(req => tx(db, () => {
     need(req.user, 'finance', 'write');
     const b = req.body || {};
@@ -136,7 +226,8 @@ export default function mountAccounting(app, db) {
     const direction = b.direction;
     if (!['in', 'out'].includes(direction)) throw bad('Посоката трябва да е „in“ или „out“');
     const category = reqStr(b.category, 'Категория');
-    const amount = num(b.amount, 'Сума', { min: 0.000001 });
+    const labourAmt = b.labour_days != null && b.labour_rate != null && b.labour_days !== '' && b.labour_rate !== '' ? Number(b.labour_days) * Number(b.labour_rate) : null;
+    const amount = b.amount != null && b.amount !== '' ? num(b.amount, 'Сума', { min: 0.000001 }) : labourAmt != null && labourAmt > 0 ? round2(labourAmt) : num(b.amount, 'Сума', { min: 0.000001 });
     const status = b.status || 'paid';
     if (!['planned', 'committed', 'paid'].includes(status)) throw bad('Невалиден статус');
     let proformaId = null;
@@ -144,18 +235,23 @@ export default function mountAccounting(app, db) {
       const pf = db.prepare('SELECT * FROM proformas WHERE id = ?').get(Number(b.proforma_id));
       if (!pf) throw bad('Няма такава проформа');
       if (pid != null && pf.project_id !== pid) throw bad('Проформата е за друг обект');
-      proformaId = pf.id; if (pid == null) { /* keep null: receipt can stay company-level */ }
+      proformaId = pf.id;
     }
+    const ext = txFields(req, b, pid, direction);
+    const companyDefault = JSON.parse(setting(db, 'finance_companies', '[]'))[0] || null;
     const f = { code: nextCode(db, 'TXN'), uid: crypto.randomUUID(), project_id: pid, direction, category, amount, status,
       tx_date: reqDate(b.tx_date, 'Дата'), due_on: reqDate(b.due_on, 'Срок', { required: false }),
       counterparty: b.counterparty || null, document_ref: b.document_ref || null, proforma_id: proformaId,
       note: b.note || null, created_by: req.user.id };
-    const id = Number(db.prepare(`INSERT INTO transactions(code, uid, project_id, direction, category, amount, status, tx_date, due_on, counterparty, document_ref, proforma_id, note, created_by)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(f.code, f.uid, f.project_id, f.direction, f.category, f.amount, f.status, f.tx_date, f.due_on, f.counterparty, f.document_ref, f.proforma_id, f.note, f.created_by).lastInsertRowid);
-    audit(db, req.user, { project_id: pid, entity_type: 'transaction', entity_id: id, action: 'create', after: { code: f.code, direction, amount, category }, module: 'accounting' });
+    if (ext.company === undefined) ext.company = companyDefault;
+    const cols = ['code', 'uid', 'project_id', 'direction', 'category', 'amount', 'status', 'tx_date', 'due_on', 'counterparty', 'document_ref', 'proforma_id', 'note', 'created_by',
+      'tx_kind', 'method', 'company', 'document_id', 'cost_center_id', 'person_id', 'asset_id', 'has_vat', 'vat_amount', 'pko_no', 'rko_no', 'labour_worker', 'labour_days', 'labour_rate'];
+    const vals = cols.map(c => c === 'has_vat' ? (ext.has_vat ?? 0) : (f[c] !== undefined ? f[c] : (ext[c] ?? null)));
+    const id = Number(db.prepare(`INSERT INTO transactions(${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`).run(...vals).lastInsertRowid);
+    audit(db, req.user, { project_id: pid, entity_type: 'transaction', entity_id: id, action: 'create', after: { code: f.code, direction, amount, category, tx_kind: ext.tx_kind || null }, module: 'accounting' });
     emit(db, req.user, { type: 'transaction.recorded', origin: 'accounting', project_id: pid, entity_type: 'transaction', entity_id: id,
       dedupe_key: `transaction.recorded:${id}`, next: { code: f.code, direction, amount, category }, affected: ['accounting'] });
-    return db.prepare(`${txView} WHERE t.id = ?`).get(id);
+    return withOpen(db.prepare(`${txView} WHERE t.id = ?`).get(id));
   })));
   app.patch('/api/transactions/:id', h(req => tx(db, () => {
     need(req.user, 'finance', 'write');
@@ -174,9 +270,11 @@ export default function mountAccounting(app, db) {
       if (t.project_id != null && pf.project_id !== t.project_id) throw bad('Проформата е за друг обект');
       f.proforma_id = pf.id;
     }
+    Object.assign(f, txFields(req, b, t.project_id, t.direction));
+    if (f.document_id === t.id) throw bad('Плащането не може да сочи към самия документ');
     updateRow(db, 'transactions', t.id, f, b.row_version);
     audit(db, req.user, { project_id: t.project_id, entity_type: 'transaction', entity_id: t.id, action: 'update', before: pick(t, Object.keys(f)), after: f, module: 'accounting' });
-    return db.prepare(`${txView} WHERE t.id = ?`).get(t.id);
+    return withOpen(db.prepare(`${txView} WHERE t.id = ?`).get(t.id));
   })));
 
   // ---- Заявки за плащане -> одобрение от Управител (парите се въвеждат ръчно като транзакция)
@@ -261,6 +359,112 @@ export default function mountAccounting(app, db) {
     updateRow(db, 'accommodations', a.id, f, req.body?.row_version);
     audit(db, req.user, { project_id: a.project_id, entity_type: 'accommodation', entity_id: a.id, action: 'update', before: pick(a, Object.keys(f)), after: f, module: 'accounting' });
     return db.prepare(`${accoView} WHERE a.id = ?`).get(a.id);
+  })));
+
+  // ---- Подотчетни лица (§14.2): the card is a view over the ledger, never a copy
+  const personView = `SELECT p.*, u.full_name AS user_name, u.username FROM accountable_persons p LEFT JOIN users u ON u.id = p.user_id`;
+  app.get('/api/accountable-persons', h(req => {
+    need(req.user, 'finance');
+    return db.prepare(`${personView} ORDER BY p.name`).all().map(p => ({ ...p, ...Object.fromEntries(Object.entries(personCard(db, p.id)).filter(([k]) => k !== 'movements')) }));
+  }));
+  app.post('/api/accountable-persons', h(req => tx(db, () => {
+    need(req.user, 'finance', 'write');
+    const b = req.body || {}, name = reqStr(b.name, 'Име');
+    let user_id = null;
+    if (b.user_id != null && b.user_id !== '') { if (!db.prepare('SELECT 1 FROM users WHERE id = ?').get(Number(b.user_id))) throw bad('Няма такъв потребител'); user_id = Number(b.user_id); }
+    const id = Number(db.prepare('INSERT INTO accountable_persons(code, name, user_id, note) VALUES (?,?,?,?)')
+      .run(nextCode(db, 'PER'), name, user_id, b.note || null).lastInsertRowid);
+    audit(db, req.user, { entity_type: 'accountable_person', entity_id: id, action: 'create', after: { name }, module: 'accounting' });
+    return db.prepare(`${personView} WHERE p.id = ?`).get(id);
+  })));
+  app.patch('/api/accountable-persons/:id', h(req => tx(db, () => {
+    need(req.user, 'finance', 'write');
+    const p = db.prepare('SELECT * FROM accountable_persons WHERE id = ?').get(Number(req.params.id));
+    if (!p) throw new HttpError(404, 'Няма такова лице');
+    const f = pick(req.body || {}, ['name', 'note', 'active']);
+    if (f.name !== undefined) f.name = reqStr(f.name, 'Име');
+    if (req.body?.user_id !== undefined) { const uid = req.body.user_id == null || req.body.user_id === '' ? null : Number(req.body.user_id); if (uid != null && !db.prepare('SELECT 1 FROM users WHERE id = ?').get(uid)) throw bad('Няма такъв потребител'); f.user_id = uid; }
+    updateRow(db, 'accountable_persons', p.id, f, req.body?.row_version);
+    audit(db, req.user, { entity_type: 'accountable_person', entity_id: p.id, action: 'update', before: pick(p, Object.keys(f)), after: f, module: 'accounting' });
+    return db.prepare(`${personView} WHERE p.id = ?`).get(p.id);
+  })));
+  app.get('/api/accountable-persons/:id/card', h(req => {
+    need(req.user, 'finance');
+    const p = db.prepare(`${personView} WHERE p.id = ?`).get(Number(req.params.id));
+    if (!p) throw new HttpError(404, 'Няма такова лице');
+    return { person: p, ...personCard(db, p.id) };
+  }));
+
+  // ---- Центрове на разходите (§14.b): офис / склад / механизация / маркетинг / лични / кредити…
+  app.get('/api/cost-centers', h(req => { need(req.user, 'finance'); return db.prepare('SELECT * FROM cost_centers ORDER BY name').all(); }));
+  app.post('/api/cost-centers', h(req => tx(db, () => {
+    need(req.user, 'finance', 'write');
+    const b = req.body || {}, name = reqStr(b.name, 'Име');
+    const id = Number(db.prepare('INSERT INTO cost_centers(code, name, kind) VALUES (?,?,?)').run(nextCode(db, 'CC'), name, b.kind || 'overhead').lastInsertRowid);
+    audit(db, req.user, { entity_type: 'cost_center', entity_id: id, action: 'create', after: { name, kind: b.kind || 'overhead' }, module: 'accounting' });
+    return db.prepare('SELECT * FROM cost_centers WHERE id = ?').get(id);
+  })));
+  app.patch('/api/cost-centers/:id', h(req => tx(db, () => {
+    need(req.user, 'finance', 'write');
+    const c = db.prepare('SELECT * FROM cost_centers WHERE id = ?').get(Number(req.params.id));
+    if (!c) throw new HttpError(404, 'Няма такъв център');
+    const f = pick(req.body || {}, ['name', 'kind', 'active']);
+    if (f.name !== undefined) f.name = reqStr(f.name, 'Име');
+    updateRow(db, 'cost_centers', c.id, f, req.body?.row_version);
+    audit(db, req.user, { entity_type: 'cost_center', entity_id: c.id, action: 'update', before: pick(c, Object.keys(f)), after: f, module: 'accounting' });
+    return db.prepare('SELECT * FROM cost_centers WHERE id = ?').get(c.id);
+  })));
+
+  // ---- Поръчки към доставчици (§14.4): countdown on real bank dates, never typed deadlines
+  // споделеният запис се обслужва и от Логистика — тя следи движението на поръчките (един запис, различни изгледи)
+  const needSO = (u, action = 'read') => { if (!can(u, 'finance', action)) need(u, 'logistics', action); };
+  const soView = `SELECT o.*, p.code AS project_code, p.name AS project_name, l.description AS line_description, u.full_name AS created_by_name
+    FROM supplier_orders o JOIN projects p ON p.id = o.project_id LEFT JOIN project_lines l ON l.id = o.project_line_id
+    LEFT JOIN users u ON u.id = o.created_by`;
+  const soFields = (req, b, { forCreate = false } = {}) => {
+    const f = {};
+    if (forCreate || b.supplier !== undefined) f.supplier = reqStr(b.supplier, 'Доставчик');
+    for (const k of ['order_doc_no', 'note']) if (b[k] !== undefined) f[k] = b[k] || null;
+    for (const k of ['total_eur', 'advance_eur', 'prod_days', 'transport_days']) if (b[k] !== undefined)
+      f[k] = b[k] == null || b[k] === '' ? (forCreate ? 0 : null) : num(b[k], k === 'total_eur' ? 'Обща стойност' : k === 'advance_eur' ? 'Аванс' : 'Дни', { min: 0 });
+    for (const k of ['advance_paid_at', 'final_paid_at']) if (b[k] !== undefined) f[k] = reqDate(b[k], k === 'advance_paid_at' ? 'Дата на аванс' : 'Дата на доплащане', { required: false });
+    if (b.status !== undefined) { if (!SO_MANUAL_STATUSES.includes(b.status)) throw bad('Статусът се извежда сам; ръчно може само „delivered“, „cancelled“ или „ordered“ за връщане към автоматичен'); f.status = b.status; }
+    if (b.project_line_id !== undefined) f.project_line_id = b.project_line_id == null || b.project_line_id === '' ? null : (db.prepare('SELECT id FROM project_lines WHERE id = ?').get(Number(b.project_line_id)) || (() => { throw bad('Няма такъв ред от КС'); })()).id;
+    return f;
+  };
+  app.get('/api/supplier-orders', h(req => {
+    needSO(req.user);
+    const w = [], args = [];
+    if (req.query.project_id) { w.push('o.project_id = ?'); args.push(Number(req.query.project_id)); }
+    return db.prepare(`${soView}${w.length ? ' WHERE ' + w.join(' AND ') : ''} ORDER BY o.id DESC`).all(...args).map(o => supplierOrderView(o));
+  }));
+  app.post('/api/supplier-orders', h(req => tx(db, () => {
+    needSO(req.user, 'write');
+    const b = req.body || {};
+    const pid = optProject(req, b.project_id);
+    if (pid == null) throw bad('Обектът е задължителен');
+    const f = soFields(req, b, { forCreate: true });
+    const id = Number(db.prepare(`INSERT INTO supplier_orders(code, project_id, project_line_id, supplier, order_doc_no, total_eur, advance_eur,
+      advance_paid_at, prod_days, final_paid_at, transport_days, status, note, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .run(nextCode(db, 'SO'), pid, f.project_line_id ?? null, f.supplier, f.order_doc_no ?? null, f.total_eur ?? 0, f.advance_eur ?? 0,
+        f.advance_paid_at ?? null, f.prod_days ?? null, f.final_paid_at ?? null, f.transport_days ?? null, 'ordered', f.note ?? null, req.user.id).lastInsertRowid);
+    audit(db, req.user, { project_id: pid, entity_type: 'supplier_order', entity_id: id, action: 'create', after: { supplier: f.supplier, total_eur: f.total_eur }, module: 'accounting' });
+    emit(db, req.user, { type: 'supplier_order.created', origin: 'accounting', project_id: pid, entity_type: 'supplier_order', entity_id: id,
+      dedupe_key: `supplier_order.created:${id}`, next: { supplier: f.supplier, total_eur: f.total_eur }, affected: ['accounting', 'logistics'] });
+    return supplierOrderView(db.prepare(`${soView} WHERE o.id = ?`).get(id));
+  })));
+  app.patch('/api/supplier-orders/:id', h(req => tx(db, () => {
+    needSO(req.user, 'write');
+    const o = db.prepare('SELECT * FROM supplier_orders WHERE id = ?').get(Number(req.params.id));
+    if (!o) throw new HttpError(404, 'Няма такава поръчка');
+    needProjectGuard(req.user, o.project_id);
+    const f = soFields(req, req.body || {});
+    updateRow(db, 'supplier_orders', o.id, f, req.body?.row_version);
+    audit(db, req.user, { project_id: o.project_id, entity_type: 'supplier_order', entity_id: o.id, action: 'update', before: pick(o, Object.keys(f)), after: f, module: 'accounting' });
+    const paidKeys = ['advance_paid_at', 'final_paid_at'].filter(k => f[k]);
+    if (paidKeys.length) emit(db, req.user, { type: 'supplier_order.payment', origin: 'accounting', project_id: o.project_id, entity_type: 'supplier_order', entity_id: o.id,
+      dedupe_key: `supplier_order.payment:${o.id}:${f[paidKeys[0]]}:${paidKeys[0]}`, next: pick(f, paidKeys), affected: ['accounting', 'logistics', 'technical'] });
+    return supplierOrderView(db.prepare(`${soView} WHERE o.id = ?`).get(o.id));
   })));
 }
 

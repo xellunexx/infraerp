@@ -659,3 +659,93 @@ The final application should allow an employee to open a project and immediately
 Management must be able to see the actual state of the entire business without collecting information manually from individual employees.
 
 **The ultimate objective: one interconnected operational environment in which Commercial, Contracts, Technical, Accounting, Warehouse, Logistics, Brigadier and Management work on the same reality, with no departmental information silos and no uncontrolled duplication.**
+## 14. Confirmed operator specification — ledger model & adaptations (2026-11-20)
+
+Source: operator's two annotation files ("Тъмния" notes on the platform screens) plus the company's live
+accounting workbook ("Таблица ексел.xlsx"). Four forks were answered by the operator on 2026-11-20 and are
+binding: (a) ЕВРОВАГ is a **separate legal entity** → transactions carry a `company` tag and ledgers run
+per-company with a consolidated view; (b) scope is **everything incl. personal** → non-project spending lives
+in `cost_centers` (офис, склад, механизация, маркетинг, кредити, лични…); (c) a completed project reopens only
+with **Management approval**; (d) progress over the contracted КС quantity is **allowed silently**.
+
+### 14.1 The ledger (replaces the Excel sheets)
+
+One `transactions` table is the only book. What the workbook copied into 6 sheets becomes **filtered views**:
+per-project, per-person card, per-company, per-cost-center. No row is ever entered twice.
+
+- `tx_kind` replaces the hand-typed "вид" column: `client` (клиенти/приход по документ), `supplier_doc`
+  (фактура доставчик), `bank_in` / `bank_out`, `proforma`, `labour` (труд), `fiscal` (фискален бон),
+  `card` (изтеглени с карта → аванс на подотчетно лице), `no_doc` (без документ), `store` (складова разписка),
+  `other`. `category` stays free text underneath it.
+- **Document → settlement pairing:** a document row (invoice: `status=committed` = неплатено) is paid down by
+  child rows carrying `document_id` (the workbook's "основание" + partial payments, e.g. 13 555 = 6 500 +
+  7 055). `open_amount = amount − Σ(paid children)` is computed on read — never stored.
+- Money columns of the sheet become real fields: `amount` (gross), `has_vat` + `vat_amount` (net derived),
+  `method` (bank|cash|card), `pko_no` / `rko_no` (ПКО/РКО), `paid tx_date` (дата плащане), `due_on` (срок).
+- Dimensions are foreign keys, not text: `project_id` XOR `cost_center_id`, `person_id`, `asset_id`,
+  `counterparty`, `company`.
+- `labour` rows are structured: `labour_worker`, `labour_days`, `labour_rate` (amount = days×rate default) —
+  the workbook's "4*90" day-worker pay pattern.
+
+### 14.2 Подотчетни лица (employee cards)
+
+`accountable_persons` — a person may or may not be an ERP user. The card is a view over `transactions`:
+`given` = withdrawals/advances to the person, `spent` = their documented expenses, `returned` = money back;
+`balance = given − spent − returned` (>0 advance held, <0 company owes the person — the sheet's
+"да взима" notation).
+
+### 14.3 Contract payment schedule (Договори → полета)
+
+- `contracts.contract_kind`: `standard` (наш образец) | `client_template` (по образец на възложителя).
+- `contract_payments(contract_id, kind)`: advance|interim|final milestones, each with `pct`, `amount`,
+  `paid_at` — editable after signing (real bank dates arrive later; contract body stays versioned).
+- `contracts.prod_delivery_days` (уточнен с доставчик), `contracts.install_days`.
+- **`final_deadline` is computed** = advance.paid_at + prod_delivery_days + install_days; displayed, never typed.
+- Signed scans (договор, приложения, актове, ППП) attach as `documents` on the contract entity.
+
+### 14.4 Поръчки към доставчици (supplier_orders)
+
+Per Прил.1 position → live production/delivery tracking tied to real bank dates:
+
+- `supplier`, `order_doc_no`, `total_eur`, `advance_eur` + `advance_paid_at` → production countdown
+  (`prod_days`, `ready_date = advance_paid_at + prod_days`, `days_left`).
+- `final_paid_at` + `transport_days` → `expected_delivery` (real after final payment, forecast before).
+- `status` auto-derives ordered → in_production → in_transit; `delivered`/`cancelled` are manual.
+
+### 14.5 Картон на обекта — site fields
+
+In `site_questionnaire` JSON (existing): `phones[]` (label + number + active), `power` (монофазен|трифазен,
+distance m, проверен note), `water` (access bool + distance m), `waste` (контейнер/депо), `machinery`,
+`pallet_office` (address + локация). Existing `access_notes`/`unloading_notes`/`storage_notes` columns keep
+their role; GPS stays `latitude`/`longitude`.
+
+### 14.6 ТАБЛО — three project buckets (computed, never manual)
+
+- **В договаряне:** contract not signed (offer confirmed, contract draft/review/approved).
+- **Предстоящи:** contract signed AND execution not started. `advance_paid` flag shown; signed-but-unpaid
+  stays visible here with a "чака аванс" marker (operator rule "подписан + платен аванс" — unpaid shown so it
+  cannot fall between tabs).
+- **В изпълнение:** execution stage active / `actual_start` set / progress exists.
+- completed/closed/on_hold/archived are out of all three buckets.
+
+### 14.7 Reopen after completion
+
+"ГОТОВО" (stage done → status completed) is reversible only through **Management approval**:
+
+- `POST /projects/:id/reopen-request` → creates `approvals(kind='project_reopen')` pending + notifies Management.
+- `POST /projects/:id/reopen-decide` (approvals permission) → approve: target stage (default `execution`) back
+  to `active`, status re-derives, `project.reopened` event notifies every linked role; reject closes it.
+- The `approvals` UNIQUE key is reused via upsert so a later reopen attempt is a fresh pending decision.
+
+### 14.8 Notifications carry context
+
+`notifications` gains `ref_type`/`ref_id` (the event's entity) and `author_id` (event's user). The feed shows:
+which project, who caused it, whom it targets; task-linked notifications resolve the task's current status
+(свършена ли е) at read time.
+
+### 14.9 Smaller confirmed items
+
+- Projects list: "Договор, EUR" column removed (operator request).
+- КС line shows its offer image (joined via `source_offer_line_id → offer_lines.image_document_id`) and opens
+  the line's recipe — documents/images stay in the `documents` entity mechanism.
+- Progress over КС quantity: allowed silently (see §14 header).

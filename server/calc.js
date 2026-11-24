@@ -3,8 +3,10 @@ const r2 = n => Math.round((n + Number.EPSILON) * 100) / 100;
 const r3 = n => Math.round((n + Number.EPSILON) * 1000) / 1000;
 
 export function projectLines(db, projectId) {
-  return db.prepare(`SELECT l.*, COALESCE((SELECT SUM(qty) FROM progress_entries p WHERE p.project_line_id = l.id AND p.voided = 0), 0) AS done_qty
-    FROM project_lines l WHERE l.project_id = ? AND l.removed = 0 ORDER BY l.sort, l.id`).all(projectId);
+  return db.prepare(`SELECT l.*, COALESCE((SELECT SUM(qty) FROM progress_entries p WHERE p.project_line_id = l.id AND p.voided = 0), 0) AS done_qty,
+      ol.image_document_id
+    FROM project_lines l LEFT JOIN offer_lines ol ON ol.id = l.source_offer_line_id
+    WHERE l.project_id = ? AND l.removed = 0 ORDER BY l.sort, l.id`).all(projectId);
 }
 
 export function progressSummary(db, projectId) {
@@ -87,6 +89,37 @@ export function scheduleStatus(db, projectId, today = new Date().toISOString().s
     const slip = s.baseline_end && s.end_date ? days(s.baseline_end, s.end_date) : 0;
     return { ...s, pct, planned_pct: planned, late_days, slip_days: slip, behind: pct != null && planned != null && pct + 10 < planned };
   });
+}
+
+/** §14.4 supplier order view: real production countdown tied to bank dates.
+ *  ready_date = advance paid + production days; expected_delivery is real after the final
+ *  payment (final_paid_at + transport days) and a forecast before it (ready_date + transport). */
+const addDays = (iso, days) => days == null || !iso ? null : new Date(Date.parse(iso) + Math.round(Number(days)) * 86400000).toISOString().slice(0, 10);
+export function supplierOrderView(o, today = new Date().toISOString().slice(0, 10)) {
+  const ready_date = addDays(o.advance_paid_at, o.prod_days);
+  const days_left = ready_date ? Math.round((Date.parse(ready_date) - Date.parse(today)) / 86400000) : null;
+  const final_eur = o.total_eur != null && o.advance_eur != null ? r2(o.total_eur - o.advance_eur) : null;
+  const expected_delivery = o.final_paid_at && o.transport_days != null ? addDays(o.final_paid_at, o.transport_days)
+    : ready_date && o.transport_days != null ? addDays(ready_date, o.transport_days) : null;
+  const forecast = !(o.final_paid_at && o.transport_days != null) && expected_delivery != null;
+  let computed_status = 'ordered';
+  if (o.status === 'delivered' || o.status === 'cancelled') computed_status = o.status;
+  else if (o.final_paid_at) computed_status = 'in_transit';
+  else if (o.advance_paid_at) computed_status = 'in_production';
+  return { ...o, ready_date, days_left, final_eur, expected_delivery, delivery_forecast: forecast, computed_status };
+}
+
+/** §14.2 employee card: balance = advances given − documented spending − money returned.
+ *  given   = out rows that move company money to the person (tx_kind 'card'/'cash' advance or direction in
+ *            is not possible here: money out of the company, method card/cash, kind 'card')
+ *  spent   = out rows the person paid from the advance (any out kind that is not an advance)
+ *  returned= in rows where the person hands money back to the company */
+export function personCard(db, personId) {
+  const rows = db.prepare(`SELECT * FROM transactions WHERE person_id = ? AND status != 'voided' ORDER BY tx_date, id`).all(personId);
+  const given = rows.filter(t => t.direction === 'out' && t.tx_kind === 'card').reduce((s, t) => s + t.amount, 0);
+  const spent = rows.filter(t => t.direction === 'out' && t.tx_kind !== 'card').reduce((s, t) => s + t.amount, 0);
+  const returned = rows.filter(t => t.direction === 'in').reduce((s, t) => s + t.amount, 0);
+  return { movements: rows, given: r2(given), spent: r2(spent), returned: r2(returned), balance: r2(given - spent - returned) };
 }
 
 export function stock(db) {

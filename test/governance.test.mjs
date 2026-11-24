@@ -69,11 +69,14 @@ test('change requests: reject leaves record untouched; delete removes it; flag-o
     assert.equal(del.status, 200);
     await t.admin.post(`/api/change-requests/${del.data.id}/decide`, { decision: 'approve' });
     assert.equal((await t.admin.get('/api/products')).data.find(p => p.id === extra.data.id), undefined, 'продуктът е изтрит');
-    // рефериран запис не може да се изтрие — заявката остава pending с грешка
-    const blocked = await u.post('/api/change-requests', { entity_type: 'product', entity_id: tile.id, kind: 'delete', reason: 'опит за изтриване на използван' });
+    // рефериран запис не може да изчезне физически — тогава одобрената заявка го деактивира (надгробен флаг), не виси вечно
+    const blocked = await u.post('/api/change-requests', { entity_type: 'product', entity_id: tile.id, kind: 'delete', reason: 'изтриване на използван' });
     const bd = await t.admin.post(`/api/change-requests/${blocked.data.id}/decide`, { decision: 'approve' });
-    assert.equal(bd.status, 400, 'FK защитата отхвърля изтриването');
-    assert.equal((await t.admin.get(`/api/change-requests/${blocked.data.id}`)).data.status, 'pending', 'заявката остава за преглед');
+    assert.equal(bd.status, 200, 'заявката се прилага — не остава блокирана');
+    const bdView = (await t.admin.get(`/api/change-requests/${blocked.data.id}`)).data;
+    assert.equal(bdView.status, 'approved');
+    assert.equal(bdView.result.archived, true, 'резултатът казва „архивиран“, не изтрит');
+    assert.equal((await t.admin.get('/api/products')).data.find(p => p.id === tile.id).active, 0, 'продуктът е деактивиран');
 
     // само сигнализация (без payload) — админът затваря ръчно
     const flag = await u.post('/api/change-requests', { entity_type: 'customer', entity_id: (await t.admin.get('/api/customers')).data[0].id, kind: 'edit', reason: 'описание грешно, оправете го' });
@@ -82,6 +85,28 @@ test('change requests: reject leaves record untouched; delete removes it; flag-o
     const fd = (await t.admin.get(`/api/change-requests/${flag.data.id}`)).data;
     assert.equal(fd.status, 'approved');
     assert.equal(fd.result.applied, 'manual', 'без payload → ръчно затваряне');
+  } finally { await t.stop(); }
+});
+
+test('change requests: project delete-request archives the object (FK-safe tombstone)', async () => {
+  const t = await start();
+  try {
+    const s = await seedOffer(t);
+    await t.admin.post(`/api/offers/${s.offer.id}/confirm`);
+    t.sync();
+    const p = (await t.admin.get('/api/projects')).data[0];
+    // потребител заявява изтриване; админ одобрява — обектът има договор/редове → архив, не физическо триене
+    const cr = await t.admin.post('/api/change-requests', { entity_type: 'project', entity_id: p.id, kind: 'delete', reason: 'обектът е дублиран' });
+    assert.equal(cr.status, 200);
+    const dec = await t.admin.post(`/api/change-requests/${cr.data.id}/decide`, { decision: 'approve' });
+    assert.equal(dec.status, 200, JSON.stringify(dec.data));
+    const gone = (await t.admin.get('/api/projects')).data.find(x => x.id === p.id);
+    assert.equal(gone, undefined, 'архивираният обект изчезва от списъка Обекти');
+    const arch = (await t.admin.get('/api/projects?archived=1')).data.find(x => x.id === p.id);
+    assert.equal(arch.archived, 1, 'записът е запазен като архив (одитируемо)');
+    assert.equal(arch.status, 'closed');
+    const d = (await t.admin.get(`/api/change-requests/${cr.data.id}`)).data;
+    assert.equal(d.result.archived, true);
   } finally { await t.stop(); }
 });
 
@@ -139,6 +164,19 @@ test('user overrides: per-module visibility limits enforced server-side, persist
     assert.equal((await tech.post('/api/deliveries', { project_id: 1 })).status, 403);
     assert.equal((await tech.get('/api/projects')).status, 200, 'projects четим');
     assert.equal((await tech.patch('/api/projects/1', { name: 'x' })).status, 403, 'projects запис забранен');
+
+    // grant: модул извън ролята се добавя със същия механизъм — един потребител покрива два отдела
+    assert.equal((await tech.get('/api/supplier-orders')).status, 403, 'logistics скрит, finance липсва → 403');
+    assert.equal((await tech.put(`/api/users/${uid}/overrides`, { rows: [
+      { resource: 'finance', can_read: 1, can_write: 0, can_approve: 0 }] })).status, 403, 'само админ променя достъпа');
+    const grant = await t.admin.put(`/api/users/${uid}/overrides`, { rows: [
+      { resource: 'logistics', can_read: 0, can_write: 0, can_approve: 0 },
+      { resource: 'projects', can_read: 1, can_write: 0, can_approve: 0 },
+      { resource: 'finance', can_read: 1, can_write: 0, can_approve: 0 }] });
+    assert.equal(grant.status, 200);
+    assert.equal((await tech.get('/api/supplier-orders')).status, 200, 'finance read-override отключва финансовия изглед');
+    const costRow = (await tech.get('/api/projects')).data[0];
+    if (costRow) assert.ok(costRow.cost_price !== undefined, 'себестойност отключена за този потребител');
 
     // не-админ не може да пипа overrides; админ не може да ограничава админ
     assert.equal((await tech.put(`/api/users/${uid}/overrides`, { rows: [] })).status, 403);

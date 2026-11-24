@@ -9,17 +9,22 @@ const RES_LABEL: Record<string, string> = { customers: 'Клиенти', catalog
   settings: 'Настройки', events: 'Синхронизация' };
 
 export function Notifications({ onChange }: { onChange: () => void }) {
-  const list = useLoad<any[]>('/notifications');
+  const [unreadOnly, setUnreadOnly] = useState(false);
+  const list = useLoad<any[]>(unreadOnly ? '/notifications?unread=1' : '/notifications', [unreadOnly]);
   const { run } = useAction();
   const unread = (list.data || []).filter(n => !n.is_read).map(n => n.id);
   const mark = (ids: number[]) => run(async () => { await api.post('/notifications/read', { ids }); await list.reload(); onChange(); });
   return <>
-    <div className="page-head"><h1>Известия</h1><span className="spacer" />{unread.length > 0 && <button onClick={() => mark(unread)}>Маркирай всички като прочетени ({unread.length})</button>}</div>
+    <div className="page-head"><h1>Известия</h1><span className="spacer" />
+      <label className="row small" style={{ gap: 4 }}><input type="checkbox" checked={unreadOnly} onChange={e => setUnreadOnly(e.target.checked)} /> само непрочетени</label>
+      {unread.length > 0 && <button onClick={() => mark(unread)}>Маркирай всички като прочетени ({unread.length})</button>}</div>
     <div className="alert">Известието само съобщава за промяна. Самата операция (договор, резервация, одобрение) се извършва и записва отделно от синхронизацията.</div>
     <Card pad={false}><Loader state={list}>
       <Table rows={list.data || []} onRow={r => { if (!r.is_read) mark([r.id]); if (r.link) navigate(r.link); }} empty={<Empty title="Няма известия" />} cols={[
         { key: 'created_at', title: 'Кога', width: 130, render: r => fmtDateTime(r.created_at) }, { key: 'project_code', title: 'Обект', width: 120 },
-        { key: 'title', title: 'Известие', render: r => <div><div style={{ fontWeight: r.is_read ? 400 : 650 }}>{r.title}</div><div className="muted small">{r.body}</div></div> },
+        { key: 'title', title: 'Известие', render: r => <div><div style={{ fontWeight: r.is_read ? 400 : 650 }}>{r.title}</div><div className="muted small">{r.body}</div>
+          {r.ref_title && <div className="small muted">↳ {r.ref_title} <Status value={r.ref_status} /></div>}</div> },
+        { key: 'author_name', title: 'От', width: 130, render: r => r.author_name || 'система' },
         { key: 'department', title: 'За', render: r => r.department ? <DeptBadge code={r.department} /> : 'лично' },
         { key: 'severity', title: '', render: r => r.severity !== 'info' ? <span className={'badge ' + (r.severity === 'critical' ? 'bad' : 'warn')}>{r.severity === 'critical' ? 'критично' : 'внимание'}</span> : null }]} />
     </Loader></Card>
@@ -30,11 +35,30 @@ const OVR_PRESETS: Record<string, [number, number, number]> = { none: [0, 0, 0],
 const presetOf = (o: any) => { const k = `${o.can_read ? 1 : 0}${o.can_write ? 1 : 0}${o.can_approve ? 1 : 0}`;
   return { '000': 'none', '100': 'read', '110': 'rw', '111': 'full' }[k] || 'custom'; };
 
+// Ефективният достъп = роля + изключенията по модули — както го смята сървърът (core.js loadUser).
+function EffectiveAccess({ role, rows, preset, ovRaw }: { role: string; rows: any[]; preset: Record<string, string>; ovRaw: Record<string, any> }) {
+  const eff = Object.keys(RES_LABEL).map(res => {
+    const base = rows.find((r: any) => r.role === role && r.resource === res) || { can_read: 0, can_write: 0, can_approve: 0 };
+    const p = preset[res];
+    let r = !!base.can_read, w = !!base.can_write, a = !!base.can_approve;
+    if (p && p !== 'inherit') {
+      if (p === 'custom') { const o = ovRaw[res] || {}; [r, w, a] = [!!o.can_read, !!o.can_write, !!o.can_approve]; }
+      else [r, w, a] = OVR_PRESETS[p].map(x => !!x) as any;
+    }
+    return { res, r, w, a };
+  }).filter(x => x.r);
+  const lvl = (x: any) => x.a ? 'пълен' : x.w ? 'запис' : 'четене';
+  return <div style={{ marginBottom: 10 }}><span className="small muted">Ефективен достъп: </span>
+    {eff.length ? eff.map(x => <span key={x.res} className="badge" style={{ marginRight: 4 }}>{RES_LABEL[x.res]} <i className="muted" style={{ fontStyle: 'normal' }}>({lvl(x)})</i></span>)
+      : <span className="badge bad">няма достъп до нито един модул</span>}</div>;
+}
+
 function UserForm({ initial, onClose, onSaved }: { initial?: any; onClose: () => void; onSaved: () => void }) {
   const f = useForm({ username: '', full_name: '', role: 'commercial', phone: '', email: '', offer_letter: '', office: '', password: '', active: 1, ...(initial || {}) });
   const { run, busy } = useAction();
   const [uid, setUid] = useState<number | undefined>(initial?.id);
   const ov = useLoad<any[]>(uid ? `/users/${uid}/overrides` : null);
+  const perms = useLoad<any>(uid ? '/permissions' : null);
   const [preset, setPreset] = useState<Record<string, string>>({});
   const [ovRaw, setOvRaw] = useState<Record<string, any>>({});
   useEffect(() => { if (ov.data) { const p: Record<string, string> = {}, raw: Record<string, any> = {};
@@ -67,8 +91,9 @@ function UserForm({ initial, onClose, onSaved }: { initial?: any; onClose: () =>
       <Field label={uid ? 'Нова парола (празно = без промяна)' : 'Парола (поне 8 символа)'} full><input type="password" {...f.bind('password')} autoComplete="new-password" /></Field>
     </div>
     {uid && <div style={{ marginTop: 14 }}>
-      <h3 style={{ margin: '0 0 4px' }}>Ограничения по модули</h3>
-      <div className="muted small" style={{ marginBottom: 8 }}>По подразбиране потребителят вижда това, което позволява ролята. Тук можете да ограничите или разширите всеки модул поотделно — промените важат веднага.</div>
+      <h3 style={{ margin: '0 0 4px' }}>Достъп по модули</h3>
+      <div className="muted small" style={{ marginBottom: 8 }}>Ролята определя основния достъп. Тук може да добавите други модули към потребителя или да ограничите част от тях — така един човек покрива няколко звена. Промените важат веднага.</div>
+      {perms.data && <EffectiveAccess role={f.v.role} rows={perms.data.rows} preset={preset} ovRaw={ovRaw} />}
       <div style={{ maxHeight: 240, overflow: 'auto' }}><table className="t"><tbody>
         {Object.keys(RES_LABEL).map(res => <tr key={res}><td style={{ width: '55%' }}>{RES_LABEL[res]}</td><td>
           <select value={preset[res] ?? 'inherit'} disabled={!ov.data} onChange={e => setPreset(p => ({ ...p, [res]: e.target.value }))}>

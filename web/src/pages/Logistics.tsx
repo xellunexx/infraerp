@@ -1,7 +1,7 @@
 // Логистика: портфолио по обекти, доставки с артикели и статуси, техника и разпределението й.
 import React, { useState } from 'react';
 import { api, fmtDate, today } from '../api';
-import { Card, Empty, Field, Loader, Modal, Status, Table, Tabs, useAction, useCan, useLoad, usePath } from '../ui';
+import { Card, Empty, Field, Loader, Modal, Status, Table, Tabs, useAction, useCan, useForm, useLoad, usePath } from '../ui';
 
 const KIND: Record<string, string> = { to_site: 'До обект', return: 'Връщане', other: 'Друго' };
 const NEXT: Record<string, [string, string]> = { planned: ['in_transit', 'На път'], in_transit: ['delivered', 'Доставена'] };
@@ -17,7 +17,9 @@ export function Logistics() {
   const assets = useLoad<any[]>('/assets');
   const allocations = useLoad<any[]>(`/asset-allocations${q}`);
   const products = useLoad<any[]>('/products');
-  const reloadAll = () => { port.reload(); deliveries.reload(); assets.reload(); allocations.reload(); };
+  const orders = useLoad<any[]>(`/supplier-orders${q}`);
+  const cons = useLoad<any>(tab === 'consumption' && pid ? `/projects/${pid}/consumption` : null);
+  const reloadAll = () => { port.reload(); deliveries.reload(); assets.reload(); allocations.reload(); orders.reload(); cons.reload(); };
   const can = useCan();
   const write = can('logistics', 'write');
   const projects: any[] = port.data?.projects || [];
@@ -59,7 +61,7 @@ export function Logistics() {
       </Card>
     </Loader>
 
-    <Tabs value={tab} onChange={setTab} tabs={[['deliveries', 'Доставки'], ['assets', 'Техника']]} />
+    <Tabs value={tab} onChange={setTab} tabs={[['deliveries', 'Доставки'], ['orders', 'Поръчки'], ['consumption', 'Количествена сметка'], ['assets', 'Техника']]} />
 
     {tab === 'deliveries' && <>
       {write && <div className="row" style={{ marginBottom: 10 }}><button className="primary sm" onClick={() => setModal({ kind: 'delivery' })}>+ Нова доставка</button></div>}
@@ -77,6 +79,37 @@ export function Logistics() {
           <button className="sm ghost" disabled={busy} onClick={() => deliveryAction(r, 'cancelled', 'Отмяна')}>Отказ</button>
           <button className="ghost sm" onClick={() => setModal({ kind: 'delivery', row: r })}>✎</button></span> : null },
       ]} /></Loader></Card>
+    </>}
+
+    {tab === 'orders' && <>
+      {write && <div className="row" style={{ marginBottom: 10 }}><button className="primary sm" onClick={() => setModal({ kind: 'order' })}>+ Нова поръчка</button></div>}
+      <Card pad={false}><Loader state={orders}><Table rows={orders.data || []} empty={<Empty title="Няма поръчки">Поръчките към доставчици следят плащания, производство и доставка.</Empty>} cols={[
+        { key: 'code', title: '№', width: 90 },
+        { key: 'pj', title: 'Обект', render: (r: any) => <>{r.project_code} — {r.project_name}<div className="small muted">{r.line_description || ''}</div></> },
+        { key: 'supplier', title: 'Доставчик' },
+        { key: 'total_eur', title: 'Стойност €', num: true },
+        { key: 'advance', title: 'Аванс', render: (r: any) => r.advance_paid_at ? <>{fmtDate(r.advance_paid_at)}<div className="small muted">{r.advance_eur ?? '—'} €</div></> : <span className="muted">неплатен</span> },
+        { key: 'final', title: 'Доплащане', render: (r: any) => r.final_paid_at ? <>{fmtDate(r.final_paid_at)}<div className="small muted">{r.final_eur ?? '—'} €</div></> : <span className="muted">очаква</span> },
+        { key: 'ready', title: 'Готовност', render: (r: any) => r.ready_date ? <>{fmtDate(r.ready_date)}{r.days_left != null && r.days_left >= 0 ? <div className="small muted">след {r.days_left} дн.</div> : null}</> : '—' },
+        { key: 'expected', title: 'Очаквана доставка', render: (r: any) => r.expected_delivery ? <>{fmtDate(r.expected_delivery)}{r.delivery_forecast ? <div className="small muted">прогноза</div> : null}</> : '—' },
+        { key: 'computed_status', title: 'Статус', render: (r: any) => <Status value={r.computed_status} /> },
+        { key: 'x', title: '', width: 170, render: (r: any) => write && !['delivered', 'cancelled'].includes(r.status) ? <span className="row" style={{ flexWrap: 'nowrap' }}>
+          <button className="sm primary" disabled={busy} onClick={() => run(async () => { await api.patch(`/supplier-orders/${r.id}`, { status: 'delivered', row_version: r.row_version }); reloadAll(); }, 'Поръчката е доставена')}>Доставена</button>
+          <button className="ghost sm" onClick={() => setModal({ kind: 'order', row: r })}>✎</button></span> : null },
+      ]} /></Loader></Card>
+    </>}
+
+    {tab === 'consumption' && <>
+      {!pid && <Empty title="Изберете обект" >Количествената сметка е по обект — филтрирайте от горния селектор.</Empty>}
+      {pid && <Card title="Количествена сметка по обект" pad={false}><Loader state={cons}><Table rows={cons.data?.rows || []} empty={<Empty title="Няма данни" />} cols={[
+        { key: 'code', title: 'Код', width: 90 }, { key: 'name', title: 'Продукт' }, { key: 'unit', title: 'Мярка', width: 60 },
+        { key: 'required', title: 'Необходимо по КС', num: true },
+        { key: 'expected', title: 'По рецепта (извършено)', num: true },
+        { key: 'issued', title: 'Заредено на обект', num: true },
+        { key: 'consumed', title: 'Вградено', num: true },
+        { key: 'on_site', title: 'На обект (ост.)', num: true },
+        { key: 'variance', title: 'Отклонение', num: true, render: (r: any) => r.over ? <span className="badge bad">{r.variance}</span> : r.variance },
+      ]} /></Loader></Card>}
     </>}
 
     {tab === 'assets' && <>
@@ -105,6 +138,7 @@ export function Logistics() {
       ]} /></Loader></Card>
     </>}
 
+    {modal?.kind === 'order' && <OrderForm projects={projects} row={modal.row} onClose={close} onDone={reloadAll} />}
     {modal?.kind === 'delivery' && <DeliveryForm projects={projects} assets={assets.data || []} pid={pid} row={modal.row} onClose={close} onDone={reloadAll} />}
     {modal?.kind === 'asset' && <AssetForm row={modal.row} onClose={close} onDone={reloadAll} />}
     {modal?.kind === 'allocation' && <AllocationForm projects={projects} assets={assets.data || []} pid={pid} onClose={close} onDone={reloadAll} />}
@@ -112,6 +146,41 @@ export function Logistics() {
 }
 
 // ---------------------------------------------------------------- форми
+function OrderForm({ projects, row, onClose, onDone }: { projects: any[]; row?: any; onClose: () => void; onDone: () => void }) {
+  const { run, busy } = useAction();
+  const edit = !!row;
+  const f = useForm({ project_id: row ? String(row.project_id) : '', supplier: row?.supplier || '', order_doc_no: row?.order_doc_no || '',
+    total_eur: row?.total_eur != null ? String(row.total_eur) : '', advance_eur: row?.advance_eur != null ? String(row.advance_eur) : '',
+    advance_paid_at: row?.advance_paid_at || '', final_paid_at: row?.final_paid_at || '',
+    prod_days: row?.prod_days != null ? String(row.prod_days) : '', transport_days: row?.transport_days != null ? String(row.transport_days) : '',
+    status: row?.status || 'ordered', note: row?.note || '' });
+  const save = () => run(async () => {
+    const body: any = { supplier: f.v.supplier, order_doc_no: f.v.order_doc_no || undefined, note: f.v.note || undefined,
+      total_eur: f.v.total_eur === '' ? undefined : Number(f.v.total_eur), advance_eur: f.v.advance_eur === '' ? undefined : Number(f.v.advance_eur),
+      advance_paid_at: f.v.advance_paid_at || null, final_paid_at: f.v.final_paid_at || null,
+      prod_days: f.v.prod_days === '' ? undefined : Number(f.v.prod_days), transport_days: f.v.transport_days === '' ? undefined : Number(f.v.transport_days) };
+    if (edit) await api.patch(`/supplier-orders/${row.id}`, { ...body, status: f.v.status, row_version: row.row_version });
+    else await api.post('/supplier-orders', { ...body, project_id: Number(f.v.project_id) });
+    onDone(); onClose();
+  }, edit ? 'Поръчката е обновена' : 'Поръчката е създадена');
+  return <Modal title={edit ? `Поръчка ${row.code}` : 'Нова поръчка към доставчик'} onClose={onClose} wide footer={<><button className="ghost" onClick={onClose}>Отказ</button>
+    <button className="primary" disabled={busy || !f.v.supplier || (!edit && !f.v.project_id)} onClick={save}>Запази</button></>}>
+    <div className="form c2">
+      <ProjSelect projects={projects} value={f.v.project_id} onChange={v => f.set('project_id', v)} />
+      <Field label="Доставчик"><input {...f.bind('supplier')} required /></Field>
+      <Field label="№ на поръчка"><input {...f.bind('order_doc_no')} /></Field>
+      <Field label="Статус"><select {...f.bind('status')}><option value="ordered">Поръчана (автоматично)</option><option value="delivered">Доставена</option><option value="cancelled">Отменена</option></select></Field>
+      <Field label="Обща стойност €"><input type="number" min="0" step="any" {...f.bind('total_eur')} /></Field>
+      <Field label="Аванс €"><input type="number" min="0" step="any" {...f.bind('advance_eur')} /></Field>
+      <Field label="Аванс платен на"><input type="date" {...f.bind('advance_paid_at')} /></Field>
+      <Field label="Доплащане на"><input type="date" {...f.bind('final_paid_at')} /></Field>
+      <Field label="Дни производство"><input type="number" min="0" step="1" {...f.bind('prod_days')} /></Field>
+      <Field label="Дни транспорт"><input type="number" min="0" step="1" {...f.bind('transport_days')} /></Field>
+      <Field label="Бележка" full><input {...f.bind('note')} /></Field>
+    </div>
+  </Modal>;
+}
+
 function ProjSelect({ projects, value, onChange }: { projects: any[]; value: string; onChange: (v: string) => void }) {
   return <Field label="Обект"><select value={value} onChange={e => onChange(e.target.value)} required>
     <option value="">— изберете —</option>

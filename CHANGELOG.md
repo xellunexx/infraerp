@@ -1,5 +1,303 @@
 # Changelog
 
+## 2026-11-24 — Работна поръчка (11 точки): бъгове + документни версии + логистична повърхност + достъпи
+
+Цяла поръчка от оператора: два реални бъга, версии на документи за
+договори/приложения, логистика върху споделените записи, себестойност в
+списъка, мулти-модулен достъп и отчет по документите „Тъмния".
+
+**Бъг — архивиран обект излиза в „Обекти"** (`routes_projects.js`,
+`Projects.tsx`, `lifecycle.test.mjs`)
+- Болестта: `GET /api/projects` беше единственото четене, което не филтрираше
+  `archived` — талбастоунът (архив = санкционираното изтриване, FK-ите не
+  каскадират) се показваше със значка „Закрит" в списъка.
+- Фикс на гейта: списъкът по подразбиране крие архивираните;
+  `?archived=1` ги показва нарочно. Бутон „Архив" в Projects.tsx.
+
+**Бъг — линейният график е „объркан"** (`domain.js`/`contractView`,
+`ProjectCard.tsx` ContractTimeline, `lifecycle.test.mjs`)
+- Болестта: точката „Доставка до" четеше статичната въведена
+  `delivery_deadline`, докато сегментът се котвя на реалния
+  `advance_paid_at` — при закъснял аванс доставката падаше *преди* аванса.
+- Фикс: `contractView` дерива `delivery_due` (реален = аванс +
+  `prod_delivery_days`; прогноза = днес + дни) — същата канонична точка като
+  `final_deadline`. Сегментите показват реални дати; отложен аванс се бележи.
+
+**„revert" проблем — заявка за изтриване гърмя на FK** (`routes_change_requests.js`,
+`governance.test.mjs`)
+- Болестта: `applyDelete` изпълняваше чист `DELETE` — записи с препратки
+  (~28 некаскадни FK за проект) умираха с 400 и заявката висеше вечно.
+- Фикс на механизма: ENT типовете с талбастоун (`project`→`archived`,
+  `product`/`smr`/`project_line`→`active`) първо опитват физическо
+  изтриване; при FK-блокада падат към талбастоуна. Заявката винаги се
+  разрешава: чист запис изчезва, обвързан се архивира/деактивира.
+- Измерен поток: заявка за изтриване на обект → одобрение → архивиран +
+  отпада от „Обекти" (преди: 400 „не може да се изтрие").
+
+**Бригадна страница — тех. карти като хипервръзки** (`routes_brigade.js`,
+`Brigade.tsx`, `brigade.test.mjs`)
+- `/api/projects/:pid/progress` мапва `offer_lines.image_document_id` →
+  `spec_url` (последна версия на документа); колона „Спец." с линк в
+  таблицата за изпълнение.
+
+**Документни версии + прикачване към договор** (`routes_brigade.js`,
+`ui.tsx`, `Brigade.tsx`, `ProjectCard.tsx`, `brigade.test.mjs`)
+- Болестта: `documents` + `document_versions` съществуваха, но само v1 се
+  пишеше — нямаше лента за нова версия; `entity_type` не се валидираше.
+- `POST /api/documents/:did/versions` — append-only, следваща версия =
+  max+1, `current_version` се бута; audit + `document.uploaded` събитие.
+- Upload валидира `entity_type`/`entity_id` срещу карта на таблиците
+  (`contract`, `project`, `delivery`, `offer_line`, `smr_types`, …) —
+  духов-entity → 400.
+- `ui.tsx`: споделени `VersionLinks` (линк за сваляне per версия) +
+  `NewVersionButton`. Оплетено в PhotosTab и DocsTab (+ `write` prop);
+  ContractTab има лента за прикачване към договора (SCAN бланки).
+
+**Логистика — поръчки и количествена сметка** (`routes_accounting.js`,
+`routes_technical.js`, `Logistics.tsx`, `ui.tsx`, `logistics.test.mjs`)
+- `supplier_orders` (регистърът от Тъмния_2) е споделен запис: `needSO`
+  гейта е either-of (finance OR logistics); логистиката чете и обновява
+  същите редове — нов таб „Поръчки" с ъпдейт на статус/дати/документ.
+- Количествената сметка `/api/projects/:pid/consumption` се отключва за
+  логистика (таб „Количествена"); `STATUS` картата в ui.tsx добива
+  `in_production`/`delivered`.
+- Поправен латентен crash: `useForm` липсваше в импортите на Logistics.
+
+**Себестойност в списъка Обекти** (`routes_projects.js`, `Projects.tsx`,
+`lifecycle.test.mjs`)
+- `cost_price` влиза в payload-а на списъка; колоната „Стойност" показва
+  договор + себестойност **само за финансовите роли** — теренните не
+  виждат пари (същия money-gate като картона на обекта).
+
+**Мулти-модулен достъп — UX върху user_overrides** (`Admin.tsx`,
+`governance.test.mjs`)
+- Механизмът съществуваше (overrides върху role_permissions); формата за
+  потребител добива preset падащи менюта per модул (наследи/няма/четене/
+  четене+писане/пълен/custom) + жив readout на ефективния достъп от
+  `/api/permissions` матрицата.
+- Тестът доказва grant-beyond-role: technical потребител с finance read
+  override → `GET /api/supplier-orders` 200 (either-of гейт — logistics=0
+  не може да е причината).
+
+**Почистване на латентен tsc клас** (`ProjectCard.tsx`, `Technical.tsx`,
+`Accounting.tsx`)
+- `ContractTimeline`: `.filter()` върху литерала чупеше contextual typing
+  (`state`→`string`) — анотиран `Pt[]` преди филтъра.
+- `ReturnType<typeof useLoad>` prop типове изтриваха generic-а (`{}`) —
+  сега `any`; implicit-any параметър в Accounting. tsc напълно чист.
+
+**Отчет — покритие на „Тъмния_1/2.docx"** (`docs/tumnia-coverage.md`)
+- Пълен мапинг на двете спецификации към съществуващи повърхности:
+  регистърът на доставни поръчки ≈ 1:1 покрит; картонът на обекта ≈ 1:1;
+  отворени: таб „Обекти на клиента", файлов конвертор, Excel експорт на
+  доставническия регистър, генерация от бланки.
+
+**Suite: 70/70 зелено; `npm run build` чист; mount-проби 400-vs-404 ОК.**
+
+## 2026-11-23 — Договорен календар + автоматичен разплащателен график при подписване
+
+Contract tab gains a progressing calendar bar, and the sign → proforma → paid →
+milestone chain is now wired end-to-end.
+
+**Web — `web/src/pages/ProjectCard.tsx`, `web/src/styles.css`**
+- `ContractTimeline`: horizontal stage bar between the contract card and the
+  payment schedule. Anchor points Подписан (`signed_on`) → Аванс платен
+  (`advance_paid_at`) → Доставка до → Краен срок (`final_deadline`); spans for
+  Производство и доставка (`advance_paid_at` + `prod_delivery_days`) and
+  Монтаж (`install_start`/`install_deadline`); interim/final payments as dots on
+  their `paid_at`; accent fill up to a „днес“ marker, red + badge when the final
+  deadline passed with money still owed; hint fallback until ≥2 dates exist.
+- New `.ctline/.ctl-*` styles on the shared design tokens.
+
+**Server — `server/domain.js` (`signContract`)**
+- Signing seeds the payment schedule: аванс = `advance_pct` (default 50),
+  междинно 30, окончателно = remainder, amounts from the active version's
+  `total_value`. `ON CONFLICT` fill of NULL columns only — human-entered rows
+  are never overwritten.
+- Signing auto-issues the advance proforma (`kind='advance'`, amount = the
+  milestone, `due_on` = signed + `payment_terms_days`, note „Аванс по подписан
+  договор“), once — skipped if an advance proforma already exists.
+
+**Server — `server/routes_accounting.js` (`proforma paid`)**
+- Paying a milestone-kind proforma marks `contract_payments[kind].paid_at`
+  when cumulative paid proformas of that kind reach the milestone amount
+  (or immediately when the milestone has no amount). Emits the same
+  `contract.payment_recorded` event as the manual PUT route — so
+  `advance_paid_at` fills, `final_deadline` computes, and the calendar bar
+  starts. The posted transaction is the issued invoice/receipt.
+
+**Tests — `test/accounting.test.mjs`**
+- New test covers the whole chain: seeded 50/30/20 rows, auto PF-0001,
+  paid → milestone + `advance_paid_at` + `final_deadline`, second payment
+  doesn't move the date, `other`-kind proformas don't touch the schedule.
+- Two existing finance tests updated for the auto-issued proforma appearing
+  in `invoiced`/`proformas`.
+
+## 2026-11-20 — Agent pipeline tooling: project skills, review bots, MCP wiring, AGENTS.md
+
+- `.devin/skills/` — five project skills encoding the verify/review pipeline as
+  invocable bots: `review-pipeline` (orchestrator), `product-engineer-review`,
+  `audit-review`, `qa-vectors`, `erp-ops` (run/deploy/probe runbook).
+- `AGENTS.md` — project runbook: stack map, commands, conventions, the
+  enter-once-sync-everywhere rule, pipeline summary, deploy notes.
+- `.devin/config.json` — permission allowlist for the standard pipeline
+  commands (tests, build, git, probes).
+- `.devin/mcp_config.json` — `project-memory` MCP server pinned to a repo-local
+  memory file so project decisions persist in-repo, not in the user profile.
+  (GitHub MCP already wired globally; remote is `xellunexx/infraerp`.)
+
+## 2026-11-20 — Warehouse write-path coverage: inter-project transfers, module-origin requests, КС-line traceability, fleet view
+
+Audit found the warehouse schema already had `to_project_id`, `project_line_id`,
+`request_id`, `material_requests.origin` — the columns existed but the write
+gates never produced them. Three write-path mechanisms completed, no schema
+change needed.
+
+**Server — `server/routes_warehouse.js`**
+- Project↔project transfer: `POST /api/warehouse/movements` accepts
+  `transfer_out` + `to_project_id` and writes the pair (`transfer_out` on the
+  source, `transfer_in` on the destination) inside one transaction. `transfer_in`
+  is deliberately not a standalone kind — it is minted only by the pair so an
+  orphan inbound transfer cannot exist. Same-source/target rejected (400),
+  warehouse stock unchanged, `consumption()` shifts `on_site` between projects.
+- Manual `issue`/`receipt`/`return`/`adjust` movements now accept an optional
+  `project_line_id` (validated to belong to the movement's project), and request
+  fulfilment propagates `request_items.project_line_id` into the generated issue
+  rows — issued stock is attributable to a КС line end to end.
+- Module-origin requests: `POST /api/projects/:pid/material-requests` — Technical
+  and Contracts file a material request straight from the project; origin is
+  stamped from the caller's department permission, `canSeeProject` enforced, and
+  the request lands in the same warehouse queue via a shared `createRequest`
+  (one write path, one audit/event shape). Warehouse-origin requests keep
+  `origin='manual'` through `POST /api/material-requests`.
+- `GET /api/warehouse/fleet` — the warehouse's read-only window onto the same
+  `assets` + `asset_allocations` registry Logistics allocates from (one source
+  of truth, two windows): live allocation per asset shown as the project.
+- Demand assistant now also lists products physically on-site (`issued > 0`)
+  that are not in the plan — transferred-in material no longer disappears from
+  the project demand view.
+- Movements list joins `to_project_id` → `to_project_code` for display.
+
+**UI**
+- Warehouse: movement form offers „Пренос към друг обект" with a required
+  target-project select (source list excludes the target); movements table shows
+  a „Към обект" column; new „Машини и инструменти" tab lists the fleet registry
+  with status, plate, location and live project allocation.
+- Technical → project → Материали tab: „Заявка към склад" button opens a request
+  modal pre-filling each material's deficit (по договор − на обекта); files to
+  the new module-origin endpoint — no warehouse rights needed.
+
+**Review-pass hardening (product-engineer + audit findings, same session)**
+- `issue`/`return` without a project now rejected (400) — untagged issues were
+  silent shrinkage; untagged returns double-counted material (on-hand up,
+  on_site unchanged).
+- Transfers can no longer exceed the source project's on-site quantity —
+  `consumption()` computed at write time; previously `on_site` could go
+  negative and inflate `demand.suggest_qty`.
+- `request_items.project_line_id` validated to belong to the request's
+  project — same gate the manual-movement endpoint already had; a foreign
+  line would have been stamped onto the fulfil issue movement.
+- Approve now snapshots `to_purchase_qty = max(0, qty − free)` per item —
+  the „За покупка" column finally carries data.
+- Notifications wired for the whole request lifecycle (were emitted events
+  with no handlers — nobody ever heard them): submitted → warehouse dept;
+  approved/fulfilled/cancelled → the requester; new `warehouse.transfer`
+  event type → logistics + warehouse (someone has to physically move it).
+  `warehouse.movement` stays silent — per-movement pings would be noise.
+- New module read: `GET /api/projects/:pid/material-requests` — the filing
+  modules see their project's requests (`canSeeProject` enforced); the
+  Technical request modal subtracts pending submitted/approved quantities
+  so the same need isn't filed twice.
+- Line traceability rendered: movements table gets a СМР column
+  (`project_line_code`), request detail shows per-item line, request queue
+  shows origin; movement list labels transfers direction-aware (→/←).
+- Timeline labels for `material_request.*` / `warehouse.*` in ProjectCard.
+
+**Tests — `test/warehouse_reports.test.mjs`** (+5, file now 8/8)
+- transfer pair: on_site shifts A→B, warehouse stock untouched, same-project
+  rejected; line link survives request→approve→fulfil into the issue movement;
+  technical-origin request lands in the queue with `origin='technical'`;
+  gates: untagged issue/return 400, overdraft transfer 400, foreign line 400;
+  approve snapshots to_purchase, module feed + brigadier scoping 403,
+  submit→warehouse and fulfil→requester notifications.
+
+## 2026-11-20 — Phase 4 extension: единна книга (shared ledger), supplier orders, contract milestones, dashboard buckets, reopen flow
+
+Implements §14 of `design.md` — the two Тъмния specs plus the analysis of the real
+accounting workbook (`Таблица ексел.xlsx`): one shared transaction ledger replaces
+hand-copied sheets; person cards, supplier-order production tracking, contract
+payment milestones with a computed final deadline, operational dashboard buckets,
+and a Management-gated project reopen are built on top.
+
+**Server — `server/routes_accounting.js`**
+- `GET /api/ledger` — flat ledger + totals with filters (company, project, cost
+  center, person, tx_kind, method, direction, status, date range, documents only).
+- Transactions extended: `tx_kind` fixed vocabulary (client, supplier_doc,
+  bank_in, bank_out, proforma, labour, fiscal, card, no_doc, store, other — kills
+  the workbook's 34 typo variants), `method` bank/cash/card, `company` legal entity
+  (ЕВРОВАГ separate), `document_id` settlement→document link, `cost_center_id`,
+  `person_id`, `asset_id`, `has_vat` + `vat_amount`, `pko_no`/`rko_no`,
+  `labour_worker`/`labour_days`/`labour_rate` (amount = days × rate when amount is
+  not typed).
+- Document→settlements: `open_amount` = amount − paid linked rows; partial
+  payments are multiple settlement rows on one document; a payment row cannot
+  become a parent document (400) and direction must match (400); voided rows are
+  excluded from every total.
+- `accountable_persons` + `GET /api/accountable-persons/:id/card` — given (card
+  advances out), spent (non-card out), returned (in), balance = given − spent −
+  returned (same formula the workbook's person sheets used).
+- `cost_centers` CRUD; `supplier_orders` CRUD returning `supplierOrderView()` —
+  ready_date = advance paid + production days, days_left countdown, final_eur,
+  expected_delivery (real after final payment, forecast before it via the
+  `delivery_forecast` flag), computed status ordered/in_production/in_transit/
+  delivered/cancelled.
+
+**Server — `server/routes_projects.js`**
+- `PUT /api/projects/:pid/contract/payments` — advance/interim/final milestones
+  (pct, amount, real paid_at) in `contract_payments` — the versioned contract
+  body stays untouched. `contract_kind`, `prod_delivery_days`, `install_days`
+  editable only while the contract is draft; `final_deadline` = advance paid +
+  production/delivery + install days — computed, never typed.
+- `GET /api/dashboard` — negotiating (no signed contract), upcoming (signed,
+  execution not started; `awaiting_advance` flag until the advance milestone is
+  paid), executing.
+- Reopen: `POST .../reopen-request` (reason mandatory, duplicate pending request
+  blocked, approval row) → `POST .../reopen-decide` (`approvals:approve` only).
+  Approval resets the target stage to active AND every later stage to pending —
+  downstream completions belonged to the closed reality — then re-derives
+  `projects.status`. Events `project.reopen_requested` / `reopen_decided` /
+  `reopened`; reason and decision live in audit + approvals.decision_note.
+
+**Notifications (`core.js`, `domain.js`)** — `notify()` now stores `ref_type`,
+`ref_id`, `author_id`; the list joins project + author names and resolves the
+linked entity's live status. Reopen events notify management (request) and the
+affected departments + the requester personally (decision).
+
+**Web** — `Accounting.tsx` gains tabs Книга (ledger, filters, totals), Подотчетни
+(person cards), Поръчки (supplier orders), Центрове; TransactionForm carries all
+new fields. `Dashboard.tsx` shows the three buckets. `Projects.tsx` drops the
+Договор column (per spec — details live on the project card). `ProjectCard.tsx`
+gains contract kind/days fields (draft only), the Разплащателен график milestone
+card with computed final deadline, site-questionnaire fields (GPS, phones,
+machinery, electricity, water, waste, pallet office), reopen request/decide
+controls, КС image column, timeline labels for the new events. `Admin.tsx`
+notification rows show project, author, linked status.
+
+**DB (`db.js`)** — additive only: tables `cost_centers`, `accountable_persons`,
+`contract_payments`, `supplier_orders`; 14 new columns on `transactions`, 3 on
+`contracts`, 3 on `notifications`. Verified against a copy of the real pre-change
+database — all land, existing rows intact.
+
+**Verified:** `npm test` 57/57 (6 new tests in `test/finance_ledger.test.mjs`:
+doc→partial settlements, payment-chain + direction rejections, ledger filters,
+company/cost-center totals, person card, labour days×rate, supplier-order math,
+milestone deadline, dashboard buckets, reopen request→approve→status re-derive);
+`npm run build` clean. Live write-path check on a :4801 clone of the real DB:
+person card balance −102.42 computed; document 13 555 settled by 6 500 + 7 055 →
+open 0; payment→payment link rejected 400; order ready/expected dates and
+in_transit status; advance 2026-11-20 + 45 + 20 days → deadline 2027-01-24.
+NOT measured: real-browser click-through of the new tabs/forms.
+
 ## 2026-11-15 — Offer editor rebuilt as the document (Excel offer template)
 
 The "Оферта" tab of the offer editor is now the offer document itself, modelled on

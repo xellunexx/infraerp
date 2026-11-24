@@ -123,3 +123,47 @@ test('assets and allocations: registry, overlap guard, lifecycle, portfolio', as
     assert.ok(port.projects.find(x => x.id === p.id).active_allocations >= 1);
   } finally { await t.stop(); }
 });
+
+test('supplier orders: logistics reads and updates the shared order record; consumption statement per project', async () => {
+  const t = await start();
+  try {
+    const lg = await t.mkUser('logi1', 'logistics');
+    const { project: p } = await project(t);
+
+    // логистикът създава поръчка към доставчик (споделеният запис, преди само finance го виждаше)
+    const cr = await lg.post('/api/supplier-orders', { project_id: p.id, supplier: 'VINCI PLAY', total_eur: 12000, advance_eur: 6000, prod_days: 30, transport_days: 7 });
+    assert.equal(cr.status, 200, JSON.stringify(cr.data));
+    const oid = cr.data.id;
+    assert.equal(cr.data.computed_status, 'ordered');
+
+    // платен аванс → статусът се извежда „в производство“, готовността се смята от реалната дата
+    const p1 = await lg.patch(`/api/supplier-orders/${oid}`, { advance_paid_at: '2026-01-10', row_version: cr.data.row_version });
+    assert.equal(p1.status, 200, JSON.stringify(p1.data));
+    assert.equal(p1.data.computed_status, 'in_production');
+    assert.equal(p1.data.ready_date, '2026-02-09', 'готовност = аванс + дни производство');
+
+    // доплащане → „в път“; доставена → крайно състояние
+    const p2 = await lg.patch(`/api/supplier-orders/${oid}`, { final_paid_at: '2026-02-05', row_version: p1.data.row_version });
+    assert.equal(p2.status, 200);
+    assert.equal(p2.data.computed_status, 'in_transit');
+    assert.equal(p2.data.expected_delivery, '2026-02-12', 'доставка = доплащане + дни транспорт');
+    const p3 = await lg.patch(`/api/supplier-orders/${oid}`, { status: 'delivered', row_version: p2.data.row_version });
+    assert.equal(p3.data.computed_status, 'delivered');
+
+    // логистикът вижда поръчките по обект
+    const list = (await lg.get(`/api/supplier-orders?project_id=${p.id}`)).data;
+    assert.equal(list.length, 1);
+    assert.equal(list[0].supplier, 'VINCI PLAY');
+
+    // количествената сметка по обект е четима от логистика
+    const cons = await lg.get(`/api/projects/${p.id}/consumption`);
+    assert.equal(cons.status, 200, 'logistics reads the quantity statement');
+    assert.ok(Array.isArray(cons.data.rows));
+
+    // ролевата матрица: brigadier има logistics само за четене — пишещите му заявки се отхвърлят
+    const brig = await t.mkUser('brig1', 'brigadier');
+    assert.equal((await brig.get('/api/supplier-orders')).status, 200, 'brigadier reads orders (logistics read)');
+    assert.equal((await brig.patch(`/api/supplier-orders/${oid}`, { status: 'ordered', row_version: p3.data.row_version })).status, 403, 'read-only role cannot write');
+    assert.equal((await t.admin.get('/api/supplier-orders')).status, 200, 'finance lane unaffected');
+  } finally { await t.stop(); }
+});

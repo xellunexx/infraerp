@@ -1,5 +1,5 @@
 // Договори + Картон на обекта (core view) + engine visibility, notifications, search.
-import { tx } from './db.js';
+import { tx, nextCode } from './db.js';
 import { HttpError, bad, need, can, needProject, canSeeProject, audit, updateRow, emit, reindex, resolveApproval } from './core.js';
 import { signContract, newContractVersion, setStage, deriveProjectStatus, syncProjectStatus } from './domain.js';
 import { progressSummary, finance } from './calc.js';
@@ -14,6 +14,17 @@ export default function mountProjects(app, db) {
     c.versions = db.prepare(`SELECT v.id, v.version, v.reason, v.total_value, v.amendment_id, v.created_at, u.full_name AS approved_by_name
       FROM contract_versions v LEFT JOIN users u ON u.id = v.approved_by WHERE v.contract_id = ? ORDER BY v.version`).all(c.id);
     c.appendices = db.prepare('SELECT * FROM contract_appendices WHERE contract_id = ? AND contract_version = ? ORDER BY number').all(c.id, c.active_version ?? 0);
+    c.payments = db.prepare('SELECT * FROM contract_payments WHERE contract_id = ? ORDER BY CASE kind WHEN \'advance\' THEN 1 WHEN \'interim\' THEN 2 ELSE 3 END').all(c.id);
+    // §14.3: final deadline is computed, never typed — advance paid + production/delivery + install days
+    const adv = c.payments.find(p => p.kind === 'advance');
+    c.advance_paid_at = adv?.paid_at || null;
+    const days = (a, n) => new Date(Date.parse(a) + Math.round(Number(n)) * 86400000).toISOString().slice(0, 10);
+    c.final_deadline = c.advance_paid_at && c.prod_delivery_days != null && c.install_days != null
+      ? days(days(c.advance_paid_at, c.prod_delivery_days), c.install_days) : null;
+    // §14.3: delivery deadline anchors to the real advance payment once paid; before that the typed date is only a forecast
+    c.delivery_due = c.advance_paid_at && c.prod_delivery_days != null
+      ? days(c.advance_paid_at, c.prod_delivery_days) : c.delivery_deadline;
+    c.delivery_due_real = !!(c.advance_paid_at && c.prod_delivery_days != null);
     c.total = progressSummary(db, projectId).contract_value;
     return c;
   };
@@ -30,7 +41,10 @@ export default function mountProjects(app, db) {
     const pid = Number(req.params.pid), c = db.prepare('SELECT * FROM contracts WHERE project_id = ?').get(pid);
     if (!c) throw new HttpError(404, 'Няма договор');
     if (c.status !== 'draft') throw bad('Договорът вече е изпратен за одобрение. Променя се само след връщане или с анекс.');
-    const f = pick(req.body || {}, ['template', 'special_terms', 'delivery_deadline', 'install_start', 'install_deadline', 'advance_pct', 'payment_terms_days']);
+    const f = pick(req.body || {}, ['template', 'special_terms', 'delivery_deadline', 'install_start', 'install_deadline', 'advance_pct', 'payment_terms_days',
+      'contract_kind', 'prod_delivery_days', 'install_days']);
+    if (f.contract_kind !== undefined && f.contract_kind != null && !['standard', 'client_template'].includes(f.contract_kind)) throw bad('Невалиден вид договор');
+    for (const k of ['prod_delivery_days', 'install_days']) if (f[k] !== undefined && f[k] != null && f[k] !== '') { const n = Number(f[k]); if (!Number.isFinite(n) || n < 0) throw bad('Невалиден срок в дни'); f[k] = n; } else if (f[k] === '') f[k] = null;
     const s = f.install_start ?? c.install_start, e = f.install_deadline ?? c.install_deadline;
     if (s && e && e < s) throw bad('Крайният срок е преди началото на монтажа');
     updateRow(db, 'contracts', c.id, f, req.body?.row_version);
@@ -72,16 +86,120 @@ export default function mountProjects(app, db) {
     });
   }));
 
+  /** §14.3 payment milestones (аванс/междинно/окончателно): real bank dates arrive after signing,
+   *  so they live in their own table — the contract body stays versioned. */
+  app.put('/api/projects/:pid/contract/payments', h(req => tx(db, () => {
+    need(req.user, 'contracts', 'write');
+    const pid = Number(req.params.pid), c = db.prepare('SELECT * FROM contracts WHERE project_id = ?').get(pid);
+    if (!c) throw new HttpError(404, 'Няма договор');
+    const b = req.body || {};
+    if (!['advance', 'interim', 'final'].includes(b.kind)) throw bad('Видът плащане е advance, interim или final');
+    const num = v => v == null || v === '' ? null : Number(v);
+    for (const k of ['pct', 'amount']) if (num(b[k]) != null && !Number.isFinite(num(b[k]))) throw bad('Невалидна стойност');
+    const paid_at = b.paid_at == null || b.paid_at === '' ? null : String(b.paid_at);
+    if (paid_at && !/^\d{4}-\d{2}-\d{2}$/.test(paid_at)) throw bad('Невалидна дата на плащане');
+    const before = db.prepare('SELECT * FROM contract_payments WHERE contract_id = ? AND kind = ?').get(c.id, b.kind);
+    db.prepare(`INSERT INTO contract_payments(contract_id, kind, pct, amount, paid_at, note) VALUES (?,?,?,?,?,?)
+      ON CONFLICT(contract_id, kind) DO UPDATE SET pct = excluded.pct, amount = excluded.amount, paid_at = excluded.paid_at,
+      note = excluded.note, updated_at = datetime('now')`).run(c.id, b.kind, num(b.pct), num(b.amount), paid_at, b.note || null);
+    audit(db, req.user, { project_id: pid, entity_type: 'contract', entity_id: c.id, action: 'payment', before: before ? pick(before, ['kind', 'pct', 'amount', 'paid_at']) : null,
+      after: { kind: b.kind, pct: num(b.pct), amount: num(b.amount), paid_at }, module: 'contracts' });
+    if (paid_at && paid_at !== before?.paid_at)
+      emit(db, req.user, { type: 'contract.payment_recorded', origin: 'contracts', project_id: pid, entity_type: 'contract', entity_id: c.id,
+        dedupe_key: `contract.payment:${c.id}:${b.kind}:${paid_at}`, next: { kind: b.kind, amount: num(b.amount), paid_at }, affected: ['accounting', 'management', 'technical'] });
+    return contractView(pid);
+  })));
+
+  /** §14.6 dashboard buckets: negotiating = no signed contract; upcoming = signed, execution not started
+   *  (flagged чака аванс until the advance milestone is paid); executing = execution started. */
+  app.get('/api/dashboard', h(req => {
+    need(req.user, 'projects');
+    const rows = db.prepare(`SELECT p.id, p.code, p.name, p.status, p.actual_start, c.name AS customer_name,
+        ct.status AS contract_status, ct.signed_on, ct.install_start, ct.install_deadline,
+        (SELECT cp.paid_at FROM contract_payments cp WHERE cp.contract_id = ct.id AND cp.kind = 'advance') AS advance_paid_at,
+        (SELECT COUNT(*) FROM progress_entries e WHERE e.project_id = p.id AND e.voided = 0) AS entries
+      FROM projects p JOIN customers c ON c.id = p.customer_id LEFT JOIN contracts ct ON ct.project_id = p.id
+      WHERE p.archived = 0 AND p.status NOT IN ('closed', 'completed', 'on_hold')`).all()
+      .filter(p => visible(req.user, p.id))
+      .map(p => ({ ...p, progress_pct: progressSummary(db, p.id).progress_pct }));
+    const negotiating = rows.filter(p => p.contract_status !== 'signed');
+    const upcoming = rows.filter(p => p.contract_status === 'signed' && !p.actual_start && p.status !== 'execution')
+      .map(p => ({ ...p, awaiting_advance: !p.advance_paid_at }));
+    const executing = rows.filter(p => p.contract_status === 'signed' && (p.actual_start || p.status === 'execution' || p.entries > 0));
+    return { negotiating, upcoming, executing };
+  }));
+
+  /** §14.7 reopen: completed project re-opens only through a Management decision. */
+  app.post('/api/projects/:id/reopen-request', h(req => tx(db, () => {
+    need(req.user, 'projects', 'write');
+    const id = Number(req.params.id), b = req.body || {};
+    const p = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
+    if (!p) throw new HttpError(404, 'Обектът не е намерен');
+    needProject(db, req.user, id);
+    const stage_code = b.stage_code || 'execution';
+    if (!db.prepare('SELECT 1 FROM project_stages WHERE project_id = ? AND code = ?').get(id, stage_code)) throw bad('Няма такъв етап');
+    const reason = String(b.reason || '').trim();
+    if (!reason) throw bad('Причината за връщане е задължителна');
+    const existing = db.prepare("SELECT * FROM approvals WHERE entity_type = 'project' AND entity_id = ? AND kind = 'project_reopen'").get(id);
+    if (existing?.status === 'pending') throw bad('Вече има чакаща заявка за връщане на този обект');
+    let aid;
+    if (existing) {
+      db.prepare("UPDATE approvals SET status = 'pending', requested_by = ?, decided_by = NULL, decided_at = NULL, decision_note = NULL, title = ?, created_at = datetime('now') WHERE id = ?")
+        .run(req.user.id, `Връщане на обект ${p.code} към етап „${stage_code}“`, existing.id);
+      aid = existing.id;
+    } else {
+      aid = Number(db.prepare(`INSERT INTO approvals(code, project_id, kind, entity_type, entity_id, title, status, requested_by, decision_note)
+        VALUES (?,?,?,?,?,?,?,?,?)`).run(nextCode(db, 'APR'), id, 'project_reopen', 'project', id,
+          `Връщане на обект ${p.code} към етап „${stage_code}“`, 'pending', req.user.id, reason).lastInsertRowid);
+    }
+    const ev = emit(db, req.user, { type: 'project.reopen_requested', origin: 'projects', project_id: id, entity_type: 'project', entity_id: id,
+      dedupe_key: `project.reopen_requested:${id}:${aid}`, next: { stage_code, reason }, approval_status: 'pending', affected: ['management'] });
+    audit(db, req.user, { project_id: id, entity_type: 'project', entity_id: id, action: 'reopen_request', after: { stage_code, reason }, module: 'projects' });
+    return { ok: true, approval_id: aid, event_id: ev };
+  })));
+  app.post('/api/projects/:id/reopen-decide', h(req => tx(db, () => {
+    need(req.user, 'approvals', 'approve');
+    const id = Number(req.params.id), b = req.body || {};
+    const p = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
+    if (!p) throw new HttpError(404, 'Обектът не е намерен');
+    const a = db.prepare("SELECT * FROM approvals WHERE entity_type = 'project' AND entity_id = ? AND kind = 'project_reopen'").get(id);
+    if (!a || a.status !== 'pending') throw bad('Няма чакаща заявка за връщане');
+    const action = b.action;
+    if (!['approve', 'reject'].includes(action)) throw bad('Непозната операция');
+    db.prepare("UPDATE approvals SET status = ?, decided_by = ?, decision_note = ?, decided_at = datetime('now') WHERE id = ?")
+      .run(action === 'approve' ? 'approved' : 'rejected', req.user.id, b.note || null, a.id);
+    audit(db, req.user, { project_id: id, entity_type: 'project', entity_id: id, action: `reopen_${action}`, after: { note: b.note || null }, module: 'projects' });
+    if (action === 'reject') {
+      emit(db, req.user, { type: 'project.reopen_decided', origin: 'projects', project_id: id, entity_type: 'project', entity_id: id,
+        dedupe_key: `project.reopen_decided:${id}:${a.id}`, next: { status: 'rejected', note: b.note || null }, affected: ['management'] });
+      return { ok: true, status: 'rejected' };
+    }
+    const stage_code = (a.title.match(/„(\w+)“/) || [])[1] || 'execution';
+    // Reopening invalidates the downstream too: stages completed after the target belonged
+    // to the closed reality and go back to pending (their done audit rows stay in the log).
+    const target = db.prepare('SELECT sort FROM project_stages WHERE project_id = ? AND code = ?').get(id, stage_code);
+    db.prepare("UPDATE project_stages SET status = 'pending', done_at = NULL, done_by = NULL WHERE project_id = ? AND sort > ?").run(id, target?.sort ?? 0);
+    setStage(db, id, stage_code, 'active', req.user, 'Върнат след решение на Управител');
+    db.prepare("UPDATE projects SET archived = 0, row_version = row_version + 1 WHERE id = ?").run(id);
+    syncProjectStatus(db, id);
+    emit(db, req.user, { type: 'project.reopened', origin: 'projects', project_id: id, entity_type: 'project', entity_id: id,
+      dedupe_key: `project.reopened:${id}:${a.id}`, prev: { status: p.status }, next: { stage_code, decided_by: req.user.id },
+      affected: ['technical', 'brigadier', 'accounting', 'logistics', 'warehouse', 'management'] });
+    return { ok: true, status: 'reopened', stage_code };
+  })));
+
   // ---- Картон на обекта
   const visible = (u, pid) => canSeeProject(db, u, pid);
   app.get('/api/projects', h(req => {
     need(req.user, 'projects');
     const money = can(req.user, 'finance');
+    const archived = req.query.archived === '1' ? 1 : 0;
     return db.prepare(`SELECT p.*, c.name AS customer_name, t.full_name AS technical_name, b.full_name AS brigadier_name,
         (SELECT COUNT(*) FROM issues i WHERE i.project_id = p.id AND i.status = 'open' AND i.severity IN ('high', 'critical')) AS critical_issues
-      FROM projects p JOIN customers c ON c.id = p.customer_id LEFT JOIN users t ON t.id = p.technical_id LEFT JOIN users b ON b.id = p.brigadier_id ORDER BY p.id DESC`).all()
+      FROM projects p JOIN customers c ON c.id = p.customer_id LEFT JOIN users t ON t.id = p.technical_id LEFT JOIN users b ON b.id = p.brigadier_id
+      WHERE p.archived = ? ORDER BY p.id DESC`).all(archived)
       .filter(p => visible(req.user, p.id))
-      .map(p => { const s = progressSummary(db, p.id); return { ...p, progress_pct: s.progress_pct, contract_value: money ? s.contract_value : null }; });
+      .map(p => { const s = progressSummary(db, p.id); return { ...p, progress_pct: s.progress_pct, contract_value: money ? s.contract_value : null, cost_price: money ? s.cost_price : null }; });
   }));
   app.get('/api/projects/:id', h(req => {
     need(req.user, 'projects'); const id = Number(req.params.id); needProject(db, req.user, id);
@@ -96,7 +214,8 @@ export default function mountProjects(app, db) {
       progress_pct: s.progress_pct, lines: s.lines.map(l => money ? l : { ...l, unit_price: null, unit_cost: null }),
       finance: money ? finance(db, id) : null,
       stages: db.prepare('SELECT s.*, u.full_name AS done_by_name FROM project_stages s LEFT JOIN users u ON u.id = s.done_by WHERE s.project_id = ? ORDER BY s.sort').all(id),
-      members: db.prepare('SELECT m.user_id, m.role, u.full_name, u.department FROM project_members m JOIN users u ON u.id = m.user_id WHERE m.project_id = ?').all(id) };
+      members: db.prepare('SELECT m.user_id, m.role, u.full_name, u.department FROM project_members m JOIN users u ON u.id = m.user_id WHERE m.project_id = ?').all(id),
+      reopen_request: db.prepare("SELECT a.*, u.full_name AS requested_by_name FROM approvals a LEFT JOIN users u ON u.id = a.requested_by WHERE a.entity_type = 'project' AND a.entity_id = ? AND a.kind = 'project_reopen' AND a.status = 'pending'").get(id) || null };
   }));
   app.patch('/api/projects/:id', h(req => tx(db, () => {
     need(req.user, 'projects', 'write');
@@ -191,9 +310,20 @@ export default function mountProjects(app, db) {
     if (!r.changes) throw bad('Само неуспешни събития могат да се повторят');
     audit(db, req.user, { entity_type: 'event', entity_id: Number(req.params.id), action: 'retry', module: 'events' });
     return { ok: true }; }));
-  app.get('/api/notifications', h(req => db.prepare(`SELECT n.*, p.code AS project_code, (r.user_id IS NOT NULL) AS is_read FROM notifications n LEFT JOIN projects p ON p.id = n.project_id
-    LEFT JOIN notification_reads r ON r.notification_id = n.id AND r.user_id = ? WHERE n.user_id = ? OR n.department = ? ORDER BY n.id DESC LIMIT 200`)
-    .all(req.user.id, req.user.id, req.user.department).filter(n => !n.project_id || visible(req.user, n.project_id))));
+  app.get('/api/notifications', h(req => {
+    let rows = db.prepare(`SELECT n.*, p.code AS project_code, p.name AS project_name, au.full_name AS author_name,
+        (r.user_id IS NOT NULL) AS is_read,
+        CASE WHEN n.ref_type = 'task' THEN (SELECT status FROM tasks t WHERE t.id = n.ref_id) END AS ref_status,
+        CASE WHEN n.ref_type = 'task' THEN (SELECT title FROM tasks t WHERE t.id = n.ref_id) END AS ref_title
+      FROM notifications n LEFT JOIN projects p ON p.id = n.project_id LEFT JOIN users au ON au.id = n.author_id
+      LEFT JOIN notification_reads r ON r.notification_id = n.id AND r.user_id = ?
+      WHERE n.user_id = ? OR n.department = ? ORDER BY n.id DESC LIMIT 300`)
+      .all(req.user.id, req.user.id, req.user.department)
+      .filter(n => !n.project_id || visible(req.user, n.project_id));
+    if (req.query.unread === '1') rows = rows.filter(n => !n.is_read);
+    if (req.query.project_id) rows = rows.filter(n => n.project_id === Number(req.query.project_id));
+    return rows;
+  }));
   app.post('/api/notifications/read', h(req => { const ins = db.prepare('INSERT INTO notification_reads(notification_id, user_id) VALUES (?,?) ON CONFLICT DO NOTHING');
     for (const id of req.body?.ids || []) ins.run(Number(id), req.user.id); return { ok: true }; }));
   app.get('/api/search', h(req => {

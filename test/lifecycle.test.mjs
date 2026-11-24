@@ -4,14 +4,14 @@ import assert from 'node:assert/strict';
 import { start, seedOffer } from './helpers.mjs';
 
 /** offer -> confirm -> contract draft -> submit -> approve -> sign. */
-async function signedProject(t) {
+async function signedProject(t, extra = {}) {
   const s = await seedOffer(t);
   const conf = await t.admin.post(`/api/offers/${s.offer.id}/confirm`);
   assert.equal(conf.status, 200);
   t.sync();
   const p = (await t.admin.get('/api/projects')).data[0];
   const c0 = (await t.admin.get(`/api/projects/${p.id}/contract`)).data;
-  const upd = await t.admin.patch(`/api/projects/${p.id}/contract`, { install_start: '2026-01-05', install_deadline: '2026-12-20', delivery_deadline: '2025-12-28', row_version: c0.row_version });
+  const upd = await t.admin.patch(`/api/projects/${p.id}/contract`, { install_start: '2026-01-05', install_deadline: '2026-12-20', delivery_deadline: '2025-12-28', row_version: c0.row_version, ...extra });
   assert.equal(upd.status, 200);
   await t.admin.post(`/api/projects/${p.id}/contract/submit`);
   await t.admin.post(`/api/projects/${p.id}/contract/approve`);
@@ -95,6 +95,65 @@ test('lifecycle: on_hold is sticky, resume re-derives; archive closes and restor
     d = (await t.admin.get(`/api/projects/${pid}`)).data;
     assert.equal(d.status, 'completed', 'unarchive re-derives from stages');
     assert.equal(d.archived, 0);
+  } finally { await t.stop(); }
+});
+
+test('lifecycle: archived objects leave the Обекти list; ?archived=1 reveals them', async () => {
+  const t = await start();
+  try {
+    const { project } = await signedProject(t);
+    const pid = project.id;
+
+    let list = (await t.admin.get('/api/projects')).data;
+    assert.ok(list.some(p => p.id === pid), 'active project is listed');
+
+    const arch = await t.admin.post(`/api/projects/${pid}/archive`, { archived: true });
+    assert.equal(arch.status, 200);
+
+    list = (await t.admin.get('/api/projects')).data;
+    assert.ok(!list.some(p => p.id === pid), 'archived project must not leak into the Обекти list');
+
+    list = (await t.admin.get('/api/projects?archived=1')).data;
+    assert.ok(list.some(p => p.id === pid), '?archived=1 is the explicit opt-in to archived objects');
+  } finally { await t.stop(); }
+});
+
+test('project list carries себестойност for finance roles, hides money from field roles', async () => {
+  const t = await start();
+  try {
+    const { project } = await signedProject(t);
+    const list = (await t.admin.get('/api/projects')).data;
+    const row = list.find(p => p.id === project.id);
+    assert.ok(row, 'project listed');
+    assert.equal(row.contract_value, 6200, 'contract value from the confirmed offer');
+    assert.equal(row.cost_price, 3700, 'себестойност = Σ qty×unit_cost over offer lines');
+
+    const brig = t.client();
+    const mk = await t.admin.post('/api/users', { username: 'brig-list', full_name: 'Бригадир Б', role: 'brigadier', password: 'password123' });
+    const detail = (await t.admin.get(`/api/projects/${project.id}`)).data;
+    await t.admin.patch(`/api/projects/${project.id}`, { brigadier_id: mk.data.id, row_version: detail.row_version });
+    await brig.login('brig-list');
+    const prow = (await brig.get('/api/projects')).data.find(p => p.id === project.id);
+    assert.ok(prow, 'assigned brigadier sees the project');
+    assert.equal(prow.contract_value, null, 'field role sees no contract value');
+    assert.equal(prow.cost_price, null, 'field role sees no себестойност');
+  } finally { await t.stop(); }
+});
+
+test('contract calendar: delivery deadline anchors to the real advance payment', async () => {
+  const t = await start();
+  try {
+    const { project } = await signedProject(t, { prod_delivery_days: 30, install_days: 10 });
+    const pid = project.id;
+    // typed delivery_deadline (2025-12-28) predates the real advance pay date -> confused order before the fix
+    const pay = await t.admin.put(`/api/projects/${pid}/contract/payments`, { kind: 'advance', paid_at: '2026-01-10' });
+    assert.equal(pay.status, 200, JSON.stringify(pay.data));
+    const c = (await t.admin.get(`/api/projects/${pid}/contract`)).data;
+    assert.equal(c.advance_paid_at, '2026-01-10');
+    assert.equal(c.delivery_due, '2026-02-09', 'delivery_due must be advance + prod days, not the stale typed date');
+    assert.equal(c.delivery_due_real, true);
+    assert.ok(c.delivery_due > c.advance_paid_at, 'delivery point lands AFTER the advance on the calendar');
+    assert.equal(c.delivery_deadline, '2025-12-28', 'typed contract date itself is preserved');
   } finally { await t.stop(); }
 });
 

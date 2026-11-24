@@ -1,7 +1,10 @@
 // Бригадир: работно място — само назначени обекти, присъствие, проблеми, съобщения, снимки/документи.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { start, seedOffer } from './helpers.mjs';
+import { FILES_DIR } from '../server/db.js';
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
 
@@ -21,6 +24,39 @@ async function projectWithBrigadier(t) {
   assert.equal(up.status, 200, 'admin assigns brigadier');
   return { ...s, project: (await t.admin.get(`/api/projects/${p.id}`)).data, brig, brigId: mk.data.id };
 }
+
+test('brigade: project lines expose their technical spec card as a downloadable link', async () => {
+  const t = await start();
+  try {
+    // каталожен артикул с прикачено изображение -> документ; офертният ред носи image_document_id
+    fs.mkdirSync(FILES_DIR, { recursive: true });
+    fs.writeFileSync(path.join(FILES_DIR, 'brig-spec.png'), PNG);
+    t.db.prepare("INSERT INTO catalog_items(slug, name, brand, cat, specs, images, source, active) VALUES (?,?,?,?,?,?,?,1)")
+      .run('brig-turf', 'Трева', 'B', ' настилки ', '{}', JSON.stringify(['brig-spec.png']), 'excel');
+    const att = (await t.admin.post('/api/catalog/items/brig-turf/attach', { img: 0 })).data;
+    assert.ok(att.document_id > 0);
+    const s = await seedOffer(t);
+    const offer = (await t.admin.get(`/api/offers/${s.offer.id}`)).data;
+    const v = offer.versions.find(x => x.version === offer.current_version);
+    const lines = v.lines.map(l => ({ ...l, section: l.section_id ? String(l.section_id) : '' }));
+    lines[0].image_document_id = att.document_id;
+    assert.equal((await t.admin.put(`/api/offers/${s.offer.id}`, { lines })).status, 200);
+    await t.admin.post(`/api/offers/${s.offer.id}/confirm`);
+    t.sync();
+    const p = (await t.admin.get('/api/projects')).data[0];
+    // прогресният изглед (тялото на бригадирската страница) носи spec_url към последната версия
+    const prog = (await t.admin.get(`/api/projects/${p.id}/progress`)).data;
+    const withSpec = prog.lines.filter(l => l.spec_url);
+    assert.ok(withSpec.length >= 1, 'редовете с тех. карта имат spec_url');
+    assert.match(withSpec[0].spec_url, /\/api\/documents\/\d+\/file/);
+    const login = await fetch(`${t.base}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'admin', password: 'password123' }) });
+    const cookie = login.headers.get('set-cookie').split(';')[0];
+    const dl = await fetch(`${t.base}${withSpec[0].spec_url}`, { headers: { cookie } });
+    assert.equal(dl.status, 200, 'spec link serves the file');
+    fs.rmSync(path.join(FILES_DIR, 'brig-spec.png'), { force: true });
+  } finally { await t.stop(); }
+});
 
 test('brigade: workspace scope — brigadir sees only assigned projects, gates hold', async () => {
   const t = await start();
@@ -155,5 +191,55 @@ test('documents: photo upload -> list -> download roundtrip with mime + sha256',
     bad.append('title', 'x'); bad.append('category', 'photo');
     const rej = await fetch(t.base + `/api/projects/${p.id}/documents`, { method: 'POST', headers: { cookie }, body: bad });
     assert.equal(rej.status, 400, 'exe mime rejected');
+  } finally { await t.stop(); }
+});
+
+test('documents: new versions append, never overwrite — contract attachment + entity validation', async () => {
+  const t = await start();
+  try {
+    const { project: p, brig } = await projectWithBrigadier(t);
+    const login = await fetch(t.base + '/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'brig1', password: 'password123' }) });
+    const cookie = login.headers.get('set-cookie').split(';')[0];
+    const contract = t.db.prepare('SELECT id FROM contracts WHERE project_id = ?').get(p.id);
+    assert.ok(contract, 'seeded project has a contract row');
+
+    const fd = new FormData();
+    fd.append('file', new Blob([Buffer.from('%PDF-1.4 v1-content')], { type: 'application/pdf' }), 'dogovor.pdf');
+    fd.append('title', 'Договор скен'); fd.append('category', 'contract');
+    fd.append('entity_type', 'contract'); fd.append('entity_id', String(contract.id));
+    const up = await fetch(t.base + `/api/projects/${p.id}/documents`, { method: 'POST', headers: { cookie }, body: fd });
+    assert.equal(up.status, 200, 'contract attachment accepted: ' + await up.clone().text().catch(() => ''));
+    const doc = await up.json();
+    assert.equal(doc.entity_type, 'contract');
+    assert.equal(doc.entity_id, contract.id);
+
+    const ghost = new FormData();
+    ghost.append('file', new Blob([Buffer.from('x')], { type: 'text/plain' }), 'x.txt');
+    ghost.append('entity_type', 'contract'); ghost.append('entity_id', '999999');
+    const g = await fetch(t.base + `/api/projects/${p.id}/documents`, { method: 'POST', headers: { cookie }, body: ghost });
+    assert.equal(g.status, 400, 'upload linked to a missing entity is refused');
+
+    const v1id = doc.versions[0].id;
+    const fd2 = new FormData();
+    fd2.append('file', new Blob([Buffer.from('%PDF-1.4 v2-UPDATED')], { type: 'application/pdf' }), 'dogovor-podpisan.pdf');
+    fd2.append('note', 'подписан вариант');
+    const up2 = await fetch(t.base + `/api/documents/${doc.id}/versions`, { method: 'POST', headers: { cookie }, body: fd2 });
+    assert.equal(up2.status, 200, 'new version accepted: ' + await up2.clone().text().catch(() => ''));
+    const doc2 = await up2.json();
+    assert.equal(doc2.current_version, 2);
+    assert.equal(doc2.versions.length, 2);
+    assert.equal(doc2.versions[1].version, 2);
+    assert.equal(doc2.versions[1].note, 'подписан вариант');
+
+    const dl1 = await fetch(t.base + `/api/documents/${v1id}/file`, { headers: { cookie } });
+    assert.equal(dl1.status, 200);
+    assert.deepEqual(Buffer.from(await dl1.arrayBuffer()).toString(), '%PDF-1.4 v1-content', 'version 1 bytes untouched');
+    const dl2 = await fetch(t.base + `/api/documents/${doc2.versions[1].id}/file`, { headers: { cookie } });
+    assert.deepEqual(Buffer.from(await dl2.arrayBuffer()).toString(), '%PDF-1.4 v2-UPDATED', 'version 2 carries new bytes');
+
+    const nofile = await fetch(t.base + `/api/documents/${doc.id}/versions`, { method: 'POST', headers: { cookie }, body: new FormData() });
+    assert.equal(nofile.status, 400, 'version without file rejected');
+    const ghost2 = await fetch(t.base + `/api/documents/999999/versions`, { method: 'POST', headers: { cookie }, body: fd2 });
+    assert.equal(ghost2.status, 404, 'version on missing document 404s');
   } finally { await t.stop(); }
 });

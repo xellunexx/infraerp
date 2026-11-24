@@ -20,7 +20,8 @@ const ISSUE_KINDS = ['problem', 'delay', 'material_shortage', 'damage', 'additio
 const SEVERITIES = ['low', 'medium', 'high', 'critical'];
 const ISSUE_STATUSES = ['open', 'in_progress', 'resolved', 'cancelled'];
 const ISSUE_FLOW = { open: ['in_progress', 'cancelled'], in_progress: ['resolved', 'cancelled', 'open'], resolved: ['open'], cancelled: ['open'] };
-const DOC_CATEGORIES = ['photo', 'document', 'act', 'other'];
+const DOC_CATEGORIES = ['photo', 'document', 'act', 'contract', 'appendix', 'other'];
+const DOC_ENTITIES = { contract: 'contracts', appendix: 'contract_appendices', amendment: 'amendments', project_line: 'project_lines', offer_line: 'offer_lines', issue: 'issues', smr: 'smr_types', material_request: 'material_requests', supplier_order: 'supplier_orders', delivery: 'deliveries' };
 const OK_MIME = /^(image\/(jpeg|png|gif|webp|heic|heif|vnd\.dwg)|application\/(pdf|json|msword|vnd\.openxmlformats-officedocument\.[\w.]+|vnd\.ms-excel|vnd\.ms-powerpoint|vnd\.oasis\.opendocument\.[\w.]+|acad|dxf)|text\/(plain|csv))/i;
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
@@ -200,6 +201,12 @@ export default function mountBrigade(app, db) {
     if (!OK_MIME.test(req.file.mimetype || '')) throw bad('Типът файл не е позволен');
     const title = reqStr(req.body?.title || req.file.originalname, 'Заглавие');
     const category = DOC_CATEGORIES.includes(req.body?.category) ? req.body.category : 'document';
+    const entityType = req.body?.entity_type || null;
+    const entityId = req.body?.entity_id ? Number(req.body.entity_id) : null;
+    if (entityType != null || entityId != null) {
+      const table = DOC_ENTITIES[entityType];
+      if (!table || entityId == null || !db.prepare(`SELECT id FROM ${table} WHERE id = ?`).get(entityId)) throw bad('Невалидна връзка към обект');
+    }
     const ext = (String(req.file.originalname || '').match(/\.([a-z0-9]{1,8})$/i)?.[1] || 'bin').toLowerCase();
     const stored = `${crypto.randomUUID()}.${ext}`;
     const sha = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
@@ -208,13 +215,38 @@ export default function mountBrigade(app, db) {
     try {
       return tx(db, () => {
         const did = Number(db.prepare('INSERT INTO documents(project_id, entity_type, entity_id, category, title, created_by) VALUES (?,?,?,?,?,?)')
-          .run(pid, req.body?.entity_type || null, req.body?.entity_id ? Number(req.body.entity_id) : null, category, title, req.user.id).lastInsertRowid);
+          .run(pid, entityType, entityId, category, title, req.user.id).lastInsertRowid);
         db.prepare('INSERT INTO document_versions(document_id, version, filename, stored_name, mime, size, sha256, note, uploaded_by) VALUES (?,?,?,?,?,?,?,?,?)')
           .run(did, 1, String(req.file.originalname || 'file').slice(0, 200), stored, req.file.mimetype, req.file.size, sha, req.body?.note || null, req.user.id);
         audit(db, req.user, { project_id: pid, entity_type: 'document', entity_id: did, action: 'upload', after: { title, category, filename: req.file.originalname, size: req.file.size }, module: 'documents' });
         emit(db, req.user, { type: 'document.uploaded', origin: 'brigade', project_id: pid, entity_type: 'document', entity_id: did,
           dedupe_key: `document.uploaded:${did}`, next: { title, category }, affected: ['technical', 'brigadier'] });
         return { ...db.prepare(`${docView} WHERE d.id = ?`).get(did), versions: docVersions(did) };
+      });
+    } catch (e) { try { fs.unlinkSync(path.join(FILES_DIR, stored)); } catch {} throw e; }
+  }));
+  app.post('/api/documents/:id/versions', upload.single('file'), h(req => {
+    const doc = db.prepare('SELECT * FROM documents WHERE id = ?').get(Number(req.params.id));
+    if (!doc) throw new HttpError(404, 'Няма такъв документ');
+    if (doc.project_id != null) needField(req, doc.project_id, { resource: 'documents', action: 'write' });
+    else need(req.user, 'documents', 'write');
+    if (!req.file) throw bad('Файлът липсва');
+    if (!OK_MIME.test(req.file.mimetype || '')) throw bad('Типът файл не е позволен');
+    const ext = (String(req.file.originalname || '').match(/\.([a-z0-9]{1,8})$/i)?.[1] || 'bin').toLowerCase();
+    const stored = `${crypto.randomUUID()}.${ext}`;
+    const sha = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
+    fs.mkdirSync(FILES_DIR, { recursive: true });
+    fs.writeFileSync(path.join(FILES_DIR, stored), req.file.buffer);
+    try {
+      return tx(db, () => {
+        const ver = doc.current_version + 1;
+        db.prepare('INSERT INTO document_versions(document_id, version, filename, stored_name, mime, size, sha256, note, uploaded_by) VALUES (?,?,?,?,?,?,?,?,?)')
+          .run(doc.id, ver, String(req.file.originalname || 'file').slice(0, 200), stored, req.file.mimetype, req.file.size, sha, req.body?.note || null, req.user.id);
+        db.prepare('UPDATE documents SET current_version = ? WHERE id = ?').run(ver, doc.id);
+        audit(db, req.user, { project_id: doc.project_id, entity_type: 'document', entity_id: doc.id, action: 'new_version', after: { version: ver, filename: req.file.originalname, size: req.file.size }, module: 'documents' });
+        emit(db, req.user, { type: 'document.versioned', origin: 'documents', project_id: doc.project_id, entity_type: 'document', entity_id: doc.id,
+          dedupe_key: `document.versioned:${doc.id}:${ver}`, next: { title: doc.title, version: ver }, affected: ['technical', 'contracts'] });
+        return { ...db.prepare(`${docView} WHERE d.id = ?`).get(doc.id), versions: docVersions(doc.id) };
       });
     } catch (e) { try { fs.unlinkSync(path.join(FILES_DIR, stored)); } catch {} throw e; }
   }));

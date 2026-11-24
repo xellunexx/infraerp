@@ -1,7 +1,7 @@
 // Бригадир: терен интерфейс — моите обекти, дневен план, прогрес, присъствие, проблеми, снимки, съобщения.
 import React, { useRef, useState } from 'react';
 import { api, fmtDate, fmtDateTime, fmtNum, today } from '../api';
-import { Card, Empty, Field, Link, Loader, Modal, Progress, Status, Table, Tabs, useAction, useAuth, useCan, useForm, useLoad, usePath, useToast } from '../ui';
+import { Card, Empty, Field, Link, Loader, Modal, NewVersionButton, Progress, Status, Table, Tabs, useAction, useAuth, useCan, useForm, useLoad, usePath, useToast, VersionLinks } from '../ui';
 
 const KIND: Record<string, string> = { problem: 'Проблем', delay: 'Закъснение', material_shortage: 'Липса на материал', damage: 'Повреда', additional_work: 'Допълнителна работа', other: 'Друго' };
 const SEV: Record<string, string> = { low: 'Нисък', medium: 'Среден', high: 'Висок', critical: 'Критичен' };
@@ -134,6 +134,7 @@ function ProgressTab({ pid, prog, write, onChanged }: { pid: number; prog: any; 
       { key: 'code', title: 'Код', width: 90 }, { key: 'description', title: 'Ред' }, { key: 'unit', title: 'Мярка', width: 60 },
       { key: 'qty', title: 'Договорено', num: true, render: (r: any) => fmtNum(r.qty) }, { key: 'done_qty', title: 'Извършено', num: true, render: (r: any) => <>{fmtNum(r.done_qty)}{r.qty > 0 && r.done_qty > r.qty ? <div><span className="badge bad">над договора +{fmtNum(r.done_qty - r.qty, 3)}</span></div> : null}</> },
       { key: 'pct', title: '%', width: 130, render: (r: any) => r.pct != null ? <div className="row" style={{ flexWrap: 'nowrap' }}><Progress pct={r.pct} /><span className="small num" style={{ width: 40 }}>{r.pct}%</span></div> : '—' },
+      { key: 'spec', title: '', width: 70, render: (r: any) => r.spec_url ? <a className="sm" href={r.spec_url} target="_blank" rel="noreferrer" title="Техническа спецификация">Спец ↗</a> : null },
     ]} /></Card>
     <Card title="Дневни отчети" pad={false}><Table rows={entries} empty={<Empty title="Няма записани отчети" />} cols={[
       { key: 'work_date', title: 'Дата', render: (r: any) => fmtDate(r.work_date) }, { key: 'line_description', title: 'Ред' },
@@ -242,9 +243,10 @@ function PhotosTab({ pid, docs, write, onChanged }: { pid: number; docs: any; wr
     </div></Card>}
     <Card pad={false}><Loader state={docs}><Table rows={rows} empty={<Empty title="Няма файлове">Качвайте снимки от обекта и документи.</Empty>} cols={[
       { key: 'title', title: 'Файл', render: (r: any) => { const v = latest(r); return <>{r.title}<div className="small muted">{v?.filename} · {v ? Math.round(v.size / 1024) + ' KB' : ''} · {fmtDateTime(v?.created_at)}</div></> } },
-      { key: 'category', title: 'Вид', render: (r: any) => ({ photo: 'Снимка', document: 'Документ', act: 'Акт', other: 'Друго' } as any)[r.category] || r.category },
+      { key: 'category', title: 'Вид', render: (r: any) => ({ photo: 'Снимка', document: 'Документ', act: 'Акт', contract: 'Договор', appendix: 'Приложение', other: 'Друго' } as any)[r.category] || r.category },
+      { key: 'versions', title: 'Версии', render: (r: any) => <VersionLinks doc={r} /> },
       { key: 'uploaded_by_name', title: 'Качил' },
-      { key: 'x', title: '', width: 90, render: (r: any) => { const v = latest(r); return v ? <a className="btn sm" href={`/api/documents/${v.id}/file`} target="_blank" rel="noreferrer">Отвори</a> : null; } },
+      { key: 'x', title: '', width: 140, render: (r: any) => { const v = latest(r); return <span style={{ display: 'inline-flex', gap: 4 }}>{v ? <a className="btn sm" href={`/api/documents/${v.id}/file`} target="_blank" rel="noreferrer">Отвори</a> : null}{write && <NewVersionButton doc={r} onDone={onChanged} />}</span>; } },
     ]} /></Loader></Card>
     <div className="grid g3">{rows.flatMap(r => (r.versions || []).filter((v: any) => (v.mime || '').startsWith('image/')).map((v: any) =>
       <a key={v.id} href={`/api/documents/${v.id}/file`} target="_blank" rel="noreferrer"><img src={`/api/documents/${v.id}/file`} alt={r.title} style={{ width: '100%', borderRadius: 8, border: '1px solid var(--line)' }} /></a>))}

@@ -165,9 +165,10 @@ export function emit(db, user, e) {
 }
 
 export function notify(db, ev, { departments = [], users = [], title, body = '', link = null, severity = 'info' }) {
-  const ins = db.prepare('INSERT INTO notifications(event_id, user_id, department, project_id, title, body, link, severity) VALUES (?,?,?,?,?,?,?,?)');
-  for (const d of new Set(departments)) ins.run(ev?.id ?? null, null, d, ev?.project_id ?? null, title, body, link, severity);
-  for (const u of new Set(users.filter(Boolean))) ins.run(ev?.id ?? null, u, null, ev?.project_id ?? null, title, body, link, severity);
+  const ins = db.prepare('INSERT INTO notifications(event_id, user_id, department, project_id, title, body, link, severity, ref_type, ref_id, author_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)');
+  const args = [ev?.id ?? null, ev?.project_id ?? null, ev?.entity_type ?? null, ev?.entity_id ?? null, ev?.user_id ?? null];
+  for (const d of new Set(departments)) ins.run(args[0], null, d, args[1], title, body, link, severity, args[2], args[3], args[4]);
+  for (const u of new Set(users.filter(Boolean))) ins.run(args[0], u, null, args[1], title, body, link, severity, args[2], args[3], args[4]);
   return { departments, users: users.filter(Boolean) };
 }
 

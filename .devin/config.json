@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "permissions": {
+    "allow": [
+      "Exec(node --test)",
+      "Exec(node server/index.js)",
+      "Exec(npm run build)",
+      "Exec(npm test)",
+      "Exec(git status)",
+      "Exec(git diff)",
+      "Exec(git log)",
+      "Exec(git add)",
+      "Exec(git commit)",
+      "Exec(netstat)",
+      "Exec(taskkill)",
+      "Exec(curl)"
+    ],
+    "deny": []
+  }
+}

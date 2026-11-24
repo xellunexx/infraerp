@@ -97,6 +97,7 @@ const STATUS: Record<string, [string, string]> = {
   open: ['Отворено', 'warn'], offered: ['С оферта', 'info'], in_progress: ['В работа', 'info'], done: ['Готово', 'ok'], cancelled: ['Отменено', ''], active: ['Активен', 'info'], skipped: ['Пропуснат', ''],
   submitted: ['Подадена', 'warn'], reserved: ['Резервирана', 'ok'], partial: ['Частично налична', 'warn'], to_purchase: ['За закупуване', 'bad'], issued: ['Издадена', 'info'], fulfilled: ['Изпълнена', 'ok'],
   planned: ['Планирана', ''], in_transit: ['На път', 'info'], delivered: ['Доставена', 'ok'], delayed: ['Закъснява', 'bad'], paid: ['Платено', 'ok'], committed: ['Задължение', 'warn'], resolved: ['Решено', 'ok'],
+  ordered: ['Поръчана', ''], in_production: ['В производство', 'info'],
 };
 export function Status({ value }: { value?: string | null }) { if (!value) return null; const s = STATUS[value] || [value, '']; return <span className={'badge ' + s[1]}>{s[0]}</span>; }
 export const statusLabel = (v: string) => (STATUS[v] || [v])[0];
@@ -116,5 +117,31 @@ export function useForm<T extends Record<string, any>>(initial: T) {
   const [v, setV] = useState<T>(initial);
   const bind = (k: keyof T) => ({ value: v[k] ?? '', onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setV(x => ({ ...x, [k]: e.target.value })) });
   return { v, setV, bind, set: (k: keyof T, val: any) => setV(x => ({ ...x, [k]: val })) };
+}
+
+// ---- document versions: every file keeps its history; new versions are appended, never overwritten
+export function VersionLinks({ doc }: { doc: any }) {
+  const vs: any[] = doc?.versions || [];
+  if (!vs.length) return null;
+  return <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap' }}>{vs.map((v: any) =>
+    <a key={v.id} href={`/api/documents/${v.id}/file`} target="_blank" rel="noreferrer" className={'badge' + (v.version === doc.current_version ? ' ok' : '')} title={`${v.filename} · ${v.created_at?.slice(0, 16).replace('T', ' ')}`}>v{v.version}</a>)}</span>;
+}
+export function NewVersionButton({ doc, onDone, disabled }: { doc: any; onDone: () => void; disabled?: boolean }) {
+  const ref = useRef<HTMLInputElement>(null);
+  const { run, busy } = useAction();
+  return <>
+    <input ref={ref} type="file" style={{ display: 'none' }} onChange={e => {
+      const f = e.target.files?.[0]; e.target.value = '';
+      if (!f) return;
+      run(async () => {
+        const fd = new FormData(); fd.append('file', f);
+        const res = await fetch(`/api/documents/${doc.id}/versions`, { method: 'POST', credentials: 'same-origin', body: fd });
+        const data = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(data?.error || `Грешка ${res.status}`);
+        onDone();
+      }, `Качена е версия ${(doc.current_version || 1) + 1}`);
+    }} />
+    <button className="sm ghost" disabled={disabled || busy} title="Качи нова версия на файла — старата се пази" onClick={e => { e.stopPropagation(); ref.current?.click(); }}>+ версия</button>
+  </>;
 }
 export const useFilter = <T,>(rows: T[] | null, q: string, text: (r: T) => string) => useMemo(() => { const s = q.trim().toLowerCase(); return (rows || []).filter(r => !s || text(r).toLowerCase().includes(s)); }, [rows, q]);

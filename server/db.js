@@ -106,6 +106,7 @@ CREATE TABLE IF NOT EXISTS contracts (
   offer_id INTEGER REFERENCES offers(id), offer_version INTEGER, template TEXT NOT NULL DEFAULT 'standard', special_terms TEXT,
   status TEXT NOT NULL DEFAULT 'draft', active_version INTEGER, signed_on TEXT, delivery_deadline TEXT, install_start TEXT, install_deadline TEXT,
   advance_pct REAL NOT NULL DEFAULT 0, payment_terms_days INTEGER NOT NULL DEFAULT 14, created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  contract_kind TEXT, prod_delivery_days REAL, install_days REAL,
   row_version INTEGER NOT NULL DEFAULT 1);
 CREATE TABLE IF NOT EXISTS contract_appendices (id INTEGER PRIMARY KEY, contract_id INTEGER NOT NULL REFERENCES contracts(id),
   number INTEGER NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, contract_version INTEGER NOT NULL, UNIQUE (contract_id, number, contract_version));
@@ -177,7 +178,11 @@ CREATE TABLE IF NOT EXISTS transactions (
   id INTEGER PRIMARY KEY, code TEXT NOT NULL UNIQUE, uid TEXT NOT NULL UNIQUE, project_id INTEGER REFERENCES projects(id),
   direction TEXT NOT NULL CHECK (direction IN ('in','out')), category TEXT NOT NULL, amount REAL NOT NULL CHECK (amount > 0),
   status TEXT NOT NULL DEFAULT 'paid', tx_date TEXT NOT NULL, due_on TEXT, counterparty TEXT, document_ref TEXT, proforma_id INTEGER REFERENCES proformas(id),
-  payment_request_id INTEGER, note TEXT, created_by INTEGER REFERENCES users(id), created_at TEXT NOT NULL DEFAULT (datetime('now')), row_version INTEGER NOT NULL DEFAULT 1);
+  payment_request_id INTEGER, note TEXT, created_by INTEGER REFERENCES users(id), created_at TEXT NOT NULL DEFAULT (datetime('now')), row_version INTEGER NOT NULL DEFAULT 1,
+  tx_kind TEXT, method TEXT, company TEXT, document_id INTEGER REFERENCES transactions(id),
+  cost_center_id INTEGER REFERENCES cost_centers(id), person_id INTEGER REFERENCES accountable_persons(id), asset_id INTEGER REFERENCES assets(id),
+  has_vat INTEGER NOT NULL DEFAULT 0, vat_amount REAL, pko_no TEXT, rko_no TEXT,
+  labour_worker TEXT, labour_days REAL, labour_rate REAL);
 CREATE TABLE IF NOT EXISTS payment_requests (
   id INTEGER PRIMARY KEY, code TEXT NOT NULL UNIQUE, project_id INTEGER REFERENCES projects(id), category TEXT NOT NULL, amount REAL NOT NULL,
   payee TEXT NOT NULL, reason TEXT, exceptional INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'pending', approval_id INTEGER,
@@ -186,6 +191,25 @@ CREATE TABLE IF NOT EXISTS accommodations (
   id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL REFERENCES projects(id), place TEXT NOT NULL, address TEXT, date_from TEXT, date_to TEXT,
   beds INTEGER, cost_per_night REAL NOT NULL DEFAULT 0, payment_method TEXT, parking TEXT, workers TEXT, note TEXT,
   created_by INTEGER REFERENCES users(id), row_version INTEGER NOT NULL DEFAULT 1);
+
+-- §14 operator spec: one ledger, filtered views (project / person card / company / cost center).
+CREATE TABLE IF NOT EXISTS cost_centers (
+  id INTEGER PRIMARY KEY, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'overhead', active INTEGER NOT NULL DEFAULT 1, row_version INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE IF NOT EXISTS accountable_persons (
+  id INTEGER PRIMARY KEY, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
+  user_id INTEGER REFERENCES users(id), note TEXT, active INTEGER NOT NULL DEFAULT 1, row_version INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE IF NOT EXISTS contract_payments (
+  id INTEGER PRIMARY KEY, contract_id INTEGER NOT NULL REFERENCES contracts(id), kind TEXT NOT NULL,
+  pct REAL, amount REAL, paid_at TEXT, note TEXT, updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (contract_id, kind));
+CREATE TABLE IF NOT EXISTS supplier_orders (
+  id INTEGER PRIMARY KEY, code TEXT NOT NULL UNIQUE, project_id INTEGER NOT NULL REFERENCES projects(id),
+  project_line_id INTEGER REFERENCES project_lines(id), supplier TEXT NOT NULL, order_doc_no TEXT,
+  total_eur REAL NOT NULL DEFAULT 0, advance_eur REAL NOT NULL DEFAULT 0, advance_paid_at TEXT,
+  prod_days REAL, final_paid_at TEXT, transport_days REAL, status TEXT NOT NULL DEFAULT 'ordered',
+  note TEXT, created_by INTEGER REFERENCES users(id), created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  row_version INTEGER NOT NULL DEFAULT 1);
 
 CREATE TABLE IF NOT EXISTS documents (
   id INTEGER PRIMARY KEY, project_id INTEGER REFERENCES projects(id), entity_type TEXT, entity_id INTEGER, category TEXT NOT NULL,
@@ -224,6 +248,7 @@ CREATE TABLE IF NOT EXISTS event_effects (id INTEGER PRIMARY KEY, event_id INTEG
 CREATE TABLE IF NOT EXISTS notifications (
   id INTEGER PRIMARY KEY, event_id INTEGER REFERENCES events(id), user_id INTEGER REFERENCES users(id), department TEXT,
   project_id INTEGER REFERENCES projects(id), title TEXT NOT NULL, body TEXT, link TEXT, severity TEXT NOT NULL DEFAULT 'info',
+  ref_type TEXT, ref_id INTEGER, author_id INTEGER REFERENCES users(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now')));
 CREATE TABLE IF NOT EXISTS notification_reads (notification_id INTEGER NOT NULL REFERENCES notifications(id), user_id INTEGER NOT NULL REFERENCES users(id),
   read_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (notification_id, user_id));

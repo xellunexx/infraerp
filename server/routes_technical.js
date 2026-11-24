@@ -143,7 +143,13 @@ export default function mountTechnical(app, db) {
   app.get('/api/projects/:pid/progress', h(req => {
     needP(req, 'progress');
     const pid = Number(req.params.pid);
-    return { lines: progressSummary(db, pid).lines.map(l => ({ id: l.id, code: l.code, description: l.description, unit: l.unit, qty: l.qty, done_qty: l.done_qty, pct: l.qty > 0 ? Math.min(100, Math.round(l.done_qty / l.qty * 1000) / 10) : null })),
+    const rawLines = progressSummary(db, pid).lines;
+    const docIds = [...new Set(rawLines.map(l => l.image_document_id).filter(Boolean))];
+    const specUrl = new Map(docIds.length ? db.prepare(`SELECT v.document_id, v.id AS vid FROM document_versions v
+        WHERE v.version = (SELECT MAX(version) FROM document_versions WHERE document_id = v.document_id) AND v.document_id IN (${docIds.map(() => '?').join(',')})`)
+        .all(...docIds).map(r => [r.document_id, `/api/documents/${r.vid}/file`]) : []);
+    return { lines: rawLines.map(l => ({ id: l.id, code: l.code, description: l.description, unit: l.unit, qty: l.qty, done_qty: l.done_qty, pct: l.qty > 0 ? Math.min(100, Math.round(l.done_qty / l.qty * 1000) / 10) : null,
+        spec_url: l.image_document_id ? specUrl.get(l.image_document_id) || null : null })),
       entries: db.prepare(`SELECT e.*, l.description AS line_description, l.unit, u.full_name AS reported_by_name FROM progress_entries e
         JOIN project_lines l ON l.id = e.project_line_id LEFT JOIN users u ON u.id = e.reported_by WHERE e.project_id = ? ORDER BY e.work_date DESC, e.id DESC LIMIT 300`).all(pid) };
   }));
@@ -187,8 +193,9 @@ export default function mountTechnical(app, db) {
   })));
 
   // ---- Разход на материали: планирано по рецепта срещу реално от склада
+  // количествената сметка е споделен запис — Логистика я чете за планиране на доставки
   app.get('/api/projects/:pid/consumption', h(req => {
-    needP(req);
+    needP(req, can(req.user, 'technical') ? 'technical' : 'logistics');
     return { rows: consumption(db, Number(req.params.pid), Number(setting(db, 'overconsumption_tolerance_pct', '5'))),
       tolerance_pct: Number(setting(db, 'overconsumption_tolerance_pct', '5')) };
   }));

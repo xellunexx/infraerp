@@ -50,10 +50,12 @@ const ENT = {
   product: { table: 'products', resource: 'catalog', label: 'Продукт', labelOf: r => `${r.code} — ${r.name}`,
     cols: ['name', 'kind', 'unit', 'unit_cost', 'unit_price', 'description', 'min_stock', 'pallet_qty', 'active'],
     picker: db => db.prepare('SELECT id, code, name, unit FROM products WHERE active = 1 ORDER BY id DESC LIMIT 200').all(),
+    softDelete: db => db.prepare('UPDATE products SET active = 0 WHERE id = ?'),
     reindex: (db, r) => reindex(db, 'product', r.id, r.code, r.name, [r.description].filter(Boolean).join(' ')) },
   smr: { table: 'smr_types', resource: 'catalog', label: 'СМР вид', labelOf: r => `${r.code} — ${r.name}`,
     cols: ['name', 'unit', 'labour_norm_h', 'description', 'active'],
     picker: db => db.prepare('SELECT id, code, name, unit FROM smr_types WHERE active = 1 ORDER BY id DESC LIMIT 200').all(),
+    softDelete: db => db.prepare('UPDATE smr_types SET active = 0 WHERE id = ?'),
     reindex: (db, r) => reindex(db, 'smr', r.id, r.code, r.name, [r.description].filter(Boolean).join(' ')) },
   inquiry: { table: 'inquiries', resource: 'offers', label: 'Запитване', labelOf: r => `${r.code} — ${r.title}`,
     cols: ['title', 'site_address', 'description', 'status', 'received_on'],
@@ -76,11 +78,14 @@ const ENT = {
   project: { table: 'projects', resource: 'projects', label: 'Обект', labelOf: r => `${r.code} — ${r.name}`,
     cols: ['name', 'site_address', 'access_notes', 'unloading_notes', 'storage_notes', 'parking_notes', 'courier_office', 'courier_pallets',
       'payment_urgency', 'planned_start', 'planned_end', 'actual_start', 'actual_end', 'latitude', 'longitude', 'geo_label'],
-    picker: db => db.prepare('SELECT id, code, name, status FROM projects WHERE archived = 0 ORDER BY id DESC LIMIT 200').all() },
+    picker: db => db.prepare('SELECT id, code, name, status FROM projects WHERE archived = 0 ORDER BY id DESC LIMIT 200').all(),
+    // обектът не може да изчезне физически (десетки свързани записи) — одобрено „изтриване“ = архивиране, както /api/projects/:id/archive
+    softDelete: db => db.prepare(`UPDATE projects SET archived = 1, status = 'closed', row_version = row_version + 1 WHERE id = ?`) },
   project_line: { table: 'project_lines', resource: 'projects', label: 'КС ред', labelOf: r => `${r.code || '#' + r.id} — ${String(r.description || '').slice(0, 60)}`,
     cols: ['code', 'description', 'unit', 'qty', 'unit_price', 'unit_cost', 'tech_note'],
     picker: db => db.prepare(`SELECT l.id, l.code, l.description, p.code AS pcode FROM project_lines l JOIN projects p ON p.id = l.project_id
-      WHERE l.removed = 0 ORDER BY l.id DESC LIMIT 200`).all() },
+      WHERE l.removed = 0 ORDER BY l.id DESC LIMIT 200`).all(),
+    softDelete: db => db.prepare('UPDATE project_lines SET removed = 1 WHERE id = ?') },
   contract: { table: 'contracts', resource: 'contracts', label: 'Договор', labelOf: r => r.code,
     cols: ['template', 'special_terms', 'delivery_deadline', 'install_start', 'install_deadline', 'advance_pct', 'payment_terms_days'],
     picker: db => db.prepare('SELECT id, code, status FROM contracts ORDER BY id DESC LIMIT 200').all() },
@@ -157,6 +162,12 @@ function applyDelete(db, type, id, user) {
   const e = ENT[type];
   const before = entRow(db, type, id);
   if (!before) throw new HttpError(404, 'Записът не е намерен');
+  // корекциите са одитируеми, никога разрушителни: физическо изтриване, когато е безопасно;
+  // при свързани записи типът с надгробен флаг се архивира/деактивира вместо заявката да виси с FK грешка
+  if (e.softDelete) {
+    try { db.prepare(`DELETE FROM ${e.table} WHERE id = ?`).run(id); return { before }; }
+    catch { e.softDelete(db).run(id); return { before, result: { archived: true } }; }
+  }
   try { db.prepare(`DELETE FROM ${e.table} WHERE id = ?`).run(id); }
   catch (err) { throw bad(`Записът не може да се изтрие (${err.message})`); }
   return { before };

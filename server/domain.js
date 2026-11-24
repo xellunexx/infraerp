@@ -78,7 +78,35 @@ export function signContract(db, user, projectId, signedOn) {
     if (c.status === 'signed') throw bad('Договорът вече е подписан');
     if (c.status !== 'approved') throw bad('Договорът трябва първо да бъде одобрен');
     if (!c.install_start || !c.install_deadline) throw bad('Въведете начало и краен срок за монтаж преди подписване');
-    db.prepare("UPDATE contracts SET status = 'signed', signed_on = ?, row_version = row_version + 1 WHERE id = ?").run(signedOn || new Date().toISOString().slice(0, 10), c.id);
+    const signDate = signedOn || new Date().toISOString().slice(0, 10);
+    db.prepare("UPDATE contracts SET status = 'signed', signed_on = ?, row_version = row_version + 1 WHERE id = ?").run(signDate, c.id);
+
+    // Разплащателен график се ражда при подписване: аванс % от договора (по подразбиране 50),
+    // междинно 30, окончателно — остатъкът. Ръчно въведени редове не се презаписват.
+    const total = db.prepare('SELECT total_value FROM contract_versions WHERE contract_id = ? AND version = ?').get(c.id, c.active_version)?.total_value
+      ?? progressSummary(db, projectId).contract_value;
+    const advPct = Number(c.advance_pct) > 0 ? Number(c.advance_pct) : 50;
+    const intPct = Math.min(30, Math.max(0, 100 - advPct));
+    const finPct = Math.max(0, round2(100 - advPct - intPct));
+    const seed = db.prepare(`INSERT INTO contract_payments(contract_id, kind, pct, amount) VALUES (?,?,?,?)
+      ON CONFLICT(contract_id, kind) DO UPDATE SET pct = COALESCE(contract_payments.pct, excluded.pct), amount = COALESCE(contract_payments.amount, excluded.amount)`);
+    const amt = p => total ? round2(total * p / 100) : null;
+    seed.run(c.id, 'advance', advPct, amt(advPct));
+    seed.run(c.id, 'interim', intPct, amt(intPct));
+    seed.run(c.id, 'final', finPct, amt(finPct));
+
+    // Авансовата проформа излиза веднага след подписа — счетоводството я маркира платена,
+    // което първо отбелязва етапа в графика и стартира договорния календар.
+    const advAmount = amt(advPct);
+    if (advAmount > 0 && !db.prepare("SELECT 1 FROM proformas WHERE project_id = ? AND kind = 'advance' AND status != 'cancelled'").get(projectId)) {
+      const pfId = Number(db.prepare(`INSERT INTO proformas(code, project_id, kind, amount, vat_pct, issued_on, due_on, status, note, created_by) VALUES (?,?,?,?,?,?,?,?,?,?)`)
+        .run(nextCode(db, 'PF'), projectId, 'advance', advAmount, Number(setting(db, 'vat_pct', '20')), signDate,
+          new Date(Date.parse(signDate) + (Number(c.payment_terms_days) || 14) * 86400000).toISOString().slice(0, 10),
+          'issued', 'Аванс по подписан договор', user?.id ?? null).lastInsertRowid);
+      audit(db, user, { project_id: projectId, entity_type: 'proforma', entity_id: pfId, action: 'issue', after: { amount: advAmount, kind: 'advance' }, module: 'accounting' });
+      emit(db, user, { type: 'proforma.issued', origin: 'accounting', project_id: projectId, entity_type: 'proforma', entity_id: pfId,
+        dedupe_key: `proforma.issued:${pfId}`, next: { amount: advAmount, kind: 'advance' }, affected: ['accounting', 'management'] });
+    }
     audit(db, user, { project_id: projectId, entity_type: 'contract', entity_id: c.id, action: 'sign', before: { status: c.status }, after: { status: 'signed' }, module: 'contracts' });
     return emit(db, user, { type: 'contract.signed', origin: 'contracts', project_id: projectId, entity_type: 'contract', entity_id: c.id, dedupe_key: `contract.signed:${c.id}`,
       prev: { status: c.status }, next: { status: 'signed', install_start: c.install_start, install_deadline: c.install_deadline, delivery_deadline: c.delivery_deadline },
@@ -264,4 +292,49 @@ on('task.assigned', 'notify', (db, ev) => {
   const n = ev.next || {};
   return notify(db, ev, { departments: [n.assignee_dept].filter(Boolean), users: [n.assignee_id].filter(Boolean),
     title: `Нова задача ${n.code || ''}`, body: n.title || '', link: ev.project_id ? `/projects/${ev.project_id}` : '/' });
+});
+
+// §14.7 reopen: the request goes to Management; the decision reaches every linked role.
+on('project.reopen_requested', 'notify', (db, ev) => {
+  const p = db.prepare('SELECT code, name FROM projects WHERE id = ?').get(ev.project_id);
+  return notify(db, ev, { departments: ['management'], severity: 'warn', title: `Заявка за връщане на ${p?.code || 'обект'} към „${ev.next?.stage_code || ''}“`,
+    body: ev.next?.reason || '', link: ev.project_id ? `/projects/${ev.project_id}` : '/' });
+});
+on('project.reopened', 'notify', (db, ev) => {
+  const p = db.prepare('SELECT code FROM projects WHERE id = ?').get(ev.project_id);
+  return notify(db, ev, { departments: ['technical', 'brigadier', 'accounting', 'logistics', 'warehouse', 'management'], severity: 'warn',
+    title: `Обект ${p?.code || ''} е върнат в изпълнение (етап „${ev.next?.stage_code || ''}“)`, body: `Предишен статус: ${ev.prev?.status || '—'}`,
+    link: ev.project_id ? `/projects/${ev.project_id}` : '/' });
+});
+on('project.reopen_decided', 'notify', (db, ev) => {
+  const p = db.prepare('SELECT code FROM projects WHERE id = ?').get(ev.project_id);
+  const a = db.prepare("SELECT requested_by FROM approvals WHERE entity_type = 'project' AND entity_id = ? AND kind = 'project_reopen' ORDER BY id DESC").get(ev.project_id);
+  return notify(db, ev, { departments: ['management'], users: [a?.requested_by], title: `Заявката за връщане на ${p?.code || 'обект'} е отхвърлена`,
+    body: ev.next?.note || '', link: ev.project_id ? `/projects/${ev.project_id}` : '/' });
+});
+
+// ---- Склад: заявките и преносите достигат до хората, които ги чакат (§4 sync chain)
+on('material_request.submitted', 'notify', (db, ev) => {
+  const p = db.prepare('SELECT code FROM projects WHERE id = ?').get(ev.project_id);
+  return notify(db, ev, { departments: ['warehouse'], title: `Нова заявка ${ev.next?.code || ''}${p ? ' — ' + p.code : ''}`,
+    body: `Позиции: ${ev.next?.items ?? '—'}; от: ${ev.next?.origin || 'manual'}`, link: '/warehouse' });
+});
+const requesterOf = (db, id) => db.prepare('SELECT code, requested_by FROM material_requests WHERE id = ?').get(id) || {};
+on('material_request.approved', 'notify', (db, ev) => {
+  const m = requesterOf(db, ev.entity_id);
+  return notify(db, ev, { users: [m.requested_by], title: `Заявка ${m.code || ''} е одобрена — материалите са резервирани`, link: '/warehouse' });
+});
+on('material_request.fulfilled', 'notify', (db, ev) => {
+  const m = requesterOf(db, ev.entity_id);
+  return notify(db, ev, { users: [m.requested_by], title: `Заявка ${m.code || ''} е изпълнена — изписано от склада`, link: '/warehouse' });
+});
+on('material_request.cancelled', 'notify', (db, ev) => {
+  const m = requesterOf(db, ev.entity_id);
+  return notify(db, ev, { users: [m.requested_by], severity: 'warn', title: `Заявка ${m.code || ''} е отменена`, link: '/warehouse' });
+});
+on('warehouse.transfer', 'notify', (db, ev) => {
+  const p = db.prepare('SELECT code FROM projects WHERE id = ?').get(ev.project_id);
+  const n = ev.next || {};
+  return notify(db, ev, { departments: ['logistics', 'warehouse'], title: `Пренос на ${n.product || 'материал'}: ${p?.code || ''} → ${n.to_project_code || ''}`,
+    body: `Количество: ${n.qty ?? '—'}.`, link: '/warehouse' });
 });

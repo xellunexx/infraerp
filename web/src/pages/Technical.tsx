@@ -77,13 +77,13 @@ export function TechnicalProject({ id }: { id: number }) {
     <Tabs tabs={[['schedule', 'Линеен график'], ['progress', 'Дневен прогрес'], ['materials', 'Материали']]} value={tab} onChange={setTab} />
     {tab === 'schedule' && <ScheduleTab pid={id} sched={sched} onChanged={reloadAll} />}
     {tab === 'progress' && <ProgressTab pid={id} prog={prog} onChanged={reloadAll} />}
-    {tab === 'materials' && <MaterialsTab cons={cons} />}
+    {tab === 'materials' && <MaterialsTab pid={id} cons={cons} />}
   </>;
 }
 
 // ---------------------------------------------------------------- График
 const DAY = 86400000;
-function ScheduleTab({ pid, sched, onChanged }: { pid: number; sched: ReturnType<typeof useLoad>; onChanged: () => void }) {
+function ScheduleTab({ pid, sched, onChanged }: { pid: number; sched: ReturnType<typeof useLoad<any>>; onChanged: () => void }) {
   const { run } = useAction();
   const can = useCan();
   const writable = can('technical', 'write');
@@ -162,7 +162,7 @@ function ScheduleTab({ pid, sched, onChanged }: { pid: number; sched: ReturnType
 }
 
 // ---------------------------------------------------------------- Прогрес
-function ProgressTab({ pid, prog, onChanged }: { pid: number; prog: ReturnType<typeof useLoad>; onChanged: () => void }) {
+function ProgressTab({ pid, prog, onChanged }: { pid: number; prog: ReturnType<typeof useLoad<any>>; onChanged: () => void }) {
   const { run } = useAction();
   const can = useCan();
   const writable = can('progress', 'write');
@@ -209,10 +209,16 @@ function ProgressTab({ pid, prog, onChanged }: { pid: number; prog: ReturnType<t
 }
 
 // ---------------------------------------------------------------- Материали
-function MaterialsTab({ cons }: { cons: ReturnType<typeof useLoad> }) {
+function MaterialsTab({ pid, cons }: { pid: number; cons: ReturnType<typeof useLoad<any>> }) {
+  const can = useCan();
+  const { run } = useAction();
+  const [req, setReq] = useState(false);
   const rows: any[] = cons.data?.rows || [];
   return <Loader state={cons}>
-    <Card title="Материали: планирано по рецепта срещу реално изразходено" actions={<span className="small muted">допуск на наднормен разход: {cons.data?.tolerance_pct}%</span>} pad={false}>
+    <Card title="Материали: планирано по рецепта срещу реално изразходено" actions={<>
+      <span className="small muted">допуск на наднормен разход: {cons.data?.tolerance_pct}%</span>
+      {can('technical', 'write') && <button className="sm" onClick={() => setReq(true)}>Заявка към склад</button>}
+    </>} pad={false}>
       <Table rows={rows} empty={<Empty title="Няма материали">Материалите идват от рецептите на СМР редовете и от складовите движения по обекта.</Empty>} cols={[
         { key: 'code', title: 'Код', width: 90 }, { key: 'name', title: 'Материал' }, { key: 'unit', title: 'Мярка', width: 60 },
         { key: 'required', title: 'По договор', num: true, render: (r: any) => fmtNum(r.required) },
@@ -223,5 +229,47 @@ function MaterialsTab({ cons }: { cons: ReturnType<typeof useLoad> }) {
         { key: 'flag', title: '', render: (r: any) => r.over ? <span className="badge bad">Наднормен</span> : r.unplanned ? <span className="badge warn">Непланиран</span> : null },
       ]} />
     </Card>
+    {req && <TechRequestModal pid={pid} rows={rows} onClose={() => setReq(false)} onDone={() => { setReq(false); cons.reload(); }} />}
   </Loader>;
+}
+
+/** Техникът заявява материали от обекта — същата заявка, която складарят би въвел,
+ *  но с origin=technical и без нужда от складови права. Липсващото количество
+ *  (по договор − на обекта) е предложено по подразбиране и се коригира ръчно. */
+function TechRequestModal({ pid, rows, onClose, onDone }: { pid: number; rows: any[]; onClose: () => void; onDone: () => void }) {
+  const { run, busy } = useAction();
+  const pending = useLoad<any[]>(`/projects/${pid}/material-requests`);
+  // вече заявеното (подадена или одобрена, неизпълнена) се приспада — без дублиране на заявки
+  const pendingQty: Record<number, number> = {};
+  for (const m of (pending.data || [])) if (['submitted', 'approved'].includes(m.status))
+    for (const i of (m.items || [])) pendingQty[i.product_id] = (pendingQty[i.product_id] || 0) + i.qty;
+  const deficit = (r: any) => Math.max(0, (r.required || 0) - (r.on_site || 0) - (pendingQty[r.product_id] || 0));
+  const [qty, setQty] = useState<Record<number, string> | null>(null);
+  const effQty = qty ?? Object.fromEntries(rows.map(r => [r.product_id, deficit(r) || '']));
+  const [sel, setSel] = useState<Record<number, boolean>>({});
+  const [neededBy, setNeededBy] = useState('');
+  const [note, setNote] = useState('');
+  const items = rows.filter(r => sel[r.product_id] !== false && Number(effQty[r.product_id]) > 0)
+    .map(r => ({ product_id: r.product_id, qty: Number(effQty[r.product_id]) }));
+  return <Modal wide title="Заявка за материали към склад" onClose={onClose}
+    footer={<><button onClick={onClose}>Отказ</button><button className="primary" disabled={busy || !items.length}
+      onClick={() => run(async () => {
+        await api.post(`/projects/${pid}/material-requests`, { items, needed_by: neededBy || null, note: note || null });
+        onDone();
+      }, 'Заявката е подадена към склада')}>Подай заявка</button></>}>
+    <div className="form c3" style={{ marginBottom: 10 }}>
+      <Field label="Нужни до"><input type="date" value={neededBy} onChange={e => setNeededBy(e.target.value)} /></Field>
+      <Field label="Бележка" full><input value={note} onChange={e => setNote(e.target.value)} /></Field>
+    </div>
+    <table className="t"><thead><tr><th></th><th>Материал</th><th>По договор</th><th>На обекта</th><th>Вече заявено</th><th>Заявено</th></tr></thead><tbody>
+      {rows.map(r => <tr key={r.product_id} style={{ opacity: sel[r.product_id] === false ? 0.45 : 1 }}>
+        <td><input type="checkbox" checked={sel[r.product_id] !== false} onChange={e => setSel(s => ({ ...s, [r.product_id]: e.target.checked }))} /></td>
+        <td>{r.code} — {r.name} ({r.unit})</td>
+        <td className="num">{fmtNum(r.required)}</td><td className="num">{fmtNum(r.on_site)}</td>
+        <td className="num">{pendingQty[r.product_id] ? fmtNum(pendingQty[r.product_id]) : '—'}</td>
+        <td><input type="number" step="any" style={{ width: 100 }} value={effQty[r.product_id] ?? ''} onChange={e => setQty(q => ({ ...(q ?? effQty), [r.product_id]: e.target.value }))} /></td></tr>)}
+      {!rows.length && <tr><td colSpan={6} className="muted">Няма материали по този обект.</td></tr>}
+    </tbody></table>
+    <div className="muted small" style={{ marginTop: 6 }}>„Вече заявено“ е сумата по висящи заявки за този обект — приспада се от предложеното количество. Заявката отива в опашката на склада с белег „от техническия отдел“.</div>
+  </Modal>;
 }
