@@ -93,7 +93,7 @@ export function Logistics() {
         { key: 'final', title: 'Доплащане', render: (r: any) => r.final_paid_at ? <>{fmtDate(r.final_paid_at)}<div className="small muted">{r.final_eur ?? '—'} €</div></> : <span className="muted">очаква</span> },
         { key: 'ready', title: 'Готовност', render: (r: any) => r.ready_date ? <>{fmtDate(r.ready_date)}{r.days_left != null && r.days_left >= 0 ? <div className="small muted">след {r.days_left} дн.</div> : null}</> : '—' },
         { key: 'expected', title: 'Очаквана доставка', render: (r: any) => r.expected_delivery ? <>{fmtDate(r.expected_delivery)}{r.delivery_forecast ? <div className="small muted">прогноза</div> : null}</> : '—' },
-        { key: 'computed_status', title: 'Статус', render: (r: any) => <Status value={r.computed_status} /> },
+        { key: 'computed_status', title: 'Статус', render: (r: any) => <>{r.awaiting_invoice ? <span className="badge warn" title="Платено, но няма фактура от доставчика: разходът идва от фактурата">чака фактура</span> : null}<Status value={r.computed_status} /></> },
         { key: 'x', title: '', width: 170, render: (r: any) => write && !['delivered', 'cancelled'].includes(r.status) ? <span className="row" style={{ flexWrap: 'nowrap' }}>
           <button className="sm primary" disabled={busy} onClick={() => run(async () => { await api.patch(`/supplier-orders/${r.id}`, { status: 'delivered', row_version: r.row_version }); reloadAll(); }, 'Поръчката е доставена')}>Доставена</button>
           <button className="sm" onClick={() => setModal({ kind: 'pay_order', row: r })}>{can('finance', 'write') ? 'Плащане' : 'Докладвай плащане'}</button>

@@ -6,8 +6,8 @@ import { Card, Empty, Field, Loader, Modal, Status, Table, Tabs, useAction, useC
 
 const KIND: Record<string, string> = { advance: 'Аванс', interim: 'Междинна', final: 'Окончателна', other: 'Друга' };
 const DIR: Record<string, [string, string]> = { in: ['Приход', 'ok'], out: ['Разход', ''] };
-const TX_KIND: Record<string, string> = { client: 'Клиент (фактура)', supplier_doc: 'Доставчик (документ)', bank_in: 'Банка приход', bank_out: 'Банка разход', proforma: 'Проформа', labour: 'Труд', fiscal: 'Фискален бон', card: 'Към подотчетен', no_doc: 'Без документ', store: 'Склад', other: 'Друго' };
-const TX_METHOD: Record<string, string> = { bank: 'Банка', cash: 'Каса', card: 'Карта' };
+const TX_KIND: Record<string, string> = { client: 'Клиент (фактура)', supplier_doc: 'Доставчик (документ)', bank_in: 'Банка приход', bank_out: 'Банка разход', proforma: 'Проформа', labour: 'Труд', fiscal: 'Фискален бон', card: 'Подотчетен: аванс / връщане', no_doc: 'Без документ', store: 'Складова разписка', other: 'Друго' };
+const TX_METHOD: Record<string, string> = { bank: 'Банка', cash: 'Каса', card: 'Карта', eurowag: 'ЕВРОВАГ (гориво)' };
 const SO_STATUS: Record<string, [string, string]> = { ordered: ['Поръчана', ''], in_production: ['В производство', 'warn'], in_transit: ['На път', 'info'], delivered: ['Доставена', 'ok'], cancelled: ['Отменена', ''] };
 const money = (n: any, cur: string) => fmtMoney(n, cur);
 
@@ -16,6 +16,7 @@ export function Accounting() {
   const [pid, setPid] = useState(new URLSearchParams(path.split('?')[1] || '').get('pid') || '');
   const [tab, setTab] = useState(new URLSearchParams(path.split('?')[1] || '').get('tab') || 'proformas');
   const queue = useQueue(true);
+  const unalloc = useLoad<any[]>(`/payments/unallocated${pid ? `?project_id=${pid}` : ''}`);
   const waiting = (queue.data?.reported?.length || 0) + (queue.data?.unmatched?.length || 0);
   const port = useLoad<any>('/accounting');
   const q = pid ? `?project_id=${pid}` : '';
@@ -28,7 +29,7 @@ export function Accounting() {
   const orders = useLoad<any[]>(tab === 'orders' ? `/supplier-orders${q}` : null);
   const [lf, setLf] = useState<Record<string, string>>({});
   const ledger = useLoad<any>(tab === 'ledger' ? '/ledger' + (() => { const p = new URLSearchParams(); if (pid) p.set('project_id', pid); for (const k of ['direction', 'tx_kind', 'company', 'person_id', 'cost_center_id', 'from', 'to', 'roots']) if (lf[k]) p.set(k, lf[k]); const s = p.toString(); return s ? '?' + s : ''; })() : null, [lf]);
-  const reloadAll = () => { queue.reload(); port.reload(); proformas.reload(); transactions.reload(); requests.reload(); accommodations.reload(); persons.reload(); centers.reload(); orders.reload(); ledger.reload(); };
+  const reloadAll = () => { queue.reload(); unalloc.reload(); port.reload(); proformas.reload(); transactions.reload(); requests.reload(); accommodations.reload(); persons.reload(); centers.reload(); orders.reload(); ledger.reload(); };
   const can = useCan();
   const cur = useCurrency();
   const { run, busy } = useAction();
@@ -85,9 +86,20 @@ export function Accounting() {
       </Card>
     </Loader>
 
-    <Tabs value={tab} onChange={setTab} tabs={[['confirm', `За потвърждение${waiting ? ` (${waiting})` : ''}`], ['ledger', 'Книга'], ['proformas', 'Проформи'], ['transactions', 'Приходи и разходи'], ['persons', 'Подотчетни лица'], ['orders', 'Поръчки'], ['centers', 'Центрове'], ['requests', 'Заявки за плащане'], ['accommodations', 'Настаняване']]} />
+    <Tabs value={tab} onChange={setTab} tabs={[['confirm', `За потвърждение${waiting ? ` (${waiting})` : ''}`], ['unallocated', `Неразпределени${unalloc.data?.length ? ` (${unalloc.data.length})` : ''}`], ['ledger', 'Книга'], ['proformas', 'Проформи'], ['transactions', 'Приходи и разходи'], ['persons', 'Подотчетни лица'], ['orders', 'Поръчки'], ['centers', 'Центрове'], ['requests', 'Заявки за плащане'], ['accommodations', 'Настаняване']]} />
 
     {tab === 'confirm' && <ConfirmTab queue={queue} onDone={reloadAll} />}
+
+    {tab === 'unallocated' && <Card title="Плащания без документ и стари записи без вид" pad={false}>
+      <div className="muted small" style={{ padding: '8px 12px' }}>Преводът плаща документ и сам по себе си не е разход. Свържете го с фактурата („✎“ → Документ) или задайте вид на стария запис.</div>
+      <Loader state={unalloc}><Table rows={unalloc.data || []} empty={<Empty title="Няма неразпределени плащания" />} cols={[
+        { key: 'tx_date', title: 'Дата', render: (r: any) => fmtDate(r.tx_date) },
+        { key: 'pj', title: 'Обект', render: (r: any) => r.project_code ? `${r.project_code} — ${r.project_name}` : '—' },
+        { key: 'counterparty', title: 'Контрагент' }, { key: 'category', title: 'Основание' },
+        { key: 'amount', title: `Сума, ${cur}`, num: true, render: (r: any) => money(r.amount, cur) },
+        { key: 'role', title: '', render: (r: any) => <span className="badge warn">{r.role === 'legacy' ? 'стар запис без вид' : 'без документ'}</span> },
+        { key: 'x', title: '', width: 40, render: (r: any) => write ? <button className="ghost sm" onClick={() => setModal({ kind: 'transaction', row: r })}>✎</button> : null },
+      ]} /></Loader></Card>}
 
     {tab === 'ledger' && <LedgerTab ledger={ledger} persons={persons} centers={centers} lf={lf} setLf={setLf} cur={cur} />}
 
@@ -382,8 +394,8 @@ function PersonsTab({ persons, write, cur, onNew }: any) {
       ]} /></Loader></Card>
     {card && <Modal wide title={`Карта на ${card.person.name}`} onClose={() => setCard(null)}>
       <div className="grid g4 kpis-m" style={{ marginBottom: 12 }}>
-        <div className="kpi"><div className="label">Дадено авансово</div><div className="value">{money(card.given, cur)}</div></div>
-        <div className="kpi"><div className="label">Изразходено</div><div className="value">{money(card.spent, cur)}</div></div>
+        <div className="kpi"><div className="label">Дадено + получено от лицето</div><div className="value">{money(card.given, cur)}</div></div>
+        <div className="kpi"><div className="label">Изразходено (без гориво ЕВРОВАГ)</div><div className="value">{money(card.spent, cur)}</div></div>
         <div className="kpi"><div className="label">Върнато</div><div className="value">{money(card.returned, cur)}</div></div>
         <div className={'kpi ' + (card.balance > 0 ? 'warn' : card.balance < 0 ? 'bad' : '')}><div className="label">Салдо</div><div className="value">{money(card.balance, cur)}</div>
           <div className="sub">{card.balance > 0 ? 'лицето дължи' : card.balance < 0 ? 'фирмата дължи' : 'уравновесено'}</div></div>
@@ -414,7 +426,7 @@ function OrdersTab({ orders, write, cur, onNew, onEdit, onPay }: any) {
         { key: 'ready', title: 'Готовност', render: (r: any) => r.ready_date ? <>{fmtDate(r.ready_date)}{r.days_left != null && <div className={'small ' + (r.days_left < 0 ? 'badge bad' : 'muted')}>{r.days_left >= 0 ? `още ${r.days_left} дн.` : `${-r.days_left} дн. закъснение`}</div>}</> : <span className="muted">—</span> },
         { key: 'final_eur', title: `Доплащане, ${cur}`, num: true, render: (r: any) => <>{money(r.final_eur, cur)}{r.final_paid_at ? <div className="small muted">платено {fmtDate(r.final_paid_at)}</div> : null}</> },
         { key: 'expected_delivery', title: 'Доставка в БГ', render: (r: any) => r.expected_delivery ? <>{fmtDate(r.expected_delivery)}{r.delivery_forecast ? <div className="small muted">прогноза</div> : null}</> : <span className="muted">—</span> },
-        { key: 'computed_status', title: 'Статус', render: (r: any) => { const s = SO_STATUS[r.computed_status] || [r.computed_status, '']; return <span className={'badge ' + s[1]}>{s[0]}</span>; } },
+        { key: 'computed_status', title: 'Статус', render: (r: any) => { const s = SO_STATUS[r.computed_status] || [r.computed_status, '']; return <>{r.awaiting_invoice ? <span className="badge warn" title="Платено, но няма фактура от доставчика: разходът идва от фактурата">чака фактура</span> : null}<span className={'badge ' + s[1]}>{s[0]}</span></>; } },
         { key: 'x', title: '', width: 150, render: (r: any) => write ? <span className="row" style={{ flexWrap: 'nowrap' }}><button className="sm" onClick={() => onPay(r)}>Плащане</button><button className="ghost sm" onClick={() => onEdit(r)}>✎</button></span> : null },
       ]} /></Loader></Card>
   </>;

@@ -378,11 +378,23 @@ function FinanceTab({ pid }: { pid: number }) {
   const cur = useCurrency();
   const d = fin.data;
   if (!d) return <Loader state={fin}><div /></Loader>;
-  const m = (n: any) => fmtMoney(n, cur);
+  const m = (n: any) => fmtMoney(n, cur), r = d.result;
   return <>
+    {r && <Card title="Резултат по обекта (както в таблицата)" pad={false}><Table rows={[
+      { k: 'ПРИХОД без ДДС', v: r.income_net },
+      { k: 'РАЗХОДИ /МАТЕРИАЛИ И УСЛУГИ/ без ДДС', v: r.materials_net },
+      { k: 'ОБЩО ЗА ТРУД', v: r.labour },
+      { k: 'общо РАЗХОДИ + ТРУД', v: r.total_cost },
+      { k: 'РЕЗУЛТАТ преди непреки разходи', v: r.result_before, b: true },
+      { k: `непреки разходи ${fmtNum(r.man_days, 2)} надника × ${fmtMoney(r.indirect_rate)}`, v: r.indirect },
+      { k: 'РЕЗУЛТАТ след непреки разходи', v: r.result_after, b: true },
+    ]} cols={[{ key: 'k', title: 'Показател', render: (x: any) => x.b ? <b>{x.k}</b> : x.k },
+      { key: 'v', title: `Стойност, ${cur}`, num: true, render: (x: any) => <span className={x.b && x.v < 0 ? 'badge bad' : ''}>{x.b ? <b>{m(x.v)}</b> : m(x.v)}</span> }]} />
+      {r.unknown_days > 0 && <div className="alert warn" style={{ margin: 10 }}>{r.unknown_days} записа за труд нямат брой дни, затова непреките разходи не ги включват. Попълнете дните в „Счетоводство → Книга“.</div>}
+    </Card>}
     <div className="grid g4 kpis-m" style={{ marginBottom: 14 }}>
       <Kpi label={`Договорна стойност без ДДС, ${cur}`} value={m(d.contract_value)} sub={`оферта: ${m(d.offer_value)}`} />
-      <Kpi label={`Издадени проформи с ДДС, ${cur}`} value={m(d.invoiced)} sub={`вземания: ${m(d.receivables)}`} tone={d.receivables > 0 ? 'warn' : undefined} />
+      <Kpi label={`Издадени документи с ДДС, ${cur}`} value={m(d.invoiced)} sub={`остава да получим: ${m(d.receivables)}`} tone={d.receivables > 0 ? 'warn' : undefined} />
       <Kpi label={`Получени / платени с ДДС, ${cur}`} value={m(d.payments_received)} sub={`изплатени: ${m(d.payments_made)}`} />
       <Kpi label={`Резултат до момента без ДДС, ${cur}`} value={m(d.result_to_date)} sub={`прогноза: ${m(d.forecast_result)}`} tone={d.result_to_date < 0 ? 'bad' : undefined} />
       <Kpi label={`Оставащ бюджет без ДДС, ${cur}`} value={m(d.remaining_budget)} sub={`планирани разходи: ${m(d.planned_expenses)}`} />
