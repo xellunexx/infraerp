@@ -218,12 +218,12 @@ test('supplier order: countdown runs from confirmed transfers (the Тъмния_
   assert.equal((await lg.patch(url, { total_eur: '' })).status, 400);
   const other = await seedOffer2(t, a), line = t.db.prepare('SELECT id FROM project_lines WHERE project_id = ?').get(other).id;
   assert.equal((await lg.patch(url, { project_line_id: line })).status, 400);
-  const rep = (await lg.post(`${url}/payments`, { stage: 'advance', amount: 5000, tx_date: '2026-11-15' })).data.payment;
+  const rep = (await lg.post(`${url}/payments`, { stage: 'advance', vat_pct: 0, amount: 5000, tx_date: '2026-11-15' })).data.payment;
   assert.equal(rep.status, 'reported'); assert.equal((await get()).ready_date, null); assert.equal((await fin()).payments_made, 0);
   assert.equal((await acc.post(`/api/payments/${rep.id}/confirm`, { row_version: rep.row_version })).status, 200);
   let v = await get(); assert.deepEqual([v.advance_paid_at, v.ready_date, v.expected_delivery, v.delivery_forecast, v.computed_status], ['2026-11-15', '2026-12-15', '2026-12-22', true, 'in_production']);
   t.db.exec("UPDATE transactions SET tx_date = '2026-09-15'"); // the final transfer of the example lies in the future, so the pair is moved back
-  assert.equal((await acc.post(`${url}/payments`, { stage: 'final', amount: 5000, tx_date: '2026-10-16' })).data.payment.status, 'paid');
+  assert.equal((await acc.post(`${url}/payments`, { stage: 'final', vat_pct: 0, amount: 5000, tx_date: '2026-10-16' })).data.payment.status, 'paid');
   v = await get(); assert.deepEqual([v.ready_date, v.final_paid_at, v.expected_delivery, v.delivery_forecast, v.computed_status], ['2026-10-15', '2026-10-16', '2026-10-23', false, 'in_transit']);
   assert.equal((await fin()).payments_made, 10000);
 }));
@@ -277,7 +277,7 @@ test('review 2: a report cannot be confirmed against a document that changed; th
   const { pid, fin } = await signed(t), lg = await t.mkUser('lg', 'logistics');
   const o = (await lg.post('/api/supplier-orders', { project_id: pid, supplier: 'S', total_eur: 1200, advance_eur: 500 })).data;
   const d = (await T(a, { project_id: pid, direction: 'out', amount: 1200, status: 'committed' })).data;
-  const rep = (await lg.post(`/api/supplier-orders/${o.id}/payments`, { stage: 'advance', amount: 500, tx_date: '2026-11-02', document_id: d.id })).data.payment;
+  const rep = (await lg.post(`/api/supplier-orders/${o.id}/payments`, { stage: 'advance', vat_pct: 0, amount: 500, tx_date: '2026-11-02', document_id: d.id })).data.payment;
   for (const status of ['paid', 'voided']) assert.equal((await a.patch(`/api/transactions/${d.id}`, { status })).status, 400, status);
   t.db.prepare("UPDATE transactions SET status = 'paid' WHERE id = ?").run(d.id); // the state an older version could have left
   assert.equal((await a.post(`/api/payments/${rep.id}/confirm`, { row_version: rep.row_version })).status, 400);
@@ -303,7 +303,7 @@ test('review 4: a signed plan and order amounts are not lowered to start a deadl
   assert.equal((await a.put(url, { kind: 'final', amount: 1000 })).status, 200); assert.equal((await contract()).schedule_gap, -240);
   const o = (await lg.post('/api/supplier-orders', { project_id: pid, supplier: 'S', total_eur: 10000, advance_eur: 5000, prod_days: 30 })).data;
   assert.equal((await lg.patch(`/api/supplier-orders/${o.id}`, { advance_eur: 4000 })).status, 200, 'before any payment');
-  await a.post(`/api/supplier-orders/${o.id}/payments`, { stage: 'advance', amount: 1000, tx_date: '2026-11-01' });
+  await a.post(`/api/supplier-orders/${o.id}/payments`, { stage: 'advance', vat_pct: 0, amount: 1000, tx_date: '2026-11-01' });
   assert.equal((await lg.patch(`/api/supplier-orders/${o.id}`, { advance_eur: 1000 })).status, 403);
   assert.equal((await lg.patch(`/api/supplier-orders/${o.id}`, { advance_eur: 4000, total_eur: 10000, note: 'x' })).status, 200);
 }));
@@ -329,8 +329,8 @@ test('review 6: merge carries VAT and refuses contradicting payments', () => wor
   assert.equal((await a.post(`/api/payments/${rep.id}/merge`, { into: plain.id, row_version: rep.row_version })).status, 200);
   assert.equal((await fin()).result_to_date, 3100);
   const mk = async () => (await lg.post('/api/supplier-orders', { project_id: pid, supplier: 'S', total_eur: 9000, advance_eur: 5000 })).data.id, A = await mk(), B = await mk();
-  const pa = (await a.post(`/api/supplier-orders/${A}/payments`, { stage: 'advance', amount: 5000, tx_date: '2026-11-03' })).data.payment;
-  const rb = (await lg.post(`/api/supplier-orders/${B}/payments`, { stage: 'advance', amount: 5000, tx_date: '2026-11-05' })).data.payment;
+  const pa = (await a.post(`/api/supplier-orders/${A}/payments`, { stage: 'advance', vat_pct: 0, amount: 5000, tx_date: '2026-11-03' })).data.payment;
+  const rb = (await lg.post(`/api/supplier-orders/${B}/payments`, { stage: 'advance', vat_pct: 0, amount: 5000, tx_date: '2026-11-05' })).data.payment;
   assert.equal((await a.post(`/api/payments/${rb.id}/merge`, { into: pa.id, row_version: rb.row_version })).status, 400);
 }));
 test('review 8: the signed schedule adds up to the contract and matches its advance', () => world(async (t, a) => {
@@ -368,7 +368,31 @@ test('review 10: a real extra payment on a paid proforma is kept; a repeated sub
 test('review 11: an order paid in full in advance moves on when production is over', () => world(async (t, a) => {
   const { pid } = await signed(t);
   const o = (await a.post('/api/supplier-orders', { project_id: pid, supplier: 'S', total_eur: 100, advance_eur: 100, prod_days: 10, transport_days: 5 })).data;
-  await a.post(`/api/supplier-orders/${o.id}/payments`, { stage: 'advance', amount: 100, tx_date: '2026-10-01' });
+  await a.post(`/api/supplier-orders/${o.id}/payments`, { stage: 'advance', vat_pct: 0, amount: 100, tx_date: '2026-10-01' });
   const v = (await a.get('/api/supplier-orders')).data[0];
   assert.deepEqual([v.computed_status, v.expected_delivery, v.delivery_forecast, v.advance_paid_amount], ['in_transit', '2026-10-16', false, 100]);
+}));
+
+test('supplier payment carries its ДДС: cost is net, the rate is explicit, Accounting may correct it', () => world(async (t, a) => {
+  const { pid, fin } = await signed(t), lg = await t.mkUser('lg', 'logistics');
+  const o = (await lg.post('/api/supplier-orders', { project_id: pid, supplier: 'S', total_eur: 2400, advance_eur: 1200 })).data, url = `/api/supplier-orders/${o.id}/payments`;
+  const body = { stage: 'advance', amount: 1200, tx_date: '2026-11-01' };
+  for (const vat_pct of [undefined, '', null, -1, 101, 'x', true]) assert.equal((await a.post(url, { ...body, vat_pct })).status, 400, String(vat_pct));
+  const p = (await a.post(url, { ...body, vat_pct: 20 })).data.payment;
+  assert.deepEqual([p.has_vat, p.vat_amount], [1, 200]);
+  assert.deepEqual([(await fin()).payments_made, (await fin()).actual_expenses, (await fin()).result_to_date], [1200, 1000, -1000]);
+  assert.equal((await a.get('/api/supplier-orders')).data[0].last_vat_pct, 20, 'prefill for the next payment');
+  // a corrected amount keeps the rate, also when the edit form echoes the old share
+  await a.patch(`/api/transactions/${p.id}`, { amount: 600, has_vat: true, vat_amount: '200' }); assert.equal((await fin()).actual_expenses, 500);
+  assert.equal((await a.patch(`/api/transactions/${p.id}`, { has_vat: true, vat_amount: 700 })).status, 400, 'ДДС над сумата');
+  await a.patch(`/api/transactions/${p.id}`, { amount: 1200 }); assert.equal((await fin()).actual_expenses, 1000);
+  // reported at 20 %, the bank document shows no ДДС
+  const r = (await lg.post(url, { stage: 'final', amount: 1200, tx_date: '2026-11-20', vat_pct: 20 })).data.payment;
+  assert.equal((await fin()).actual_expenses, 1000, 'a report moves nothing');
+  assert.equal((await a.post(`/api/payments/${r.id}/confirm`, { vat_pct: 101, row_version: r.row_version })).status, 400);
+  assert.equal((await a.post(`/api/payments/${r.id}/confirm`, { vat_pct: 0, row_version: r.row_version })).status, 200);
+  assert.equal((await fin()).actual_expenses, 2200);
+  // client payments keep the rate of their proforma whatever is sent
+  const c = (await a.post(`/api/proformas/${(await fin()).proformas[0].id}/paid`, { paid_at: '2026-11-10', vat_pct: 0 })).data.transaction;
+  assert.equal(c.vat_amount, 620);
 }));

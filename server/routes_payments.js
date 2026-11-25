@@ -2,7 +2,7 @@
 import crypto from 'node:crypto';
 import { tx, nextCode } from './db.js';
 import { HttpError, bad, need, can, needProject, scopeRows, audit, emit, notify, on, updateRow } from './core.js';
-import { milestones, proformaOpenSql, similarPayments, vatInside } from './payments.js';
+import { milestones, proformaOpenSql, similarPayments, vatInside, ratePct } from './payments.js';
 import { bankDate, refuseSimilar, settleRow } from './ledger_rules.js';
 import { h, reqStr } from './app.js';
 
@@ -11,6 +11,12 @@ export function paymentAmount(v) {
   const n = typeof v === 'number' || (typeof v === 'string' && /^\d+(\.\d+)?$/.test(v.trim())) ? Number(v) : NaN;
   if (!Number.isFinite(n) || r2(n) <= 0) throw bad('Въведете сума с ДДС, по-голяма от нула (напр. 3720.00)');
   return r2(n);
+}
+/** Supplier ДДС is stated, not assumed: 0 is an answer (foreign supplier), empty is not. */
+export function vatRate(v) {
+  const n = v === null || v === undefined || v === '' || typeof v === 'boolean' ? NaN : Number(v);
+  if (!Number.isFinite(n) || n < 0 || n > 100) throw bad('Въведете ДДС % между 0 и 100 (0 = без ДДС)');
+  return n;
 }
 const rowOf = (db, id) => db.prepare('SELECT * FROM transactions WHERE id = ?').get(id);
 
@@ -26,7 +32,7 @@ export function recordPayment(db, user, { project_id, direction, status, uid, am
   if (status === 'paid' && similar.length && !separate) refuseSimilar(similar);
   const f = { code: nextCode(db, 'TXN'), uid: key, project_id, direction, category: rest.category, amount, status, tx_date, counterparty: rest.counterparty || null, document_ref: rest.document_ref || null,
     proforma_id: proforma?.id ?? null, contract_payment_id: milestone?.id ?? null, supplier_order_id: order?.id ?? null, order_stage, document_id, note: rest.note || null, created_by: user.id,
-    tx_kind: direction === 'in' ? 'bank_in' : 'bank_out', method: 'bank', has_vat: vat_pct == null ? 0 : 1, vat_amount: vat_pct == null ? null : vatInside(amount, vat_pct),
+    tx_kind: direction === 'in' ? 'bank_in' : 'bank_out', method: 'bank', has_vat: vat_pct ? 1 : 0, vat_amount: vat_pct ? vatInside(amount, vat_pct) : null,
     company: JSON.parse(db.prepare("SELECT value FROM settings WHERE key = 'finance_companies'").get()?.value || '[]')[0] || null };
   const cols = Object.keys(f);
   const id = Number(db.prepare(`INSERT INTO transactions(${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`).run(...cols.map(c => f[c])).lastInsertRowid);
@@ -76,14 +82,14 @@ export default function mountPayments(app, db) {
     if (!o) throw new HttpError(404, 'Няма такава поръчка');
     needProject(db, req.user, o.project_id);
     if (!['advance', 'final'].includes(b.stage)) throw bad('Етапът е аванс или доплащане');
-    const amount = paymentAmount(b.amount), tx_date = bankDate(b.tx_date);
+    const amount = paymentAmount(b.amount), tx_date = bankDate(b.tx_date), vat_pct = vatRate(b.vat_pct);
     let document_id = null;
     if (b.document_id != null && b.document_id !== '') {
       const d = rowOf(db, Number(b.document_id));
       if (!d || d.direction !== 'out' || d.document_id != null || !['committed', 'planned'].includes(d.status) || d.project_id !== o.project_id) throw bad('Няма такъв неплатен документ за този обект');
       document_id = d.id;
     }
-    return recordPayment(db, req.user, { project_id: o.project_id, direction: 'out', status: paid ? 'paid' : 'reported', uid: b.uid, amount, tx_date, separate: b.separate === true, order: o, order_stage: b.stage, document_id,
+    return recordPayment(db, req.user, { project_id: o.project_id, direction: 'out', status: paid ? 'paid' : 'reported', uid: b.uid, amount, tx_date, separate: b.separate === true, order: o, order_stage: b.stage, document_id, vat_pct,
       category: 'supplier_order', counterparty: o.supplier, document_ref: b.document_ref || o.order_doc_no, note: b.note });
   })));
 
@@ -102,9 +108,10 @@ export default function mountPayments(app, db) {
     const similar = similarPayments(db, { ...t, amount, tx_date });
     if (similar.length && b.separate !== true) refuseSimilar(similar);
     const f = { status: 'paid', amount, tx_date };
+    if (t.supplier_order_id != null && b.vat_pct !== undefined) { const v = vatRate(b.vat_pct); f.has_vat = v ? 1 : 0; f.vat_amount = v ? vatInside(amount, v) : null; }
     updateRow(db, 'transactions', t.id, f, b.row_version);
     settleRow(db, t.id, { before: t, separate: true });
-    audit(db, req.user, { project_id: t.project_id, entity_type: 'transaction', entity_id: t.id, action: 'payment_confirm', before: { status: t.status, amount: t.amount, tx_date: t.tx_date }, after: f, module: 'accounting' });
+    audit(db, req.user, { project_id: t.project_id, entity_type: 'transaction', entity_id: t.id, action: 'payment_confirm', before: { status: t.status, amount: t.amount, tx_date: t.tx_date, vat_amount: t.vat_amount }, after: f, module: 'accounting' });
     emit(db, req.user, { type: 'contract.payment_recorded', origin: 'accounting', project_id: t.project_id, entity_type: 'transaction', entity_id: t.id, dedupe_key: `payment.paid:${t.id}`,
       next: { code: t.code, amount, tx_date }, affected: ['accounting', 'contracts', 'management'] });
     return { payment: rowOf(db, t.id) };
@@ -136,7 +143,7 @@ export default function mountPayments(app, db) {
     const reported = scopeRows(db, req.user, db.prepare(`SELECT t.*, p.code AS project_code, p.name AS project_name, u.full_name AS reported_by_name, pf.code AS proforma_code, m.kind AS milestone_kind, o.code AS order_code
       FROM transactions t LEFT JOIN projects p ON p.id = t.project_id LEFT JOIN users u ON u.id = t.created_by LEFT JOIN proformas pf ON pf.id = t.proforma_id
       LEFT JOIN contract_payments m ON m.id = t.contract_payment_id LEFT JOIN supplier_orders o ON o.id = t.supplier_order_id WHERE t.status = 'reported' ORDER BY t.id`).all())
-      .map(t => ({ ...t, similar: similarPayments(db, t) }));
+      .map(t => ({ ...t, vat_pct: ratePct(t), similar: similarPayments(db, t) }));
     const unmatched = scopeRows(db, req.user, db.prepare('SELECT c.id, c.code AS contract_code, c.project_id, p.code AS project_code, p.name AS project_name FROM contracts c JOIN projects p ON p.id = c.project_id').all())
       .flatMap(c => milestones(db, c.id).filter(m => m.unmatched_date).map(m => ({ id: m.id, kind: m.kind, gross: m.gross, unmatched_date: m.unmatched_date, project_id: c.project_id, project_code: c.project_code, project_name: c.project_name, contract_code: c.contract_code })));
     return { reported, unmatched };

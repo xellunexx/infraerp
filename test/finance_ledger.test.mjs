@@ -83,12 +83,12 @@ test('supplier orders: advance date drives production countdown, final payment d
   assert.equal(so.computed_status, 'ordered');
   assert.equal(so.ready_date, null, 'no countdown before the advance is actually paid');
   assert.equal(so.final_eur, 5000);
-  const paid = (await t.admin.post(`/api/supplier-orders/${so.id}/payments`, { stage: 'advance', amount: 5000, tx_date: '2026-10-15' }), (await t.admin.get('/api/supplier-orders')).data[0]);
+  const paid = (await t.admin.post(`/api/supplier-orders/${so.id}/payments`, { stage: 'advance', vat_pct: 0, amount: 5000, tx_date: '2026-10-15' }), (await t.admin.get('/api/supplier-orders')).data[0]);
   assert.equal(paid.computed_status, 'in_production');
   assert.equal(paid.ready_date, '2026-11-14');                    // 15.10 + 30 days
   assert.equal(paid.expected_delivery, '2026-11-21');             // forecast: ready + 7 transport days
   assert.equal(paid.delivery_forecast, true);
-  const done = (await t.admin.post(`/api/supplier-orders/${so.id}/payments`, { stage: 'final', amount: 5000, tx_date: '2026-11-15' }), (await t.admin.get('/api/supplier-orders')).data[0]);
+  const done = (await t.admin.post(`/api/supplier-orders/${so.id}/payments`, { stage: 'final', vat_pct: 0, amount: 5000, tx_date: '2026-11-15' }), (await t.admin.get('/api/supplier-orders')).data[0]);
   assert.equal(done.computed_status, 'in_transit');
   assert.equal(done.expected_delivery, '2026-11-22');             // real: final paid + 7 days
   assert.equal(done.delivery_forecast, false);

@@ -48,6 +48,9 @@ export function settleRow(db, id, { before = null, separate = false } = {}) {
   if (t.supplier_order_id != null) {
     const o = db.prepare('SELECT project_id FROM supplier_orders WHERE id = ?').get(t.supplier_order_id);
     if (t.direction !== 'out' || !o || o.project_id !== t.project_id || !['advance', 'final'].includes(t.order_stage)) throw bad('Плащането не съответства на поръчката');
+    // a corrected amount keeps the stated rate; the edit form echoes the old share unchanged
+    if (t.has_vat && before?.has_vat && t.amount !== before.amount && t.vat_amount === before.vat_amount) db.prepare('UPDATE transactions SET vat_amount = ? WHERE id = ?').run(r2(t.vat_amount * t.amount / before.amount), t.id);
+    else if (t.has_vat && !(t.vat_amount >= 0 && t.vat_amount < t.amount)) throw bad('ДДС трябва да е по-малко от сумата');
   }
   if (t.status === 'paid' || t.status === 'reported') bankDate(t.tx_date);
   if (t.status === 'paid' && before?.status !== 'paid' && !separate) { const like = similarPayments(db, t); if (like.length) refuseSimilar(like); }

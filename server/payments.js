@@ -7,6 +7,8 @@ const vatSetting = db => Number(db.prepare("SELECT value FROM settings WHERE key
 export const grossOf = (net, vatPct) => r2(net * (1 + vatPct / 100));
 export const vatInside = (gross, vatPct) => r2(gross * vatPct / (100 + vatPct));
 export const netOf = (tx, vatPct = 20) => tx.has_vat ? tx.amount - (tx.vat_amount ?? vatInside(tx.amount, vatPct)) : tx.amount;
+/** The rate a row was recorded at, read back from its amounts. */
+export const ratePct = t => t.has_vat && t.vat_amount ? Math.round(t.vat_amount / (t.amount - t.vat_amount) * 1000) / 10 : 0;
 /** Today's date where the company works; the server clock may be in another zone. */
 export const localToday = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Sofia' });
 
@@ -82,7 +84,8 @@ export function orderDates(db, order) {
   const rows = stage => db.prepare("SELECT * FROM transactions WHERE supplier_order_id = ? AND order_stage = ? AND status = 'paid'").all(order.id, stage);
   const rest = r2((order.total_eur || 0) - (order.advance_eur || 0));
   const a = paidState(rows('advance'), order.advance_eur || 0), f = paidState(rows('final'), rest);
-  return { advance_paid_at: a.paid_at, final_paid_at: f.paid_at, advance_paid_amount: a.paid, final_paid_amount: f.paid };
+  const last = db.prepare("SELECT * FROM transactions WHERE supplier_order_id = ? AND status IN ('paid', 'reported') ORDER BY id DESC LIMIT 1").get(order.id);
+  return { last_vat_pct: last ? ratePct(last) : null, advance_paid_at: a.paid_at, final_paid_at: f.paid_at, advance_paid_amount: a.paid, final_paid_amount: f.paid };
 }
 
 /** Payments that could be the same transfer: same project and direction, same amount, within 5 days. */

@@ -137,14 +137,14 @@ test('supplier orders: logistics reads and updates the shared order record; cons
     assert.equal(cr.data.computed_status, 'ordered');
 
     // платен аванс → статусът се извежда „в производство“, готовността се смята от реалната дата
-    { await t.admin.post(`/api/supplier-orders/${oid}/payments`, { stage: 'advance', amount: 6000, tx_date: '2026-01-10' }); }
+    { await t.admin.post(`/api/supplier-orders/${oid}/payments`, { stage: 'advance', vat_pct: 0, amount: 6000, tx_date: '2026-01-10' }); }
     const p1 = { status: 200, data: (await lg.get('/api/supplier-orders')).data[0] };
     assert.equal(p1.status, 200, JSON.stringify(p1.data));
     assert.equal(p1.data.computed_status, 'in_production');
     assert.equal(p1.data.ready_date, '2026-02-09', 'готовност = аванс + дни производство');
 
     // доплащане → „в път“; доставена → крайно състояние
-    { await t.admin.post(`/api/supplier-orders/${oid}/payments`, { stage: 'final', amount: 6000, tx_date: '2026-02-05' }); }
+    { await t.admin.post(`/api/supplier-orders/${oid}/payments`, { stage: 'final', vat_pct: 0, amount: 6000, tx_date: '2026-02-05' }); }
     const p2 = { status: 200, data: (await lg.get('/api/supplier-orders')).data[0] };
     assert.equal(p2.status, 200);
     assert.equal(p2.data.computed_status, 'in_transit');

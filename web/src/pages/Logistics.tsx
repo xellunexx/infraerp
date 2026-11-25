@@ -140,7 +140,7 @@ export function Logistics() {
       ]} /></Loader></Card>
     </>}
 
-    {modal?.kind === 'pay_order' && <PaymentForm title={`Плащане по ${modal.row.code} — ${modal.row.supplier}`} url={`/supplier-orders/${modal.row.id}/payments`} report={!can('finance', 'write')} choices={orderChoices(modal.row)} onClose={() => setModal(null)} onDone={reloadAll} />}
+    {modal?.kind === 'pay_order' && <PaymentForm title={`Плащане по ${modal.row.code} — ${modal.row.supplier}`} url={`/supplier-orders/${modal.row.id}/payments`} report={!can('finance', 'write')} choices={orderChoices(modal.row)} vat={{ last: modal.row.last_vat_pct ?? null }} onClose={() => setModal(null)} onDone={reloadAll} />}
     {modal?.kind === 'order' && <OrderForm projects={projects} row={modal.row} onClose={close} onDone={reloadAll} />}
     {modal?.kind === 'delivery' && <DeliveryForm projects={projects} assets={assets.data || []} pid={pid} row={modal.row} onClose={close} onDone={reloadAll} />}
     {modal?.kind === 'asset' && <AssetForm row={modal.row} onClose={close} onDone={reloadAll} />}

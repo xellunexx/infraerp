@@ -160,7 +160,7 @@ export function Accounting() {
     </>}
 
     {modal?.kind === 'pay_proforma' && <PaymentForm title={`Плащане по ${modal.row.code}`} url={`/proformas/${modal.row.id}/paid`} dateKey="paid_at" report={false} amount={Math.round((modal.row.gross - modal.row.paid) * 100) / 100} onClose={close} onDone={reloadAll} />}
-    {modal?.kind === 'pay_order' && <PaymentForm title={`Плащане по ${modal.row.code} — ${modal.row.supplier}`} url={`/supplier-orders/${modal.row.id}/payments`} report={false} choices={orderChoices(modal.row)} onClose={close} onDone={reloadAll} />}
+    {modal?.kind === 'pay_order' && <PaymentForm title={`Плащане по ${modal.row.code} — ${modal.row.supplier}`} url={`/supplier-orders/${modal.row.id}/payments`} report={false} choices={orderChoices(modal.row)} vat={{ last: modal.row.last_vat_pct ?? null }} onClose={close} onDone={reloadAll} />}
     {modal?.kind === 'proforma' && <ProformaForm projects={projects} pid={pid} onClose={close} onDone={reloadAll} />}
     {modal?.kind === 'transaction' && <TransactionForm projects={projects} pid={pid} row={modal.row} onClose={close} onDone={reloadAll} />}
     {modal?.kind === 'request' && <RequestForm projects={projects} pid={pid} onClose={close} onDone={reloadAll} />}

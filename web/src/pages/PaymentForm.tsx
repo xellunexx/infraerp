@@ -12,22 +12,28 @@ function Similar({ rows, cur }: { rows: any[]; cur: string }) {
     {rows.map(s => <div key={s.id} className="small">{s.code} · {fmtMoney(s.amount, cur)} · {fmtDate(s.tx_date)} · {ST[s.status] || s.status}{s.document_ref ? ' · ' + s.document_ref : ''}</div>)}</div>;
 }
 
+function VatField({ value, amount, onChange }: { value: string; amount: number; onChange: (v: string) => void }) {
+  const p = Number(value), inside = value !== '' && p >= 0 && amount > 0 ? Math.round(amount * p / (100 + p) * 100) / 100 : null;
+  return <Field label="ДДС % в сумата (0 = без ДДС)"><input type="number" min="0" max="100" step="any" value={value} onChange={e => onChange(e.target.value)} />
+    {inside != null && <span className="small muted">ДДС {fmtMoney(inside)} · без ДДС {fmtMoney(amount - inside)}</span>}</Field>;
+}
+
 /** url: where to post; choices: what is being paid; report: the server decides by rights, this only sets the wording. */
-export function PaymentForm({ title, url, dateKey = 'tx_date', report, choices, fixed, amount, onClose, onDone }: {
-  title: string; url: string; dateKey?: string; report: boolean; choices?: { value: string; label: string; body: any; amount: number }[]; fixed?: any; amount?: number; onClose: () => void; onDone: () => void }) {
+export function PaymentForm({ title, url, dateKey = 'tx_date', report, choices, fixed, amount, vat, onClose, onDone }: {
+  title: string; url: string; dateKey?: string; report: boolean; choices?: { value: string; label: string; body: any; amount: number }[]; fixed?: any; amount?: number; vat?: { last: number | null }; onClose: () => void; onDone: () => void }) {
   const { run, busy } = useAction();
   const cur = useCurrency();
   const [uid] = useState(() => crypto.randomUUID());
   const [similar, setSimilar] = useState<any[] | null>(null);
-  const f = useForm({ choice: choices?.[0]?.value || '', amount: String(choices?.[0]?.amount ?? amount ?? ''), date: '', note: '' });
+  const f = useForm({ choice: choices?.[0]?.value || '', amount: String(choices?.[0]?.amount ?? amount ?? ''), date: '', note: '', vat: vat?.last == null ? '' : String(vat.last) });
   const pick = (v: string) => { const c = choices?.find(x => x.value === v); f.setV({ ...f.v, choice: v, amount: c ? String(c.amount) : f.v.amount }); setSimilar(null); };
   const save = (separate: boolean) => run(async () => {
     try {
-      await api.post(url, { uid, ...(fixed || {}), ...(choices?.find(c => c.value === f.v.choice)?.body || {}), amount: Number(f.v.amount), [dateKey]: f.v.date, note: f.v.note || undefined, separate });
+      await api.post(url, { uid, ...(fixed || {}), ...(choices?.find(c => c.value === f.v.choice)?.body || {}), amount: Number(f.v.amount), [dateKey]: f.v.date, ...(vat ? { vat_pct: f.v.vat } : {}), note: f.v.note || undefined, separate });
       onDone(); onClose();
     } catch (e: any) { if (e?.data?.similar) setSimilar(e.data.similar); throw e; }
   }, report ? 'Плащането е докладвано — чака потвърждение от Счетоводство' : 'Плащането е записано');
-  const ok = Number(f.v.amount) > 0 && f.v.date;
+  const ok = Number(f.v.amount) > 0 && f.v.date && (!vat || f.v.vat !== '');
   return <Modal title={title} onClose={onClose} footer={<><button onClick={onClose}>Отказ</button>
     {similar ? <button className="primary" disabled={busy || !ok} onClick={() => save(true)}>Отделно плащане — запиши</button>
       : <button className="primary" disabled={busy || !ok} onClick={() => save(false)}>{report ? 'Докладвай' : 'Запиши'}</button>}</>}>
@@ -35,6 +41,7 @@ export function PaymentForm({ title, url, dateKey = 'tx_date', report, choices, 
       {choices && <Field label="Какво се плаща" full><select value={f.v.choice} onChange={e => pick(e.target.value)}>{choices.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}</select></Field>}
       <Field label={`Сума с ДДС, ${cur}`}><input type="number" min="0" step="0.01" value={f.v.amount} onChange={e => { f.set('amount', e.target.value); setSimilar(null); }} /></Field>
       <Field label="Дата по банка"><input type="date" max={today()} value={f.v.date} onChange={e => { f.set('date', e.target.value); setSimilar(null); }} /></Field>
+      {vat && <VatField value={f.v.vat} amount={Number(f.v.amount)} onChange={v => f.set('vat', v)} />}
       <Field label="Бележка" full><input {...f.bind('note')} /></Field>
       {report && <div className="muted small" style={{ gridColumn: '1 / -1' }}>Сумите и сроковете се променят едва след потвърждение от Счетоводство.</div>}
       {similar && <Similar rows={similar} cur={cur} />}
@@ -75,17 +82,19 @@ function ConfirmModal({ r, onClose, onDone }: { r: any; onClose: () => void; onD
   const { run, busy } = useAction();
   const cur = useCurrency();
   const [similar, setSimilar] = useState<any[]>(r.similar || []);
-  const f = useForm({ amount: String(r.amount), date: r.tx_date });
+  const order = r.supplier_order_id != null;
+  const f = useForm({ amount: String(r.amount), date: r.tx_date, vat: String(r.vat_pct ?? 0) });
   const confirm = (separate: boolean) => run(async () => {
-    try { await api.post(`/payments/${r.id}/confirm`, { amount: Number(f.v.amount), tx_date: f.v.date, separate, row_version: r.row_version }); onDone(); onClose(); }
+    try { await api.post(`/payments/${r.id}/confirm`, { amount: Number(f.v.amount), tx_date: f.v.date, ...(order ? { vat_pct: f.v.vat } : {}), separate, row_version: r.row_version }); onDone(); onClose(); }
     catch (e: any) { if (e?.data?.similar) setSimilar(e.data.similar); throw e; }
   }, 'Плащането е потвърдено');
   const merge = (into: any) => run(async () => { await api.post(`/payments/${r.id}/merge`, { into: into.id, row_version: r.row_version }); onDone(); onClose(); }, `Обединено с ${into.code}`);
   return <Modal title={`Потвърждаване на ${r.code}`} onClose={onClose} footer={<><button onClick={onClose}>Отказ</button>
     {similar.map(s => <button key={s.id} disabled={busy} onClick={() => merge(s)}>Същото като {s.code}</button>)}
-    <button className="primary" disabled={busy || !(Number(f.v.amount) > 0) || !f.v.date} onClick={() => confirm(similar.length > 0)}>{similar.length ? 'Отделно плащане — потвърди' : 'Потвърди'}</button></>}>
+    <button className="primary" disabled={busy || !(Number(f.v.amount) > 0) || !f.v.date || (order && f.v.vat === '')} onClick={() => confirm(similar.length > 0)}>{similar.length ? 'Отделно плащане — потвърди' : 'Потвърди'}</button></>}>
     <div className="form c2"><Field label={`Сума с ДДС, ${cur}`}><input type="number" min="0" step="0.01" value={f.v.amount} onChange={e => { f.set('amount', e.target.value); setSimilar([]); }} /></Field>
       <Field label="Дата по банка"><input type="date" max={today()} value={f.v.date} onChange={e => { f.set('date', e.target.value); setSimilar([]); }} /></Field>
+      {order && <VatField value={f.v.vat} amount={Number(f.v.amount)} onChange={v => f.set('vat', v)} />}
       {similar.length > 0 && <Similar rows={similar} cur={cur} />}</div>
   </Modal>;
 }
