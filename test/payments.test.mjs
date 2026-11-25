@@ -396,3 +396,11 @@ test('supplier payment carries its ДДС: cost is net, the rate is explicit, Ac
   const c = (await a.post(`/api/proformas/${(await fin()).proformas[0].id}/paid`, { paid_at: '2026-11-10', vat_pct: 0 })).data.transaction;
   assert.equal(c.vat_amount, 620);
 }));
+
+test('after signing, Accounting can correct and fill in the plan; Contracts cannot', () => world(async (t, a) => {
+  const { pid, contract } = await signed(t), acc = await t.mkUser('acc', 'accounting'), con = await t.mkUser('con', 'contracts'), url = `/api/projects/${pid}/contract/payments`;
+  t.db.exec('DELETE FROM contract_payments'); // a contract signed before schedules existed
+  assert.equal((await con.put(url, { kind: 'advance', pct: 50, amount: 3100 })).status, 403);
+  assert.equal((await acc.put(url, { kind: 'advance', pct: 50, amount: 3100 })).status, 200);
+  assert.equal((await contract()).payments[0].gross, 3720);
+}));

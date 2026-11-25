@@ -108,7 +108,8 @@ export default function mountProjects(app, db) {
   /** §14.3 payment milestones (аванс/междинно/окончателно): real bank dates arrive after signing,
    *  so they live in their own table — the contract body stays versioned. */
   app.put('/api/projects/:pid/contract/payments', h(req => tx(db, () => {
-    need(req.user, 'contracts', 'write'); needProject(db, req.user, req.params.pid);
+    if (!can(req.user, 'finance', 'write')) need(req.user, 'contracts', 'write'); // Accounting corrects the signed plan
+    needProject(db, req.user, req.params.pid);
     const pid = Number(req.params.pid), c = db.prepare('SELECT * FROM contracts WHERE project_id = ?').get(pid);
     if (!c) throw new HttpError(404, 'Няма договор');
     const b = req.body || {};
