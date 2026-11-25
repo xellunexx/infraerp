@@ -380,18 +380,24 @@ test('supplier payment carries its ДДС: cost is net, the rate is explicit, Ac
   for (const vat_pct of [undefined, '', null, -1, 101, 'x', true]) assert.equal((await a.post(url, { ...body, vat_pct })).status, 400, String(vat_pct));
   const p = (await a.post(url, { ...body, vat_pct: 20 })).data.payment;
   assert.deepEqual([p.has_vat, p.vat_amount], [1, 200]);
-  assert.deepEqual([(await fin()).payments_made, (await fin()).actual_expenses, (await fin()).result_to_date], [1200, 1000, -1000]);
+  // a transfer is not a cost: the supplier's invoice is; until it arrives the order says „чака фактура“
+  assert.deepEqual([(await fin()).payments_made, (await fin()).actual_expenses, (await fin()).result_to_date], [1200, 0, -1000]);
+  assert.equal((await a.get('/api/supplier-orders')).data[0].awaiting_invoice, true);
   assert.equal((await a.get('/api/supplier-orders')).data[0].last_vat_pct, 20, 'prefill for the next payment');
   // a corrected amount keeps the rate, also when the edit form echoes the old share
-  await a.patch(`/api/transactions/${p.id}`, { amount: 600, has_vat: true, vat_amount: '200' }); assert.equal((await fin()).actual_expenses, 500);
+  await a.patch(`/api/transactions/${p.id}`, { amount: 600, has_vat: true, vat_amount: '200' }); assert.equal((await fin()).result_to_date, -500);
   assert.equal((await a.patch(`/api/transactions/${p.id}`, { has_vat: true, vat_amount: 700 })).status, 400, 'ДДС над сумата');
-  await a.patch(`/api/transactions/${p.id}`, { amount: 1200 }); assert.equal((await fin()).actual_expenses, 1000);
+  await a.patch(`/api/transactions/${p.id}`, { amount: 1200 }); assert.equal((await fin()).result_to_date, -1000);
   // reported at 20 %, the bank document shows no ДДС
   const r = (await lg.post(url, { stage: 'final', amount: 1200, tx_date: '2026-11-20', vat_pct: 20 })).data.payment;
-  assert.equal((await fin()).actual_expenses, 1000, 'a report moves nothing');
+  assert.equal((await fin()).result_to_date, -1000, 'a report moves nothing');
   assert.equal((await a.post(`/api/payments/${r.id}/confirm`, { vat_pct: 101, row_version: r.row_version })).status, 400);
   assert.equal((await a.post(`/api/payments/${r.id}/confirm`, { vat_pct: 0, row_version: r.row_version })).status, 200);
-  assert.equal((await fin()).actual_expenses, 2200);
+  assert.equal((await fin()).result_to_date, -2200);
+  // the supplier's invoice arrives: it is the cost, the payments pay it
+  const inv = (await a.post('/api/transactions', { project_id: pid, direction: 'out', tx_kind: 'supplier_doc', category: 'S', amount: 2400, has_vat: true, vat_amount: 400, status: 'committed', tx_date: '2026-11-21' })).data;
+  for (const x of t.db.prepare('SELECT id FROM transactions WHERE supplier_order_id = ?').all(o.id)) assert.equal((await a.patch(`/api/transactions/${x.id}`, { document_id: inv.id })).status, 200);
+  assert.deepEqual([(await fin()).actual_expenses, (await fin()).payables, (await a.get('/api/supplier-orders')).data[0].awaiting_invoice], [2000, 0, false]);
   // client payments keep the rate of their proforma whatever is sent
   const c = (await a.post(`/api/proformas/${(await fin()).proformas[0].id}/paid`, { paid_at: '2026-11-10', vat_pct: 0 })).data.transaction;
   assert.equal(c.vat_amount, 620);

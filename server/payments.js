@@ -1,5 +1,6 @@
 // Едно плащане — един запис: всичко „платено“ се чете от книгата (transactions). Този модул само смята, никога не пише.
 // Сумите в книгата са с ДДС; брои се единствено status = 'paid'.
+import { roleOf } from './roles.js';
 const r2 = n => Math.round((n + Number.EPSILON) * 100) / 100;
 const EPS = 0.005;
 const vatSetting = db => Number(db.prepare("SELECT value FROM settings WHERE key = 'vat_pct'").get()?.value ?? 20);
@@ -71,21 +72,50 @@ export function projectMoney(db, projectId) {
   const kids = db.prepare("SELECT * FROM transactions WHERE document_id = ? AND status = 'paid'");
   const m = { received: 0, paid_out: 0, payables: 0, received_net: 0, paid_net: 0, expense_net: 0, planned_out: 0 };
   for (const d of docs) {
-    const paid = kids.all(d.id), { settled, open } = documentState(d, paid), share = netOf(d, vat) / d.amount;
-    if (d.direction === 'in') { m.received += settled; m.received_net += settled * share; continue; }
+    const role = roleOf(d), paid = kids.all(d.id), { settled, open } = documentState(d, paid), share = netOf(d, vat) / d.amount;
+    if (d.direction === 'in') { if (role !== 'return') { m.received += settled; m.received_net += settled * share; } continue; }
+    if (role === 'stock') { m.expense_net += d.amount * share; continue; } // cost of the project, never a bill, never money paid
     m.paid_out += settled; m.paid_net += settled * share;
+    if (role === 'payment' || role === 'advance') continue; // money moved, not a cost: the cost is the document it pays
     if (d.status === 'planned' && !paid.length) { m.planned_out += d.amount; continue; }
     m.payables += open; m.expense_net += Math.max(d.amount, settled) * share;
   }
   return Object.fromEntries(Object.entries(m).map(([k, v]) => [k, r2(v)]));
 }
 
+/** Client documents (with VAT and without) and the proformas no invoice has replaced yet. */
+export function clientDocuments(db, projectId) {
+  const vat = vatSetting(db);
+  const docs = db.prepare("SELECT * FROM transactions WHERE project_id = ? AND direction = 'in' AND document_id IS NULL AND status NOT IN ('voided', 'reported')").all(projectId).filter(t => roleOf(t) === 'income_doc');
+  const replaced = new Set(docs.map(d => d.proforma_id).filter(Boolean));
+  const pfs = db.prepare("SELECT * FROM proformas WHERE project_id = ? AND status != 'cancelled'").all(projectId).filter(f => !replaced.has(f.id));
+  return { gross: r2(docs.reduce((s, d) => s + d.amount, 0) + pfs.reduce((s, f) => s + grossOf(f.amount, f.vat_pct), 0)),
+    net: r2(docs.reduce((s, d) => s + netOf(d, vat), 0) + pfs.reduce((s, f) => s + f.amount, 0)) };
+}
+
+/** The project result block of the company workbook, line by line. */
+export function projectResult(db, projectId) {
+  const vat = vatSetting(db), rate = Number(db.prepare("SELECT value FROM settings WHERE key = 'indirect_per_manday'").get()?.value ?? 150);
+  const rows = db.prepare("SELECT * FROM transactions WHERE project_id = ? AND document_id IS NULL AND status NOT IN ('voided', 'reported', 'planned')").all(projectId);
+  let materials = 0, labour = 0, days = 0, unknown = 0;
+  for (const t of rows) {
+    if (t.direction !== 'out') continue;
+    const role = roleOf(t);
+    if (role === 'cost' && t.tx_kind === 'labour') { labour += t.amount; if (t.labour_days > 0) days += t.labour_days; else unknown++; continue; }
+    if (role === 'cost' || role === 'stock' || (role === 'legacy' && t.status !== 'planned')) materials += netOf(t, vat);
+  }
+  const income = clientDocuments(db, projectId).net, total = materials + labour, before = income - total, indirect = days * rate;
+  return { income_net: r2(income), materials_net: r2(materials), labour: r2(labour), total_cost: r2(total), result_before: r2(before),
+    man_days: r2(days), indirect_rate: rate, indirect: r2(indirect), result_after: r2(before - indirect), unknown_days: unknown };
+}
+
 export function orderDates(db, order) {
   const rows = stage => db.prepare("SELECT * FROM transactions WHERE supplier_order_id = ? AND order_stage = ? AND status = 'paid'").all(order.id, stage);
   const rest = r2((order.total_eur || 0) - (order.advance_eur || 0));
   const a = paidState(rows('advance'), order.advance_eur || 0), f = paidState(rows('final'), rest);
+  const unlinked = db.prepare("SELECT 1 FROM transactions WHERE supplier_order_id = ? AND status = 'paid' AND document_id IS NULL").get(order.id);
   const last = db.prepare("SELECT * FROM transactions WHERE supplier_order_id = ? AND status IN ('paid', 'reported') ORDER BY id DESC LIMIT 1").get(order.id);
-  return { last_vat_pct: last ? ratePct(last) : null, advance_paid_at: a.paid_at, final_paid_at: f.paid_at, advance_paid_amount: a.paid, final_paid_amount: f.paid };
+  return { awaiting_invoice: !!unlinked, last_vat_pct: last ? ratePct(last) : null, advance_paid_at: a.paid_at, final_paid_at: f.paid_at, advance_paid_amount: a.paid, final_paid_amount: f.paid };
 }
 
 /** Payments that could be the same transfer: same project and direction, same amount, within 5 days. */

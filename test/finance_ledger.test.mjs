@@ -61,7 +61,7 @@ test('person card: given - spent - returned = balance; labour rows structure day
   const lab = (await t.admin.post('/api/transactions', { direction: 'out', category: 'труд', tx_date: '2026-09-30', tx_kind: 'labour',
     person_id: per.id, labour_worker: 'Ереджеб Хамза', labour_days: 4, labour_rate: 90 })).data;
   assert.equal(lab.amount, 360);
-  await t.admin.post('/api/transactions', { direction: 'in', category: 'върнато', amount: 100, tx_date: '2026-10-01', tx_kind: 'other', person_id: per.id });
+  await t.admin.post('/api/transactions', { direction: 'in', category: 'върнато', amount: 100, tx_date: '2026-10-01', tx_kind: 'card', person_id: per.id }); // „Връщане“
   const card = (await t.admin.get(`/api/accountable-persons/${per.id}/card`)).data;
   assert.equal(card.given, 300);
   assert.equal(card.spent, 402.42);       // 42.42 + 360

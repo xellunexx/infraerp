@@ -1,5 +1,6 @@
 // Derived project figures. Nothing here is stored: every number is computed from the shared records.
-import { projectMoney, grossOf } from './payments.js';
+import { projectMoney, grossOf, clientDocuments, projectResult } from './payments.js';
+import { roleOf } from './roles.js';
 const r2 = n => Math.round((n + Number.EPSILON) * 100) / 100;
 const r3 = n => Math.round((n + Number.EPSILON) * 1000) / 1000;
 
@@ -55,8 +56,7 @@ export function finance(db, projectId) {
     JOIN offer_versions ov ON ov.offer_id = o.id AND ov.version = o.confirmed_version LEFT JOIN offer_lines ol ON ol.version_id = ov.id AND (ol.section_id IS NULL OR ol.section_id IN (SELECT id FROM offer_sections WHERE alternative = 0 OR selected = 1)) WHERE pr.id = ?`).get(projectId);
   // received/paid/receivables/payables are gross (bank money); expenses, results and budget are net, like the contract value
   const t = projectMoney(db, projectId);
-  const pfs = db.prepare("SELECT amount, vat_pct FROM proformas WHERE project_id = ? AND status != 'cancelled'").all(projectId);
-  const invoicedNet = pfs.reduce((s, f) => s + f.amount, 0), invoiced = pfs.reduce((s, f) => s + grossOf(f.amount, f.vat_pct), 0);
+  const docs = clientDocuments(db, projectId), invoicedNet = docs.net, invoiced = docs.gross;
   const actualExpenses = t.expense_net;
   const plannedExpenses = p.cost_price;
   return {
@@ -68,6 +68,7 @@ export function finance(db, projectId) {
     earned_value: p.earned_value, earned_cost: p.earned_cost, progress_pct: p.progress_pct,
     // reconciliation: completed work against what was invoiced / received and against what was actually spent
     work_not_invoiced: r2(Math.max(0, p.earned_value - invoicedNet)), cost_variance: r2(actualExpenses - p.earned_cost),
+    result: projectResult(db, projectId),
   };
 }
 
@@ -115,10 +116,12 @@ export function supplierOrderView(row, dates, today = new Date().toISOString().s
  *  spent   = out rows the person paid from the advance (any out kind that is not an advance)
  *  returned= in rows where the person hands money back to the company */
 export function personCard(db, personId) {
-  const rows = db.prepare(`SELECT * FROM transactions WHERE person_id = ? AND status != 'voided' ORDER BY tx_date, id`).all(personId);
-  const given = rows.filter(t => t.direction === 'out' && t.tx_kind === 'card').reduce((s, t) => s + t.amount, 0);
-  const spent = rows.filter(t => t.direction === 'out' && t.tx_kind !== 'card').reduce((s, t) => s + t.amount, 0);
-  const returned = rows.filter(t => t.direction === 'in').reduce((s, t) => s + t.amount, 0);
+  const rows = db.prepare(`SELECT * FROM transactions WHERE person_id = ? AND status NOT IN ('voided', 'reported') ORDER BY tx_date, id`).all(personId);
+  // the company workbook: (money given + money the person received) − (labour + documents the person paid); ЕВРОВАГ fuel is not the person's money
+  const role = t => roleOf(t), sum = f => rows.filter(f).reduce((s, t) => s + t.amount, 0);
+  const given = sum(t => role(t) === 'advance' || (t.direction === 'in' && role(t) !== 'return'));
+  const spent = sum(t => t.direction === 'out' && ['cost', 'stock', 'legacy'].includes(role(t)) && t.method !== 'eurowag');
+  const returned = sum(t => role(t) === 'return');
   return { movements: rows, given: r2(given), spent: r2(spent), returned: r2(returned), balance: r2(given - spent - returned) };
 }
 

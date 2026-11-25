@@ -27,6 +27,11 @@ export function settleRow(db, id, { before = null, separate = false } = {}) {
   if (t.status === 'voided') return t;
   if (t.document_id != null) {
     const d = row(t.document_id);
+    // a payment on a client invoice that settles a proforma pays that proforma and its milestone too
+    if (d && t.direction === 'in' && (d.proforma_id != null || d.contract_payment_id != null) && t.proforma_id == null && t.contract_payment_id == null) {
+      db.prepare('UPDATE transactions SET proforma_id = ?, contract_payment_id = ? WHERE id = ?').run(d.proforma_id, d.contract_payment_id, t.id);
+      return settleRow(db, id, { before, separate });
+    }
     if (!d || d.status === 'voided' || d.status === 'reported') throw bad('Няма такъв документ за плащане');
     if (d.id === t.id || d.document_id != null) throw bad('Плащане се връзва само към документ');
     if (d.direction !== t.direction) throw bad('Плащането и документът трябва да са в една посока');

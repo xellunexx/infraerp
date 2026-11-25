@@ -1,0 +1,1825 @@
+{
+"project_a": [
+{
+"date": "2026-06-15",
+"dir": "in",
+"kind": "client",
+"amount": 45649.98,
+"vat": 7608.330000000001,
+"status": "committed"
+},
+{
+"date": "2026-06-15",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 13555,
+"vat": 0,
+"status": "committed"
+},
+{
+"date": "2026-06-16",
+"dir": "in",
+"kind": "bank_in",
+"amount": 45649.98,
+"status": "paid",
+"doc": 0,
+"vat": 0
+},
+{
+"date": "2026-06-17",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 3489,
+"vat": 0,
+"status": "committed"
+},
+{
+"date": "2026-06-18",
+"dir": "out",
+"kind": "bank_out",
+"amount": 3489,
+"status": "paid",
+"doc": 3,
+"vat": 0
+},
+{
+"date": "2026-06-18",
+"dir": "out",
+"kind": "bank_out",
+"amount": 3012,
+"status": "paid",
+"doc": null,
+"vat": 0
+},
+{
+"date": "2026-06-18",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 3012,
+"vat": 0,
+"status": "committed"
+},
+{
+"date": "2026-06-18",
+"dir": "out",
+"kind": "bank_out",
+"amount": 6500,
+"status": "paid",
+"doc": 1,
+"vat": 0
+},
+{
+"date": "2026-07-20",
+"dir": "in",
+"kind": "client",
+"amount": 27389.99,
+"vat": 4564.998333333334,
+"status": "committed"
+},
+{
+"date": "2026-07-20",
+"dir": "in",
+"kind": "bank_in",
+"amount": 27389.99,
+"status": "paid",
+"doc": 8,
+"vat": 0
+},
+{
+"date": "2026-07-28",
+"dir": "out",
+"kind": "bank_out",
+"amount": 7055,
+"status": "paid",
+"doc": 1,
+"vat": 0
+},
+{
+"date": "2026-08-17",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 740,
+"vat": 123.33333333333333,
+"status": "committed"
+},
+{
+"date": "2026-06-15",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 1610,
+"vat": 0,
+"status": "committed"
+},
+{
+"date": "2026-08-26",
+"dir": "out",
+"kind": "bank_out",
+"amount": 740,
+"status": "paid",
+"doc": 11,
+"vat": 0
+},
+{
+"date": "2026-09-15",
+"dir": "out",
+"kind": "bank_out",
+"amount": 5000,
+"status": "paid",
+"doc": null,
+"vat": 0
+},
+{
+"date": "2026-09-15",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 53.14,
+"vat": 8.856666666666667,
+"status": "committed"
+},
+{
+"date": "2026-09-16",
+"dir": "out",
+"kind": "bank_out",
+"amount": 53.14,
+"status": "paid",
+"doc": 15,
+"vat": 0
+},
+{
+"date": "2026-10-02",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 168.11,
+"vat": 28.018333333333334,
+"status": "committed"
+},
+{
+"date": "2026-10-05",
+"dir": "out",
+"kind": "bank_out",
+"amount": 1610,
+"status": "paid",
+"doc": 12,
+"vat": 0
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 42,
+"vat": 7.0,
+"status": "committed"
+},
+{
+"date": "2026-10-16",
+"dir": "in",
+"kind": "client",
+"amount": 1793.58,
+"vat": 298.93,
+"status": "committed"
+},
+{
+"date": "2026-10-22",
+"dir": "in",
+"kind": "client",
+"amount": 3043.33,
+"vat": 507.22166666666664,
+"status": "committed"
+},
+{
+"date": "2026-10-27",
+"dir": "out",
+"kind": "labour",
+"amount": 616.55,
+"labour_days": null,
+"vat": 0
+},
+{
+"date": "2026-10-08",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 8.15,
+"vat": 1.3583333333333334,
+"status": "paid"
+},
+{
+"date": "2026-10-20",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 6.76,
+"vat": 1.1266666666666667,
+"status": "paid"
+},
+{
+"date": "2026-10-20",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 3.26,
+"vat": 0.5433333333333333,
+"status": "paid"
+},
+{
+"date": "2026-10-05",
+"dir": "out",
+"kind": "labour",
+"amount": 450,
+"labour_days": 5.0,
+"vat": 0
+},
+{
+"date": "2026-10-05",
+"dir": "out",
+"kind": "labour",
+"amount": 450,
+"labour_days": 5.0,
+"vat": 0
+},
+{
+"date": "2026-10-05",
+"dir": "out",
+"kind": "labour",
+"amount": 450,
+"labour_days": 5.0,
+"vat": 0
+},
+{
+"date": "2026-10-05",
+"dir": "out",
+"kind": "labour",
+"amount": 450,
+"labour_days": 5.0,
+"vat": 0
+},
+{
+"date": "2026-10-05",
+"dir": "out",
+"kind": "labour",
+"amount": 450,
+"labour_days": 5.0,
+"vat": 0
+},
+{
+"date": "2026-10-05",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 16.41,
+"vat": 2.735,
+"status": "committed"
+},
+{
+"date": "2026-10-05",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 4.75,
+"vat": 0.7916666666666666,
+"status": "committed"
+},
+{
+"date": "2026-10-05",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 114.5,
+"vat": 19.083333333333332,
+"status": "committed"
+},
+{
+"date": "2026-10-05",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 184.24,
+"vat": 30.706666666666667,
+"status": "committed"
+},
+{
+"date": "2026-10-05",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 226.59,
+"vat": 37.765,
+"status": "committed"
+},
+{
+"date": "2026-10-05",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 7.28,
+"vat": 1.2133333333333334,
+"status": "committed"
+},
+{
+"date": "2026-10-05",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 5.16,
+"vat": 0.86,
+"status": "committed"
+},
+{
+"date": "2026-10-05",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 94.83,
+"vat": 15.805,
+"status": "committed"
+},
+{
+"date": "2026-10-05",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 45,
+"vat": 7.5,
+"status": "committed"
+},
+{
+"date": "2026-10-05",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 300,
+"vat": 0,
+"status": "committed"
+},
+{
+"date": "2026-10-05",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 68.55,
+"vat": 11.424999999999999,
+"status": "committed"
+},
+{
+"date": "2026-10-05",
+"dir": "out",
+"kind": "no_doc",
+"amount": 3.74,
+"vat": 0,
+"status": "committed"
+},
+{
+"date": "2026-10-05",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 8.33,
+"vat": 1.3883333333333334,
+"status": "committed"
+},
+{
+"date": "2026-10-05",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 126.18,
+"vat": 21.03
+},
+{
+"date": "2026-10-05",
+"dir": "out",
+"kind": "labour",
+"amount": 450,
+"labour_days": 5.0,
+"vat": 0
+},
+{
+"date": "2026-10-05",
+"dir": "out",
+"kind": "labour",
+"amount": 450,
+"labour_days": 5.0,
+"vat": 0
+},
+{
+"date": "2026-10-05",
+"dir": "out",
+"kind": "labour",
+"amount": 450,
+"labour_days": 5.0,
+"vat": 0
+},
+{
+"date": "2026-10-05",
+"dir": "out",
+"kind": "labour",
+"amount": 450,
+"labour_days": 5.0,
+"vat": 0
+},
+{
+"date": "2026-10-05",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 21.94,
+"vat": 3.6566666666666667,
+"status": "committed"
+},
+{
+"date": "2026-10-05",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 65.83,
+"vat": 10.971666666666666,
+"status": "committed"
+},
+{
+"date": "2026-10-05",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 30.67,
+"vat": 5.111666666666667,
+"status": "committed"
+},
+{
+"date": "2026-10-05",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 45,
+"vat": 7.5,
+"status": "committed"
+},
+{
+"date": "2026-10-05",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 240,
+"vat": 0,
+"status": "committed"
+},
+{
+"date": "2026-10-05",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 94.27,
+"vat": 15.711666666666666
+},
+{
+"date": "2026-10-05",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 6.13,
+"vat": 1.0216666666666667,
+"status": "committed"
+},
+{
+"date": "2026-10-05",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 29.6,
+"vat": 4.933333333333334,
+"status": "committed"
+},
+{
+"date": "2026-10-22",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 103.96,
+"vat": 17.326666666666664
+},
+{
+"date": "2026-07-03",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 14.82,
+"vat": 2.47
+},
+{
+"date": "2026-07-03",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 16.31,
+"vat": 2.7183333333333333
+},
+{
+"date": "2026-07-03",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 10.44,
+"vat": 1.74
+},
+{
+"date": "2026-07-03",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 17.73,
+"vat": 2.955
+},
+{
+"date": "2026-11-02",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 270,
+"vat": 45.0,
+"status": "committed"
+},
+{
+"date": "2026-11-12",
+"dir": "out",
+"kind": "labour",
+"amount": 171.58,
+"labour_days": null,
+"vat": 0
+},
+{
+"date": "2026-11-10",
+"dir": "out",
+"kind": "labour",
+"amount": 270,
+"labour_days": 3.0,
+"vat": 0
+},
+{
+"date": "2026-11-10",
+"dir": "out",
+"kind": "labour",
+"amount": 270,
+"labour_days": 3.0,
+"vat": 0
+},
+{
+"date": "2026-11-10",
+"dir": "out",
+"kind": "labour",
+"amount": 270,
+"labour_days": 3.0,
+"vat": 0
+},
+{
+"date": "2026-11-10",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 16.8,
+"vat": 2.8000000000000003,
+"status": "committed"
+},
+{
+"date": "2026-11-10",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 90,
+"vat": 0,
+"status": "committed"
+},
+{
+"date": "2026-11-10",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 28.67,
+"vat": 4.778333333333333,
+"status": "committed"
+},
+{
+"date": "2026-10-30",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 105.2,
+"vat": 17.533333333333335,
+"status": "committed"
+},
+{
+"date": "2026-09-24",
+"dir": "out",
+"kind": "store",
+"amount": 819,
+"vat": 0,
+"status": "paid"
+},
+{
+"date": "2026-07-02",
+"dir": "out",
+"kind": "store",
+"amount": 1843.75,
+"vat": 0,
+"status": "paid"
+},
+{
+"date": "2026-07-02",
+"dir": "out",
+"kind": "store",
+"amount": 1638.75,
+"vat": 0,
+"status": "paid"
+},
+{
+"date": "2026-07-02",
+"dir": "out",
+"kind": "store",
+"amount": 2126.25,
+"vat": 0,
+"status": "paid"
+},
+{
+"date": "2026-07-02",
+"dir": "out",
+"kind": "store",
+"amount": 2384.25,
+"vat": 0,
+"status": "paid"
+},
+{
+"date": "2026-07-02",
+"dir": "out",
+"kind": "store",
+"amount": 2289.75,
+"vat": 0,
+"status": "paid"
+},
+{
+"date": "2026-10-21",
+"dir": "out",
+"kind": "store",
+"amount": 865.12,
+"vat": 0,
+"status": "paid"
+}
+],
+"project_b": [
+{
+"date": "2026-06-15",
+"dir": "in",
+"kind": "client",
+"amount": 16773.45,
+"vat": 2795.5750000000003,
+"status": "committed"
+},
+{
+"date": "2026-06-16",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 10518,
+"vat": 0,
+"status": "committed"
+},
+{
+"date": "2026-06-17",
+"dir": "in",
+"kind": "bank_in",
+"amount": 16773.45,
+"status": "paid",
+"doc": 0,
+"vat": 0
+},
+{
+"date": "2026-06-18",
+"dir": "out",
+"kind": "bank_out",
+"amount": 5518,
+"status": "paid",
+"doc": 1,
+"vat": 0
+},
+{
+"date": "2026-07-13",
+"dir": "in",
+"kind": "client",
+"amount": 10064.07,
+"vat": 1677.345,
+"status": "committed"
+},
+{
+"date": "2026-08-24",
+"dir": "in",
+"kind": "bank_in",
+"amount": 10064.07,
+"status": "paid",
+"doc": 4,
+"vat": 0
+},
+{
+"date": "2026-09-03",
+"dir": "out",
+"kind": "bank_out",
+"amount": 5000,
+"status": "paid",
+"doc": 1,
+"vat": 0
+},
+{
+"date": "2026-09-23",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 990,
+"vat": 0,
+"status": "committed"
+},
+{
+"date": "2026-10-08",
+"dir": "in",
+"kind": "client",
+"amount": 6709.38,
+"vat": 1118.23,
+"status": "committed"
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 42,
+"vat": 7.0,
+"status": "committed"
+},
+{
+"date": "2026-11-10",
+"dir": "in",
+"kind": "bank_in",
+"amount": 6709.38,
+"status": "paid",
+"doc": 8,
+"vat": 0
+},
+{
+"date": "2026-11-12",
+"dir": "out",
+"kind": "labour",
+"amount": 321.79,
+"labour_days": null,
+"vat": 0
+},
+{
+"date": "2026-10-08",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 4.09,
+"vat": 0.6816666666666666,
+"status": "paid"
+},
+{
+"date": "2026-10-22",
+"dir": "out",
+"kind": "labour",
+"amount": 450,
+"labour_days": 5.0,
+"vat": 0
+},
+{
+"date": "2026-10-22",
+"dir": "out",
+"kind": "labour",
+"amount": 450,
+"labour_days": 5.0,
+"vat": 0
+},
+{
+"date": "2026-10-22",
+"dir": "out",
+"kind": "labour",
+"amount": 450,
+"labour_days": 5.0,
+"vat": 0
+},
+{
+"date": "2026-10-22",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 86.08,
+"vat": 14.346666666666666
+},
+{
+"date": "2026-10-22",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 278.62,
+"vat": 46.43666666666667,
+"status": "committed"
+},
+{
+"date": "2026-10-22",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 264,
+"vat": 0,
+"status": "committed"
+},
+{
+"date": "2026-10-22",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 48.14,
+"vat": 8.023333333333333,
+"status": "committed"
+},
+{
+"date": "2026-10-22",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 69.25,
+"vat": 11.541666666666666,
+"status": "committed"
+},
+{
+"date": "2026-10-22",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 900,
+"vat": 150.0,
+"status": "committed"
+},
+{
+"date": "2026-10-22",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 96.01,
+"vat": 16.00166666666667
+},
+{
+"date": "2026-10-22",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 15,
+"vat": 0,
+"status": "committed"
+},
+{
+"date": "2026-10-19",
+"dir": "out",
+"kind": "no_doc",
+"amount": 5.67,
+"vat": 0,
+"status": "committed"
+},
+{
+"date": "2026-10-19",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 88.6,
+"vat": 14.766666666666666,
+"status": "committed"
+},
+{
+"date": "2026-08-04",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 12.01,
+"vat": 2.0016666666666665
+}
+],
+"person": [
+{
+"date": "2026-08-28",
+"dir": "out",
+"kind": "card",
+"amount": 300,
+"vat": 0
+},
+{
+"date": "2026-09-09",
+"dir": "out",
+"kind": "no_doc",
+"amount": 14.86,
+"vat": 0,
+"status": "committed"
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "card",
+"amount": 1700,
+"vat": 0
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "card",
+"amount": 300,
+"vat": 0
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "card",
+"amount": 1500,
+"vat": 0
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "card",
+"amount": 600,
+"vat": 0
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "card",
+"amount": 300,
+"vat": 0
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "card",
+"amount": 1500,
+"vat": 0
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "labour",
+"amount": 450,
+"labour_days": 5.0,
+"vat": 0
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "labour",
+"amount": 360,
+"labour_days": 4.0,
+"vat": 0
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "labour",
+"amount": 450,
+"labour_days": 5.0,
+"vat": 0
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "labour",
+"amount": 350,
+"labour_days": 5.0,
+"vat": 0
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "labour",
+"amount": 90,
+"labour_days": 1.0,
+"vat": 0
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "labour",
+"amount": 90,
+"labour_days": 1.0,
+"vat": 0
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "labour",
+"amount": 90,
+"labour_days": 1.0,
+"vat": 0
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "labour",
+"amount": 70,
+"labour_days": 1.0,
+"vat": 0
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "labour",
+"amount": 360,
+"labour_days": 4.0,
+"vat": 0
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "labour",
+"amount": 360,
+"labour_days": 4.0,
+"vat": 0
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "labour",
+"amount": 360,
+"labour_days": 4.0,
+"vat": 0
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "labour",
+"amount": 280,
+"labour_days": 4.0,
+"vat": 0
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "labour",
+"amount": 450,
+"labour_days": 5.0,
+"vat": 0
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "labour",
+"amount": 360,
+"labour_days": 4.0,
+"vat": 0
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "labour",
+"amount": 450,
+"labour_days": 5.0,
+"vat": 0
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "labour",
+"amount": 350,
+"labour_days": 5.0,
+"vat": 0
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 4,
+"vat": 0.6666666666666666,
+"status": "committed"
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 4,
+"vat": 0.6666666666666666,
+"status": "committed"
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "no_doc",
+"amount": 7.81,
+"vat": 0,
+"status": "committed"
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 13.7,
+"vat": 2.283333333333333,
+"status": "committed"
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 96.52,
+"vat": 16.086666666666666,
+"status": "committed"
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 84.21,
+"vat": 14.034999999999998,
+"status": "committed"
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 3.1,
+"vat": 0,
+"status": "committed"
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 13.95,
+"vat": 2.3249999999999997,
+"status": "committed"
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 24.38,
+"vat": 4.0633333333333335,
+"status": "committed"
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 3.71,
+"vat": 0.6183333333333333,
+"status": "committed"
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 36.55,
+"vat": 6.091666666666666,
+"status": "committed"
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 13.5,
+"vat": 2.25,
+"status": "committed"
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "no_doc",
+"amount": 51.83,
+"vat": 0,
+"status": "committed"
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "no_doc",
+"amount": 42.42,
+"vat": 0,
+"status": "committed"
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 18.2,
+"vat": 3.033333333333333,
+"status": "committed"
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 243.25,
+"vat": 40.541666666666664,
+"status": "committed"
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 120,
+"vat": 20.0,
+"status": "committed"
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 25,
+"vat": 4.166666666666667,
+"status": "committed"
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "no_doc",
+"amount": 10,
+"vat": 0,
+"status": "committed"
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 64.29,
+"vat": 10.715000000000002,
+"status": "committed"
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 79.95,
+"vat": 13.325000000000001,
+"status": "committed"
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "no_doc",
+"amount": 10.84,
+"vat": 0,
+"status": "committed"
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 105.96,
+"vat": 17.66,
+"status": "committed"
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 10.41,
+"vat": 1.735
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 22.4,
+"vat": 3.733333333333333,
+"status": "committed"
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 16.33,
+"vat": 2.7216666666666662,
+"status": "committed"
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 19.99,
+"vat": 3.3316666666666666,
+"status": "committed"
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 15.5,
+"vat": 2.5833333333333335,
+"status": "committed"
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 18.24,
+"vat": 3.0399999999999996,
+"status": "committed"
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 39.98,
+"vat": 6.663333333333333
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 21.97,
+"vat": 3.6616666666666666
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 20.59,
+"vat": 3.4316666666666666
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 14.98,
+"vat": 2.4966666666666666
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 50,
+"vat": 8.333333333333334
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 24.82,
+"vat": 4.136666666666667
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 18.73,
+"vat": 3.1216666666666666
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 18.38,
+"vat": 3.063333333333333
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 22.75,
+"vat": 3.7916666666666665
+},
+{
+"date": "2026-09-14",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 49.98,
+"vat": 8.33
+},
+{
+"date": "2026-10-01",
+"dir": "out",
+"kind": "card",
+"amount": 200,
+"vat": 0
+},
+{
+"date": "2026-10-01",
+"dir": "out",
+"kind": "card",
+"amount": 1350,
+"vat": 0
+},
+{
+"date": "2026-10-01",
+"dir": "out",
+"kind": "card",
+"amount": 200,
+"vat": 0
+},
+{
+"date": "2026-10-01",
+"dir": "in",
+"kind": "other",
+"amount": 56.84,
+"vat": 0
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 35.07,
+"vat": 5.845,
+"status": "committed"
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 13.81,
+"vat": 2.3016666666666667,
+"status": "committed"
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 84.1,
+"vat": 14.016666666666666,
+"status": "committed"
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 56.84,
+"vat": 9.473333333333334,
+"status": "committed"
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 17.33,
+"vat": 2.888333333333333,
+"status": "committed"
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 22.01,
+"vat": 3.6683333333333334,
+"status": "committed"
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 17.4,
+"vat": 2.9,
+"status": "committed"
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 7.9,
+"vat": 1.3166666666666667,
+"status": "committed"
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 15.9,
+"vat": 2.65,
+"status": "committed"
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 120,
+"vat": 20.0,
+"status": "committed"
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "no_doc",
+"amount": 170,
+"vat": 0,
+"status": "committed"
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 68.9,
+"vat": 0,
+"status": "committed"
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 2.76,
+"vat": 0,
+"status": "committed"
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 35.75,
+"vat": 5.958333333333333,
+"status": "committed"
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 58.9,
+"vat": 9.816666666666666,
+"status": "committed"
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 10.1,
+"vat": 1.6833333333333333,
+"status": "committed"
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 32.21,
+"vat": 5.368333333333333,
+"status": "committed"
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "supplier_doc",
+"amount": 54.57,
+"vat": 9.095,
+"status": "committed"
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 16.79,
+"vat": 2.7983333333333333
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 50,
+"vat": 8.333333333333334
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 50,
+"vat": 8.333333333333334
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 49.98,
+"vat": 8.33
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 15.98,
+"vat": 2.6633333333333336
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 60.03,
+"vat": 10.005
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 35.41,
+"vat": 5.901666666666666
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 60,
+"vat": 10.0
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 52.2,
+"vat": 8.700000000000001
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 24.38,
+"vat": 4.0633333333333335
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 23.88,
+"vat": 3.98
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 40,
+"vat": 6.666666666666667
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 55.99,
+"vat": 9.331666666666667
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 59.98,
+"vat": 9.996666666666666
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 46.18,
+"vat": 7.696666666666666
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 50,
+"vat": 8.333333333333334
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 34.84,
+"vat": 5.8066666666666675
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 16.56,
+"vat": 2.76
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "fiscal",
+"method": "eurowag",
+"amount": 15,
+"vat": 2.5
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "labour",
+"amount": 450,
+"labour_days": 5.0,
+"vat": 0
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "labour",
+"amount": 450,
+"labour_days": 5.0,
+"vat": 0
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "labour",
+"amount": 450,
+"labour_days": 5.0,
+"vat": 0
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "labour",
+"amount": 450,
+"labour_days": 5.0,
+"vat": 0
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "labour",
+"amount": 450,
+"labour_days": 5.0,
+"vat": 0
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "labour",
+"amount": 450,
+"labour_days": 5.0,
+"vat": 0
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "labour",
+"amount": 180,
+"labour_days": 2.0,
+"vat": 0
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "labour",
+"amount": 180,
+"labour_days": 2.0,
+"vat": 0
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "labour",
+"amount": 180,
+"labour_days": 2.0,
+"vat": 0
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "labour",
+"amount": 90,
+"labour_days": 1.0,
+"vat": 0
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "labour",
+"amount": 90,
+"labour_days": 1.0,
+"vat": 0
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "labour",
+"amount": 90,
+"labour_days": 1.0,
+"vat": 0
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "labour",
+"amount": 180,
+"labour_days": 2.0,
+"vat": 0
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "labour",
+"amount": 180,
+"labour_days": 2.0,
+"vat": 0
+},
+{
+"date": "2026-10-09",
+"dir": "out",
+"kind": "labour",
+"amount": 90,
+"labour_days": 1.0,
+"vat": 0
+},
+{
+"date": "2026-10-01",
+"dir": "out",
+"kind": "card",
+"amount": 1500,
+"vat": 0
+},
+{
+"date": "2026-10-01",
+"dir": "out",
+"kind": "card",
+"amount": 200,
+"vat": 0
+},
+{
+"date": "2026-10-01",
+"dir": "out",
+"kind": "card",
+"amount": 1300,
+"vat": 0
+}
+]
+}

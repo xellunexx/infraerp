@@ -2,6 +2,7 @@
 import crypto from 'node:crypto';
 import { tx, nextCode } from './db.js';
 import { HttpError, bad, need, can, canSeeProject, scopeRows, redactMoney, audit, updateRow, emit, notify, on, setting, resolveApproval } from './core.js';
+import { roleOf } from './roles.js';
 import { proformaState, orderDates } from './payments.js';
 import { recordPayment, paymentAmount } from './routes_payments.js';
 import { bankDate, settleRow } from './ledger_rules.js';
@@ -20,7 +21,7 @@ const PROFORMA_KINDS = ['advance', 'interim', 'final', 'other'];
 const TX_STATUSES = ['planned', 'committed', 'paid', 'voided'];
 // §14.1: the workbook's hand-typed „вид" column becomes a fixed vocabulary; category stays free text below it
 const TX_KINDS = ['client', 'supplier_doc', 'bank_in', 'bank_out', 'proforma', 'labour', 'fiscal', 'card', 'no_doc', 'store', 'other'];
-const TX_METHODS = ['bank', 'cash', 'card'];
+const TX_METHODS = ['bank', 'cash', 'card', 'eurowag'];
 const SO_MANUAL_STATUSES = ['ordered', 'delivered', 'cancelled']; // 'ordered' resets to auto-derived status
 
 export default function mountAccounting(app, db) {
@@ -155,6 +156,13 @@ export default function mountAccounting(app, db) {
     need(req.user, 'finance');
     const w = wherePid(req, 't.project_id');
     return scopeRows(db, req.user, db.prepare(`${txView}${w ? ' WHERE ' + w : ''} ORDER BY t.tx_date DESC, t.id DESC`).all(...(w ? [Number(req.query.project_id)] : []))).map(withOpen);
+  }));
+  /** Transfers that pay no document yet, and rows written before kinds were required: Accounting links or classifies them. */
+  app.get('/api/payments/unallocated', h(req => {
+    need(req.user, 'finance');
+    const w = req.query.project_id ? 'AND t.project_id = ?' : '';
+    return scopeRows(db, req.user, db.prepare(`${txView} WHERE t.document_id IS NULL AND t.status NOT IN ('voided', 'reported') ${w} ORDER BY t.tx_date DESC, t.id DESC`).all(...(w ? [Number(req.query.project_id)] : [])))
+      .filter(t => { const r = roleOf(t); return (r === 'payment' && t.direction === 'out') || r === 'legacy'; }).map(t => ({ ...withOpen(t), role: roleOf(t) }));
   }));
   // ---- Книга: the single ledger, filtered into views (§14.1) — project / person / company / cost center / period
   app.get('/api/ledger', h(req => {
