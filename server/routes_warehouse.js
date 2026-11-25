@@ -1,7 +1,7 @@
 // Склад: непокътнат складов регистър (stock_movements), материални заявки → резерв → изписване,
 // и заявка-помощник, който сравнява потребността от КС/рецепти с наличното и резервираното.
 import crypto from 'node:crypto';
-import { need, can, canSeeProject, audit, emit, HttpError, bad, setting as getSetting } from './core.js';
+import { need, can, canSeeProject, needProject, scopeRows, hideForeignProject, audit, emit, HttpError, bad, setting as getSetting } from './core.js';
 import { h, num } from './app.js';
 import { tx, nextCode } from './db.js';
 import { stock, consumption } from './calc.js';
@@ -50,6 +50,7 @@ export default function mountWarehouse(app, db) {
     const qty = kind === 'adjust' ? signedQty(b.qty, 'Количество') : Math.abs(signedQty(b.qty, 'Количество'));
     if (kind !== 'adjust' && qty <= 0) throw bad('Количеството трябва да е положително');
     const pid = b.project_id == null ? null : Number(b.project_id);
+    if (pid != null) needProject(db, req.user, pid);
     // Изписване без обект = необяснима липса; връщане без обект вдига склада,
     // а единиците остават „на обекта“ — материалът се оказва на две места едновременно.
     if ((kind === 'issue' || kind === 'return') && pid == null) throw bad('Изписването/връщането изисква обект');
@@ -93,14 +94,15 @@ export default function mountWarehouse(app, db) {
     needWh(req);
     const pid = req.query.product_id ? Number(req.query.product_id) : null;
     const proj = req.query.project_id ? Number(req.query.project_id) : null;
-    return db.prepare(`SELECT m.*, p.code AS product_code, p.name AS product_name, pr.code AS project_code, tp.code AS to_project_code,
+    return scopeRows(db, req.user, db.prepare(`SELECT m.*, p.code AS product_code, p.name AS product_name, pr.code AS project_code, tp.code AS to_project_code,
         pl.code AS project_line_code, u.full_name AS responsible_name
       FROM stock_movements m JOIN products p ON p.id = m.product_id LEFT JOIN projects pr ON pr.id = m.project_id
       LEFT JOIN projects tp ON tp.id = m.to_project_id
       LEFT JOIN project_lines pl ON pl.id = m.project_line_id
       LEFT JOIN users u ON u.id = m.responsible_id
       WHERE (? IS NULL OR m.product_id = ?) AND (? IS NULL OR m.project_id = ?)
-      ORDER BY m.id DESC LIMIT 300`).all(pid, pid, proj, proj);
+      ORDER BY m.id DESC LIMIT 300`).all(pid, pid, proj, proj))
+      .map(m => m.to_project_id != null && !canSeeProject(db, req.user, m.to_project_id) ? { ...m, to_project_id: null, to_project_code: 'друг обект' } : m);
   }));
 
   // ---- потребност vs наличност vs резерви за един обект → предложени количества за заявка
@@ -108,6 +110,7 @@ export default function mountWarehouse(app, db) {
     needWh(req);
     const pid = Number(req.query.project_id);
     if (!pid) throw bad('project_id е задължителен');
+    needProject(db, req.user, pid);
     const cons = consumption(db, pid, Number(getSetting(db, 'overconsumption_tolerance_pct', '5')));
     const resByProd = new Map(db.prepare(`SELECT product_id, SUM(qty) q FROM reservations WHERE project_id = ? AND status = 'active' GROUP BY product_id`).all(pid).map(r => [r.product_id, r.q]));
     const st = new Map(stock(db).map(s => [s.id, s]));
@@ -124,9 +127,9 @@ export default function mountWarehouse(app, db) {
   app.get('/api/material-requests', h(req => {
     needWh(req);
     const pid = req.query.project_id ? Number(req.query.project_id) : null;
-    const rows = db.prepare(`SELECT m.*, p.code AS project_code, u.full_name AS requester_name FROM material_requests m
+    const rows = scopeRows(db, req.user, db.prepare(`SELECT m.*, p.code AS project_code, u.full_name AS requester_name FROM material_requests m
       JOIN projects p ON p.id = m.project_id LEFT JOIN users u ON u.id = m.requested_by
-      ${pid ? 'WHERE m.project_id = ?' : ''} ORDER BY m.id DESC LIMIT 200`).all(...(pid ? [pid] : []));
+      ${pid ? 'WHERE m.project_id = ?' : ''} ORDER BY m.id DESC LIMIT 200`).all(...(pid ? [pid] : [])));
     const items = db.prepare(`SELECT i.*, pr.code AS product_code, pr.name AS product_name, pr.unit, pl.code AS project_line_code
       FROM request_items i JOIN products pr ON pr.id = i.product_id LEFT JOIN project_lines pl ON pl.id = i.project_line_id WHERE i.request_id = ?`);
     return rows.map(m => ({ ...m, items: items.all(m.id) }));
@@ -137,6 +140,7 @@ export default function mountWarehouse(app, db) {
     const b = req.body || {};
     const pid = Number(b.project_id);
     if (!project(pid)) throw new HttpError(404, 'Няма такъв обект');
+    needProject(db, req.user, pid);
     const items = Array.isArray(b.items) ? b.items : [];
     if (!items.length) throw bad('Заявката трябва да има поне един материал');
     return createRequest(req, pid, { items, origin: 'manual', needed_by: b.needed_by, note: b.note });
@@ -177,6 +181,7 @@ export default function mountWarehouse(app, db) {
     const id = Number(req.params.id), action = req.params.action;
     const m = db.prepare('SELECT * FROM material_requests WHERE id = ?').get(id);
     if (!m) throw new HttpError(404, 'Няма такава заявка');
+    needProject(db, req.user, m.project_id);
     const items = db.prepare('SELECT i.*, p.unit_cost, p.code AS pcode, p.name AS pname FROM request_items i JOIN products p ON p.id = i.product_id WHERE i.request_id = ?').all(id);
     if (action === 'approve') {
       if (m.status !== 'submitted') throw bad('Заявката не е в статус „подадена“');
@@ -220,20 +225,22 @@ export default function mountWarehouse(app, db) {
 
   app.get('/api/warehouse/reservations', h(req => {
     needWh(req);
-    return db.prepare(`SELECT r.*, p.code AS product_code, p.name AS product_name, pr.code AS project_code, u.full_name AS requester_name
+    return scopeRows(db, req.user, db.prepare(`SELECT r.*, p.code AS product_code, p.name AS product_name, pr.code AS project_code, u.full_name AS requester_name
       FROM reservations r JOIN products p ON p.id = r.product_id JOIN projects pr ON pr.id = r.project_id
       LEFT JOIN request_items ri ON ri.id = r.request_item_id LEFT JOIN material_requests m ON m.id = ri.request_id
       LEFT JOIN users u ON u.id = m.requested_by
-      WHERE r.status = ? ORDER BY r.id DESC LIMIT 300`).all(String(req.query.status || 'active'));
+      WHERE r.status = ? ORDER BY r.id DESC LIMIT 300`).all(String(req.query.status || 'active')));
   }));
 
   /** Machinery/tools register — the warehouse's read-only view onto the same `assets`
    *  table Logistics allocates from. One registry, two windows (no copy). */
   app.get('/api/warehouse/fleet', h(req => {
     needWh(req);
-    return db.prepare(`SELECT s.*,
+    return hideForeignProject(db, req.user, db.prepare(`SELECT s.*,
         (SELECT p.code || ' — ' || p.name FROM asset_allocations a JOIN projects p ON p.id = a.project_id
-          WHERE a.asset_id = s.id AND a.status IN ('planned', 'active') ORDER BY a.id DESC LIMIT 1) AS allocated_project
-      FROM assets s ORDER BY s.kind, s.code`).all();
+          WHERE a.asset_id = s.id AND a.status IN ('planned', 'active') ORDER BY a.id DESC LIMIT 1) AS allocated_project,
+      (SELECT a.project_id FROM asset_allocations a JOIN projects p ON p.id = a.project_id
+        WHERE a.asset_id = s.id AND a.status IN ('planned', 'active') ORDER BY a.id DESC LIMIT 1) AS allocated_project_id
+      FROM assets s ORDER BY s.kind, s.code`).all());
   }));
 }

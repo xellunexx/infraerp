@@ -23,6 +23,7 @@ function ContractTab({ pid, onChange }: { pid: number; onChange: () => void }) {
   const { run, busy } = useAction();
   const f = useForm<any>({});
   const [ver, setVer] = useState<any | null>(null);
+  const [signF, setSignF] = useState<any | null>(null);
   useEffect(() => { if (c.data) f.setV({ template: c.data.template, special_terms: c.data.special_terms || '', delivery_deadline: c.data.delivery_deadline || '', install_start: c.data.install_start || '',
     install_deadline: c.data.install_deadline || '', advance_pct: c.data.advance_pct, payment_terms_days: c.data.payment_terms_days,
     contract_kind: c.data.contract_kind || 'standard', prod_delivery_days: c.data.prod_delivery_days ?? '', install_days: c.data.install_days ?? '' }); }, [c.data?.row_version]);
@@ -36,7 +37,6 @@ function ContractTab({ pid, onChange }: { pid: number; onChange: () => void }) {
     await api.patch(`/projects/${pid}/contract`, { ...body, row_version: d.row_version }); await c.reload();
   }, 'Договорът е записан');
   const special = d.template !== 'standard' || !!d.special_terms;
-  const [signF, setSignF] = useState<any | null>(null);
   const act = (name: string, body: any = {}, ok?: string) => run(async () => { await api.post(`/projects/${pid}/contract/${name}`, body); await c.reload(); onChange(); }, ok);
   return <>
     <Card title={<span>Договор {d.code} <Status value={d.status} /> {d.active_version ? <span className="badge">версия {d.active_version}</span> : null}</span>} actions={<>

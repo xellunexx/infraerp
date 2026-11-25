@@ -45,6 +45,16 @@ export function Loader({ state, children }: { state: { data: any; error: string 
   return <>{children}</>;
 }
 
+/** A page that fails to render must not take the menu down with it; leaving the page (resetKey) clears the failure. */
+export class ErrorBoundary extends React.Component<{ resetKey: string; children: React.ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  componentDidUpdate(prev: { resetKey: string }) { if (this.state.error && prev.resetKey !== this.props.resetKey) this.setState({ error: null }); }
+  render() {
+    return this.state.error ? <div className="alert bad">Страницата не може да се покаже: {this.state.error.message} <button className="sm" onClick={() => this.setState({ error: null })}>Опитай отново</button></div> : this.props.children;
+  }
+}
+
 // ---- toasts
 type Toast = { id: number; text: string; bad?: boolean };
 const ToastCtx = createContext<(text: string, bad?: boolean) => void>(() => {});

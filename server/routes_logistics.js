@@ -1,6 +1,6 @@
 // Логистика: доставки до обект с артикели, техника (активи) и разпределението й по обекти, портфолио и обеден изглед.
 import { tx, nextCode } from './db.js';
-import { HttpError, bad, need, canSeeProject, audit, updateRow, emit, notify, on } from './core.js';
+import { HttpError, bad, need, canSeeProject, hideForeignProject, audit, updateRow, emit, notify, on } from './core.js';
 import { h, pick, num, reqStr } from './app.js';
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -39,7 +39,9 @@ export default function mountLogistics(app, db) {
     FROM asset_allocations a JOIN assets s ON s.id = a.asset_id JOIN projects p ON p.id = a.project_id LEFT JOIN users u ON u.id = a.created_by`;
   const assetView = `SELECT s.*,
       (SELECT p.code || ' — ' || p.name FROM asset_allocations a JOIN projects p ON p.id = a.project_id
-        WHERE a.asset_id = s.id AND a.status IN ${LIVE_ALLOC} ORDER BY a.id DESC LIMIT 1) AS allocated_project
+        WHERE a.asset_id = s.id AND a.status IN ${LIVE_ALLOC} ORDER BY a.id DESC LIMIT 1) AS allocated_project,
+      (SELECT a.project_id FROM asset_allocations a JOIN projects p ON p.id = a.project_id
+        WHERE a.asset_id = s.id AND a.status IN ${LIVE_ALLOC} ORDER BY a.id DESC LIMIT 1) AS allocated_project_id
     FROM assets s`;
   const deliveryItems = (deliveryId) => db.prepare(`SELECT i.id, i.product_id, i.qty, pr.code AS product_code, pr.name AS product_name, pr.unit
     FROM delivery_items i JOIN products pr ON pr.id = i.product_id WHERE i.delivery_id = ? ORDER BY i.id`).all(deliveryId);
@@ -173,7 +175,7 @@ export default function mountLogistics(app, db) {
   })));
 
   // ---- Техника (активи)
-  app.get('/api/assets', h(req => { need(req.user, 'logistics'); return db.prepare(`${assetView} ORDER BY s.id DESC`).all(); }));
+  app.get('/api/assets', h(req => { need(req.user, 'logistics'); return hideForeignProject(db, req.user, db.prepare(`${assetView} ORDER BY s.id DESC`).all()); }));
   app.post('/api/assets', h(req => tx(db, () => {
     need(req.user, 'logistics', 'write');
     const b = req.body || {};

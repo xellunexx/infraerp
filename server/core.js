@@ -118,6 +118,30 @@ export function needProject(db, user, projectId) {
   if (!canSeeProject(db, user, projectId)) throw new HttpError(403, 'Нямате достъп до този обект');
 }
 
+/** One project boundary for lists: rows of projects the user may not see are dropped; rows without a project stay. */
+export function scopeRows(db, user, rows, projectOf = r => r.project_id) {
+  return user.role !== 'brigadier' ? rows : rows.filter(r => { const pid = projectOf(r); return pid == null || canSeeProject(db, user, pid); });
+}
+
+/** Shared assets stay listed for everyone, but the name of a project the user may not see is withheld. */
+export const hideForeignProject = (db, user, assets) => assets.map(a => a.allocated_project_id != null && !canSeeProject(db, user, a.allocated_project_id)
+  ? { ...a, allocated_project: 'друг обект', allocated_project_id: null } : a);
+
+// ---- one money mask: amounts are hidden by field name at any depth, also inside JSON text columns (events, audit)
+const MONEY_KEY = /(^|_)(price|cost|amount|total|totals|margin|gross|net|vat|value|eur|rate)(_|$)/;
+const NOT_MONEY = /^(prev_value|new_value|.*_pct|.*_at|.*_id)$/;
+/** Roles holding finance or contract rights work with commercial figures; the rest see the work, not the money. */
+export const canSeeMoney = user => can(user, 'finance') || can(user, 'contracts');
+export function redactMoney(v) {
+  if (typeof v === 'string') {
+    if (!/^\s*[[{]/.test(v)) return v;
+    try { return JSON.stringify(redactMoney(JSON.parse(v))); } catch { return v; }
+  }
+  if (Array.isArray(v)) return v.map(redactMoney);
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, MONEY_KEY.test(k) && !NOT_MONEY.test(k) ? null : redactMoney(x)]));
+  return v;
+}
+
 /** Mark the event that requested an approval as decided — approval_status='pending' is
  *  the live queue, so it must stop lying once a human decides. */
 export function resolveApproval(db, entityType, entityId, status) {

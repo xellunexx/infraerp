@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
 import { api, AuthState } from './api';
-import { AuthCtx, Field, Link, RouterProvider, ToastProvider, navigate, useAction, useAuth, useForm, useLoad, usePath } from './ui';
+import { AuthCtx, ErrorBoundary, Field, Link, RouterProvider, ToastProvider, navigate, useAction, useAuth, useForm, useLoad, usePath } from './ui';
 import { Customers } from './pages/Customers';
 import { Catalog } from './pages/Catalog';
 import { Offers, OfferEditor } from './pages/Offers';
@@ -106,7 +106,7 @@ function Shell() {
         <span className="spacer" style={{ flex: 1 }} />
         <Link to="/notifications" className="muted">Известия{unread > 0 ? ` (${unread})` : ''}</Link>
       </div>
-      <main className="content" onClick={() => open && setOpen(false)}>{page}</main>
+      <main className="content" onClick={() => open && setOpen(false)}><ErrorBoundary resetKey={path}>{page}</ErrorBoundary></main>
     </div>
   </div>;
 }

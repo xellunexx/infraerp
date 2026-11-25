@@ -1,6 +1,6 @@
 // Договори + Картон на обекта (core view) + engine visibility, notifications, search.
 import { tx, nextCode } from './db.js';
-import { HttpError, bad, need, can, needProject, canSeeProject, audit, updateRow, emit, reindex, resolveApproval } from './core.js';
+import { HttpError, bad, need, can, needProject, canSeeProject, scopeRows, canSeeMoney, redactMoney, audit, updateRow, emit, reindex, resolveApproval } from './core.js';
 import { signContract, newContractVersion, setStage, deriveProjectStatus, syncProjectStatus } from './domain.js';
 import { progressSummary, finance } from './calc.js';
 import { h, pick } from './app.js';
@@ -32,16 +32,17 @@ export default function mountProjects(app, db) {
     c.total = progressSummary(db, projectId).contract_value;
     return c;
   };
-  app.get('/api/contracts', h(req => { need(req.user, 'contracts'); return db.prepare(`SELECT c.*, p.code AS project_code, p.name AS project_name, cu.name AS customer_name,
+  app.get('/api/contracts', h(req => { need(req.user, 'contracts'); return scopeRows(db, req.user, db.prepare(`SELECT c.*, p.code AS project_code, p.name AS project_name, cu.name AS customer_name,
     (SELECT COALESCE(SUM(qty * unit_price), 0) FROM project_lines l WHERE l.project_id = c.project_id AND l.removed = 0) AS total
-    FROM contracts c JOIN projects p ON p.id = c.project_id JOIN customers cu ON cu.id = p.customer_id ORDER BY c.id DESC`).all(); }));
+    FROM contracts c JOIN projects p ON p.id = c.project_id JOIN customers cu ON cu.id = p.customer_id ORDER BY c.id DESC`).all()); }));
   app.get('/api/projects/:pid/contract', h(req => { need(req.user, 'contracts'); needProject(db, req.user, req.params.pid); return contractView(Number(req.params.pid)); }));
   app.get('/api/contract-versions/:id', h(req => { need(req.user, 'contracts');
     const v = db.prepare('SELECT * FROM contract_versions WHERE id = ?').get(req.params.id);
     if (!v) throw new HttpError(404, 'Няма такава версия');
+    needProject(db, req.user, db.prepare('SELECT project_id FROM contracts WHERE id = ?').get(v.contract_id).project_id);
     return { ...v, snapshot: JSON.parse(v.snapshot), appendices: db.prepare('SELECT * FROM contract_appendices WHERE contract_id = ? AND contract_version = ? ORDER BY number').all(v.contract_id, v.version) }; }));
   app.patch('/api/projects/:pid/contract', h(req => tx(db, () => {
-    need(req.user, 'contracts', 'write');
+    need(req.user, 'contracts', 'write'); needProject(db, req.user, req.params.pid);
     const pid = Number(req.params.pid), c = db.prepare('SELECT * FROM contracts WHERE project_id = ?').get(pid);
     if (!c) throw new HttpError(404, 'Няма договор');
     const f = pick(req.body || {}, ['template', 'special_terms', 'delivery_deadline', 'install_start', 'install_deadline', 'advance_pct', 'payment_terms_days',
@@ -62,6 +63,7 @@ export default function mountProjects(app, db) {
   /** draft -> review -> approved (immutable version 1) -> signed (event). */
   app.post('/api/projects/:pid/contract/:action', h(req => {
     const pid = Number(req.params.pid), action = req.params.action;
+    needProject(db, req.user, pid);
     if (action === 'sign') { need(req.user, 'contracts', 'write'); return { event_id: signContract(db, req.user, pid, req.body || {}) }; }
     return tx(db, () => {
       const c = db.prepare('SELECT * FROM contracts WHERE project_id = ?').get(pid);
@@ -97,7 +99,7 @@ export default function mountProjects(app, db) {
   /** §14.3 payment milestones (аванс/междинно/окончателно): real bank dates arrive after signing,
    *  so they live in their own table — the contract body stays versioned. */
   app.put('/api/projects/:pid/contract/payments', h(req => tx(db, () => {
-    need(req.user, 'contracts', 'write');
+    need(req.user, 'contracts', 'write'); needProject(db, req.user, req.params.pid);
     const pid = Number(req.params.pid), c = db.prepare('SELECT * FROM contracts WHERE project_id = ?').get(pid);
     if (!c) throw new HttpError(404, 'Няма договор');
     const b = req.body || {};
@@ -226,7 +228,7 @@ export default function mountProjects(app, db) {
       reopen_request: db.prepare("SELECT a.*, u.full_name AS requested_by_name FROM approvals a LEFT JOIN users u ON u.id = a.requested_by WHERE a.entity_type = 'project' AND a.entity_id = ? AND a.kind = 'project_reopen' AND a.status = 'pending'").get(id) || null };
   }));
   app.patch('/api/projects/:id', h(req => tx(db, () => {
-    need(req.user, 'projects', 'write');
+    need(req.user, 'projects', 'write'); needProject(db, req.user, req.params.id);
     const id = Number(req.params.id), before = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
     if (!before) throw new HttpError(404, 'Обектът не е намерен');
     const b = req.body || {};
@@ -269,7 +271,7 @@ export default function mountProjects(app, db) {
 
   /** Lifecycle is configurable per project: complete, skip, reopen, or add an extra step. */
   app.post('/api/projects/:id/stages', h(req => tx(db, () => {
-    need(req.user, 'projects', 'write');
+    need(req.user, 'projects', 'write'); needProject(db, req.user, req.params.id);
     const id = Number(req.params.id), b = req.body || {};
     if (b.add) {
       const sort = (db.prepare('SELECT sort FROM project_stages WHERE project_id = ? AND code = ?').get(id, b.after)?.sort ?? 9990) + 1;
@@ -307,10 +309,12 @@ export default function mountProjects(app, db) {
     return { ok: true, archived: want, status: next };
   })));
   app.get('/api/projects/:id/timeline', h(req => { need(req.user, 'projects'); needProject(db, req.user, req.params.id);
-    return db.prepare(`SELECT e.id, e.type, e.origin_module, e.ts, e.status, e.approval_status, e.affected_modules, e.prev_value, e.new_value, e.last_error, u.full_name AS user_name
-      FROM events e LEFT JOIN users u ON u.id = e.user_id WHERE e.project_id = ? ORDER BY e.id DESC LIMIT 300`).all(req.params.id); }));
+    const mask = canSeeMoney(req.user) ? r => r : redactMoney;
+    return mask(db.prepare(`SELECT e.id, e.type, e.origin_module, e.ts, e.status, e.approval_status, e.affected_modules, e.prev_value, e.new_value, e.last_error, u.full_name AS user_name
+      FROM events e LEFT JOIN users u ON u.id = e.user_id WHERE e.project_id = ? ORDER BY e.id DESC LIMIT 300`).all(req.params.id)); }));
   app.get('/api/projects/:id/audit', h(req => { need(req.user, 'projects'); needProject(db, req.user, req.params.id);
-    return db.prepare('SELECT a.*, u.full_name AS user_name FROM audit_log a LEFT JOIN users u ON u.id = a.user_id WHERE a.project_id = ? ORDER BY a.id DESC LIMIT 500').all(req.params.id); }));
+    const mask = canSeeMoney(req.user) ? r => r : redactMoney;
+    return mask(db.prepare('SELECT a.*, u.full_name AS user_name FROM audit_log a LEFT JOIN users u ON u.id = a.user_id WHERE a.project_id = ? ORDER BY a.id DESC LIMIT 500').all(req.params.id)); }));
 
   // ---- engine visibility, notifications, search
   app.get('/api/events', h(req => { need(req.user, 'events'); return db.prepare(`SELECT e.*, p.code AS project_code, u.full_name AS user_name,

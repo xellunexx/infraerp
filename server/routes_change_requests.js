@@ -1,6 +1,6 @@
 // Заявки за промяна: всеки потребител може да заяви редакция или изтриване на запис;
 // само администратор решава и заявката се прилага в една транзакция с пълен одит.
-import { need, needAdmin, audit, updateRow, reindex, emit, HttpError, bad } from './core.js';
+import { need, needAdmin, needProject, scopeRows, canSeeMoney, redactMoney, audit, updateRow, reindex, emit, HttpError, bad } from './core.js';
 import { h, pick, reqStr } from './app.js';
 import { tx, nextCode } from './db.js';
 
@@ -144,6 +144,8 @@ const ENT = {
 export const ENTITY_TYPES = ENT;
 
 const entRow = (db, type, id) => db.prepare(`SELECT * FROM ${ENT[type].table} WHERE id = ?`).get(id);
+/** The project a record belongs to: the project itself, or the project it hangs on. */
+const projectOf = (type, r) => (type === 'project' ? r.id : r.project_id ?? null);
 const entityLabel = (db, type, id) => { const r = entRow(db, type, id); return r ? ENT[type].labelOf(r) : `#${id}`; };
 
 function applyEdit(db, type, id, payload, user) {
@@ -191,7 +193,7 @@ export default function mountChangeRequests(app, db) {
     const e = ENT[type];
     if (!e) throw bad('Невалиден тип запис');
     need(req.user, e.resource); // заявителят трябва да вижда записа, за да го заяви
-    return e.picker(db).map(r => ({ id: r.id, label: e.labelOf(r), sub: Object.entries(r).filter(([k]) => !['id'].includes(k)).map(([k, v]) => `${k}: ${v}`).join(' · ').slice(0, 160) }));
+    return scopeRows(db, req.user, e.picker(db), r => projectOf(type, entRow(db, type, r.id))).map(r => ({ id: r.id, label: e.labelOf(r), sub: Object.entries(r).filter(([k]) => !['id'].includes(k)).map(([k, v]) => `${k}: ${v}`).join(' · ').slice(0, 160) }));
   }));
 
   app.get('/api/change-requests', h(req => {
@@ -219,6 +221,8 @@ export default function mountChangeRequests(app, db) {
     const reason = reqStr(b.reason, 'Причина');
     const row = entRow(db, type, id);
     if (!row) throw new HttpError(404, 'Записът не е намерен');
+    const pid = projectOf(type, row);
+    if (pid != null) needProject(db, req.user, pid);
     let payload = null;
     if (kind === 'edit' && b.payload != null) {
       if (typeof b.payload !== 'object' || Array.isArray(b.payload)) throw bad('Предложените стойности трябва да са обект');
@@ -246,7 +250,7 @@ export default function mountChangeRequests(app, db) {
     if (r.requested_by !== req.user.id) needAdmin(req.user);
     const e = ENT[r.entity_type];
     const current = e ? entRow(db, r.entity_type, r.entity_id) : null;
-    return { ...view(r), entity_gone: !current, current, cols: e ? colMeta(e.cols) : [], label: e?.label };
+    return { ...view(r), entity_gone: !current, current: canSeeMoney(req.user) ? current : redactMoney(current), cols: e ? colMeta(e.cols) : [], label: e?.label };
   }));
 
   app.post('/api/change-requests/:id/decide', h(req => {

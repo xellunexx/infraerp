@@ -85,6 +85,7 @@ export default function mountTechnical(app, db) {
     need(req.user, 'tasks', 'write');
     const t = db.prepare('SELECT * FROM tasks WHERE id = ?').get(Number(req.params.id));
     if (!t) throw new HttpError(404, 'Няма такава задача');
+    if (t.project_id != null) needProject(db, req.user, t.project_id);
     const status = req.params.action === 'done' ? 'done' : req.params.action === 'reopen' ? 'open' : null;
     if (!status) throw bad('Непозната операция');
     if (t.status === status) throw bad(status === 'done' ? 'Задачата вече е изпълнена' : 'Задачата вече е отворена');

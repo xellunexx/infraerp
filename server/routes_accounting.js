@@ -1,7 +1,7 @@
 // Счетоводство: проформи, приходи/разходи, заявки за плащане с одобрение от Управител, настаняване, финансов преглед по обект и портфолио.
 import crypto from 'node:crypto';
 import { tx, nextCode } from './db.js';
-import { HttpError, bad, need, can, canSeeProject, audit, updateRow, emit, notify, on, setting, resolveApproval } from './core.js';
+import { HttpError, bad, need, can, canSeeProject, scopeRows, redactMoney, audit, updateRow, emit, notify, on, setting, resolveApproval } from './core.js';
 import { finance, personCard, supplierOrderView, round2 } from './calc.js';
 import { h, pick, num, reqStr } from './app.js';
 
@@ -77,7 +77,7 @@ export default function mountAccounting(app, db) {
   app.get('/api/proformas', h(req => {
     need(req.user, 'finance');
     const w = wherePid(req, 'f.project_id');
-    return db.prepare(`${proformaView}${w ? ' WHERE ' + w : ''} ORDER BY f.id DESC`).all(...(w ? [Number(req.query.project_id)] : []));
+    return scopeRows(db, req.user, db.prepare(`${proformaView}${w ? ' WHERE ' + w : ''} ORDER BY f.id DESC`).all(...(w ? [Number(req.query.project_id)] : [])));
   }));
   app.post('/api/proformas', h(req => tx(db, () => {
     need(req.user, 'finance', 'write');
@@ -168,13 +168,13 @@ export default function mountAccounting(app, db) {
   app.get('/api/transactions', h(req => {
     need(req.user, 'finance');
     const w = wherePid(req, 't.project_id');
-    return db.prepare(`${txView}${w ? ' WHERE ' + w : ''} ORDER BY t.tx_date DESC, t.id DESC`).all(...(w ? [Number(req.query.project_id)] : [])).map(withOpen);
+    return scopeRows(db, req.user, db.prepare(`${txView}${w ? ' WHERE ' + w : ''} ORDER BY t.tx_date DESC, t.id DESC`).all(...(w ? [Number(req.query.project_id)] : []))).map(withOpen);
   }));
   // ---- Книга: the single ledger, filtered into views (§14.1) — project / person / company / cost center / period
   app.get('/api/ledger', h(req => {
     need(req.user, 'finance');
     const { sql, args } = txFilters(req);
-    const rows = db.prepare(`${txView}${sql} ORDER BY t.tx_date DESC, t.id DESC`).all(...args).map(withOpen);
+    const rows = scopeRows(db, req.user, db.prepare(`${txView}${sql} ORDER BY t.tx_date DESC, t.id DESC`).all(...args)).map(withOpen);
     const live = rows.filter(t => t.status !== 'voided');
     const totals = { in: round2(live.filter(t => t.direction === 'in' && t.status === 'paid').reduce((s, t) => s + t.amount, 0)),
       out: round2(live.filter(t => t.direction === 'out' && t.status === 'paid').reduce((s, t) => s + t.amount, 0)),
@@ -281,7 +281,7 @@ export default function mountAccounting(app, db) {
   app.get('/api/payment-requests', h(req => {
     need(req.user, 'finance');
     const w = wherePid(req, 'r.project_id');
-    return db.prepare(`${prView}${w ? ' WHERE ' + w : ''} ORDER BY r.id DESC`).all(...(w ? [Number(req.query.project_id)] : []));
+    return scopeRows(db, req.user, db.prepare(`${prView}${w ? ' WHERE ' + w : ''} ORDER BY r.id DESC`).all(...(w ? [Number(req.query.project_id)] : [])));
   }));
   app.post('/api/payment-requests', h(req => tx(db, () => {
     need(req.user, 'finance', 'write');
@@ -325,7 +325,7 @@ export default function mountAccounting(app, db) {
   app.get('/api/accommodations', h(req => {
     need(req.user, 'finance');
     const w = wherePid(req, 'a.project_id');
-    return db.prepare(`${accoView}${w ? ' WHERE ' + w : ''} ORDER BY a.id DESC`).all(...(w ? [Number(req.query.project_id)] : []));
+    return scopeRows(db, req.user, db.prepare(`${accoView}${w ? ' WHERE ' + w : ''} ORDER BY a.id DESC`).all(...(w ? [Number(req.query.project_id)] : [])));
   }));
   const accoFields = b => {
     const f = {};
@@ -436,7 +436,9 @@ export default function mountAccounting(app, db) {
     needSO(req.user);
     const w = [], args = [];
     if (req.query.project_id) { w.push('o.project_id = ?'); args.push(Number(req.query.project_id)); }
-    return db.prepare(`${soView}${w.length ? ' WHERE ' + w.join(' AND ') : ''} ORDER BY o.id DESC`).all(...args).map(o => supplierOrderView(o));
+    // amounts belong to finance and to those who maintain the orders; other readers follow dates and status only
+    const rows = scopeRows(db, req.user, db.prepare(`${soView}${w.length ? ' WHERE ' + w.join(' AND ') : ''} ORDER BY o.id DESC`).all(...args)).map(o => supplierOrderView(o));
+    return can(req.user, 'finance') || can(req.user, 'logistics', 'write') ? rows : redactMoney(rows);
   }));
   app.post('/api/supplier-orders', h(req => tx(db, () => {
     needSO(req.user, 'write');
