@@ -34,6 +34,8 @@ export default function mountProjects(app, db) {
       : c.delivery_deadline;
     c.delivery_due_real = !!(c.deadline_start && c.prod_delivery_days != null);
     c.total = progressSummary(db, projectId).contract_value;
+    const agreed = c.versions.find(v => v.version === c.active_version)?.total_value;
+    c.schedule_gap = c.status === 'signed' && agreed != null && c.payments.length && c.payments.every(p => p.net != null) ? Math.round((c.payments.reduce((s, p) => s + p.net, 0) - agreed) * 100) / 100 : null;
     return c;
   };
   app.get('/api/contracts', h(req => { need(req.user, 'contracts'); return scopeRows(db, req.user, db.prepare(`SELECT c.*, p.code AS project_code, p.name AS project_name, cu.name AS customer_name,
@@ -116,6 +118,8 @@ export default function mountProjects(app, db) {
     for (const k of ['pct', 'amount']) if (num(b[k]) != null && !(Number.isFinite(num(b[k])) && num(b[k]) >= 0)) throw bad('Невалидна стойност');
     const before = db.prepare('SELECT * FROM contract_payments WHERE contract_id = ? AND kind = ?').get(c.id, b.kind);
     const keep = (k, v) => b[k] === undefined ? before?.[k] ?? null : v;
+    // after signing the plan is the yardstick for „платено“: Contracts may note, only Accounting may correct it
+    if (c.status === 'signed' && ((b.pct !== undefined && num(b.pct) !== (before?.pct ?? null)) || (b.amount !== undefined && num(b.amount) !== (before?.amount ?? null)))) need(req.user, 'finance', 'write');
     const vat = before?.vat_pct ?? Number(setting(db, 'vat_pct', '20')), amount = keep('amount', num(b.amount));
     db.prepare(`INSERT INTO contract_payments(contract_id, kind, pct, amount, vat_pct, gross, note) VALUES (?,?,?,?,?,?,?)
       ON CONFLICT(contract_id, kind) DO UPDATE SET pct = excluded.pct, amount = excluded.amount, vat_pct = excluded.vat_pct, gross = excluded.gross,

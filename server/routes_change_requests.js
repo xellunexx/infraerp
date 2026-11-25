@@ -4,6 +4,7 @@ import { need, needAdmin, needProject, scopeRows, canSeeMoney, redactMoney, audi
 import { h, pick, reqStr } from './app.js';
 import { tx, nextCode } from './db.js';
 import { advancePct } from './domain.js';
+import { settleRow } from './ledger_rules.js';
 
 // ---- колони с числови стойности (по име — общ механизъм, не по конкретен запис)
 const NUM_RE = /(^|_)(qty|amount|price|cost|pct|percent|days|hours|beds|pallets|sort|version|latitude|longitude|norm|min_stock|pallet_qty|terms_days|pallets|advance|vat|discount|prelim|validity|labour)/;
@@ -148,10 +149,11 @@ const entRow = (db, type, id) => db.prepare(`SELECT * FROM ${ENT[type].table} WH
 /** Money already paid and values already signed are not edited around: payments are voided in the ledger, contracts change by annex. */
 const signedContract = (db, projectId) => !!db.prepare("SELECT 1 FROM contracts WHERE project_id = ? AND status = 'signed'").get(projectId);
 const FROZEN = {
-  transaction: (db, r) => ['paid', 'reported'].includes(r.status) ? { keys: ['amount', 'direction', 'status', 'tx_date'], del: true, why: 'Платено или докладвано плащане се коригира само в книгата' } : null,
+  transaction: (db, r) => ({ keys: ['amount', 'direction', 'status', 'tx_date'], why: 'Сума, посока, състояние и дата се коригират само в книгата',
+    del: ['paid', 'reported'].includes(r.status) || r.proforma_id != null || r.contract_payment_id != null || r.supplier_order_id != null || !!db.prepare('SELECT 1 FROM transactions WHERE document_id = ?').get(r.id) }),
   proforma: (db, r) => ({ keys: db.prepare("SELECT 1 FROM transactions WHERE proforma_id = ? AND status IN ('paid', 'reported')").get(r.id) ? ['status', 'amount', 'vat_pct', 'kind'] : ['status'], why: 'Състоянието на проформата следва плащанията' }),
   project_line: (db, r) => signedContract(db, r.project_id) ? { keys: ['qty', 'unit_price'], del: true, why: 'Договорът е подписан — количества и цени се менят само с анекс' } : null,
-  contract: (db, r) => r.status === 'signed' ? { keys: ['advance_pct'], why: 'Договорът е подписан — авансът се мени само с анекс' } : null,
+  contract: (db, r) => r.status !== 'draft' ? { keys: ['advance_pct'], why: 'Договорът е изпратен или подписан — авансът е част от него' } : null,
 };
 function needUnfrozen(db, type, row, kind, payload) {
   const z = FROZEN[type]?.(db, row);
@@ -176,6 +178,7 @@ function applyEdit(db, type, id, payload, user) {
   if (type === 'contract' && fields.advance_pct !== undefined) fields.advance_set = 1;
   const result = e.apply ? e.apply(db, id, fields, user) : updateRow(db, e.table, id, fields);
   const after = entRow(db, type, id);
+  if (type === 'transaction') settleRow(db, id, { before, separate: true });
   e.reindex?.(db, after);
   return { before, after, result };
 }

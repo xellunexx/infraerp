@@ -106,13 +106,19 @@ export function signContract(db, user, projectId, { signed_on, install_start, in
     const total = db.prepare('SELECT total_value FROM contract_versions WHERE contract_id = ? AND version = ?').get(c.id, c.active_version)?.total_value
       ?? progressSummary(db, projectId).contract_value;
     const vat = Number(setting(db, 'vat_pct', '20')), plan = splitSchedule(total || 0, vat, Number(c.advance_pct));
-    for (const p of plan) {
-      const cur = db.prepare('SELECT * FROM contract_payments WHERE contract_id = ? AND kind = ?').get(c.id, p.kind);
-      const net = cur?.amount ?? (total ? p.net : null);
-      db.prepare(`INSERT INTO contract_payments(contract_id, kind, pct, amount, vat_pct, gross) VALUES (?,?,?,?,?,?)
-        ON CONFLICT(contract_id, kind) DO UPDATE SET pct = COALESCE(contract_payments.pct, excluded.pct), amount = excluded.amount, vat_pct = excluded.vat_pct, gross = excluded.gross`)
-        .run(c.id, p.kind, p.pct, net, vat, net == null ? null : cur?.amount != null ? grossOf(net, vat) : p.gross);
+    const typed = Object.fromEntries(db.prepare('SELECT kind, amount FROM contract_payments WHERE contract_id = ? AND amount IS NOT NULL').all(c.id).map(m => [m.kind, m.amount]));
+    const [a, n, f] = plan;
+    if (total) {
+      if (typed.advance !== undefined && Math.abs(typed.advance - a.net) > 0.01) throw bad(`Авансът в разплащателния график (${typed.advance.toFixed(2)}) не отговаря на ${c.advance_pct}% от договора (${a.net.toFixed(2)})`);
+      if (typed.interim !== undefined) { n.net = typed.interim; n.gross = grossOf(n.net, vat); }
+      const rest = round2(total - a.net - n.net);
+      if (rest < 0 || (typed.final !== undefined && Math.abs(typed.final - rest) > 0.01)) throw bad('Разплащателният график не е равен на договорната стойност');
+      f.net = rest; f.gross = round2(grossOf(round2(total), vat) - a.gross - n.gross);
+      for (const p of [n, f]) p.pct = typed.interim !== undefined ? round2(p.net / total * 100) : p.pct;
     }
+    for (const p of plan) db.prepare(`INSERT INTO contract_payments(contract_id, kind, pct, amount, vat_pct, gross) VALUES (?,?,?,?,?,?)
+      ON CONFLICT(contract_id, kind) DO UPDATE SET pct = excluded.pct, amount = excluded.amount, vat_pct = excluded.vat_pct, gross = excluded.gross`)
+      .run(c.id, p.kind, p.pct, total ? p.net : null, vat, total ? p.gross : null);
 
     // Авансовата проформа излиза веднага след подписа — счетоводството я маркира платена,
     // което първо отбелязва етапа в графика и стартира договорния календар.

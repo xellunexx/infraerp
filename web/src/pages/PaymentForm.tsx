@@ -33,8 +33,8 @@ export function PaymentForm({ title, url, dateKey = 'tx_date', report, choices, 
       : <button className="primary" disabled={busy || !ok} onClick={() => save(false)}>{report ? 'Докладвай' : 'Запиши'}</button>}</>}>
     <div className="form c2">
       {choices && <Field label="Какво се плаща" full><select value={f.v.choice} onChange={e => pick(e.target.value)}>{choices.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}</select></Field>}
-      <Field label={`Сума с ДДС, ${cur}`}><input type="number" min="0" step="0.01" {...f.bind('amount')} /></Field>
-      <Field label="Дата по банка"><input type="date" max={today()} {...f.bind('date')} /></Field>
+      <Field label={`Сума с ДДС, ${cur}`}><input type="number" min="0" step="0.01" value={f.v.amount} onChange={e => { f.set('amount', e.target.value); setSimilar(null); }} /></Field>
+      <Field label="Дата по банка"><input type="date" max={today()} value={f.v.date} onChange={e => { f.set('date', e.target.value); setSimilar(null); }} /></Field>
       <Field label="Бележка" full><input {...f.bind('note')} /></Field>
       {report && <div className="muted small" style={{ gridColumn: '1 / -1' }}>Сумите и сроковете се променят едва след потвърждение от Счетоводство.</div>}
       {similar && <Similar rows={similar} cur={cur} />}
@@ -43,7 +43,7 @@ export function PaymentForm({ title, url, dateKey = 'tx_date', report, choices, 
 }
 
 export const milestoneChoices = (payments: any[]) => payments.filter(p => p.id && p.gross !== 0).map(p => ({ value: String(p.id), label: `${MILESTONE[p.kind] || p.kind}${p.paid_at ? ' (платено)' : ''}`, body: { contract_payment_id: p.id }, amount: Math.max(0, Math.round(((p.gross || 0) - p.paid) * 100) / 100) }));
-export const orderChoices = (o: any) => (['advance', 'final'] as const).map(s => ({ value: s, label: STAGE[s], body: { stage: s }, amount: (s === 'advance' ? o.advance_eur : o.final_eur) || 0 }));
+export const orderChoices = (o: any) => (['advance', 'final'] as const).map(s => ({ value: s, label: STAGE[s], body: { stage: s }, amount: Math.max(0, Math.round((((s === 'advance' ? o.advance_eur : o.final_eur) || 0) - ((s === 'advance' ? o.advance_paid_amount : o.final_paid_amount) || 0)) * 100) / 100) }));
 
 export function ConfirmTab({ queue, onDone }: { queue: any; onDone: () => void }) {
   const { run, busy } = useAction();
@@ -84,8 +84,8 @@ function ConfirmModal({ r, onClose, onDone }: { r: any; onClose: () => void; onD
   return <Modal title={`Потвърждаване на ${r.code}`} onClose={onClose} footer={<><button onClick={onClose}>Отказ</button>
     {similar.map(s => <button key={s.id} disabled={busy} onClick={() => merge(s)}>Същото като {s.code}</button>)}
     <button className="primary" disabled={busy || !(Number(f.v.amount) > 0) || !f.v.date} onClick={() => confirm(similar.length > 0)}>{similar.length ? 'Отделно плащане — потвърди' : 'Потвърди'}</button></>}>
-    <div className="form c2"><Field label={`Сума с ДДС, ${cur}`}><input type="number" min="0" step="0.01" {...f.bind('amount')} /></Field>
-      <Field label="Дата по банка"><input type="date" max={today()} {...f.bind('date')} /></Field>
+    <div className="form c2"><Field label={`Сума с ДДС, ${cur}`}><input type="number" min="0" step="0.01" value={f.v.amount} onChange={e => { f.set('amount', e.target.value); setSimilar([]); }} /></Field>
+      <Field label="Дата по банка"><input type="date" max={today()} value={f.v.date} onChange={e => { f.set('date', e.target.value); setSimilar([]); }} /></Field>
       {similar.length > 0 && <Similar rows={similar} cur={cur} />}</div>
   </Modal>;
 }

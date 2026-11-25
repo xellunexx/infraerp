@@ -2,7 +2,8 @@
 import crypto from 'node:crypto';
 import { tx, nextCode } from './db.js';
 import { HttpError, bad, need, can, needProject, scopeRows, audit, emit, notify, on, updateRow } from './core.js';
-import { milestones, proformaOpenSql, similarPayments, vatInside, localToday } from './payments.js';
+import { milestones, proformaOpenSql, similarPayments, vatInside } from './payments.js';
+import { bankDate, refuseSimilar, settleRow } from './ledger_rules.js';
 import { h, reqStr } from './app.js';
 
 const r2 = n => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -11,28 +12,25 @@ export function paymentAmount(v) {
   if (!Number.isFinite(n) || r2(n) <= 0) throw bad('Въведете сума с ДДС, по-голяма от нула (напр. 3720.00)');
   return r2(n);
 }
-export function bankDate(v) {
-  const s = String(v ?? '');
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s) || isNaN(Date.parse(s)) || new Date(s + 'T00:00:00Z').toISOString().slice(0, 10) !== s) throw bad('Въведете датата на плащането по банка');
-  if (s > localToday()) throw bad('Датата на плащането не може да е в бъдещето');
-  return s;
-}
 const rowOf = (db, id) => db.prepare('SELECT * FROM transactions WHERE id = ?').get(id);
-const asSimilar = list => { throw new HttpError(409, 'Има подобно плащане по този обект. Посочете дали е същото или отделно.', { similar: list }); };
 
 /** One write path. Returns { payment, similar, deduped }. `status` is decided by the caller's rights, never by the request. */
 export function recordPayment(db, user, { project_id, direction, status, uid, amount, tx_date, separate, proforma = null, milestone = null, order = null, order_stage = null, document_id = null, vat_pct = null, ...rest }) {
   const key = `p:${user.id}:${uid || crypto.randomUUID()}`;
   const same = db.prepare('SELECT * FROM transactions WHERE uid = ?').get(key);
-  if (same) return { payment: same, similar: [], deduped: true };
+  if (same) {
+    if (same.project_id !== project_id || Math.abs(same.amount - amount) > 0.005) throw new HttpError(409, 'Това плащане вече е записано с други данни. Отворете формата отново.');
+    return { payment: same, similar: [], deduped: true };
+  }
   const similar = similarPayments(db, { project_id, direction, amount, tx_date });
-  if (status === 'paid' && similar.length && !separate) asSimilar(similar);
+  if (status === 'paid' && similar.length && !separate) refuseSimilar(similar);
   const f = { code: nextCode(db, 'TXN'), uid: key, project_id, direction, category: rest.category, amount, status, tx_date, counterparty: rest.counterparty || null, document_ref: rest.document_ref || null,
     proforma_id: proforma?.id ?? null, contract_payment_id: milestone?.id ?? null, supplier_order_id: order?.id ?? null, order_stage, document_id, note: rest.note || null, created_by: user.id,
     tx_kind: direction === 'in' ? 'bank_in' : 'bank_out', method: 'bank', has_vat: vat_pct == null ? 0 : 1, vat_amount: vat_pct == null ? null : vatInside(amount, vat_pct),
     company: JSON.parse(db.prepare("SELECT value FROM settings WHERE key = 'finance_companies'").get()?.value || '[]')[0] || null };
   const cols = Object.keys(f);
   const id = Number(db.prepare(`INSERT INTO transactions(${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`).run(...cols.map(c => f[c])).lastInsertRowid);
+  settleRow(db, id, { separate: true }); // similar payments were answered above
   audit(db, user, { project_id, entity_type: 'transaction', entity_id: id, action: status === 'paid' ? 'payment' : 'payment_report', after: { code: f.code, amount, tx_date, status }, module: 'accounting' });
   emit(db, user, { type: status === 'paid' ? 'contract.payment_recorded' : 'payment.reported', origin: 'accounting', project_id, entity_type: 'transaction', entity_id: id,
     dedupe_key: `payment.${status}:${id}`, next: { code: f.code, amount, tx_date, supplier: order?.supplier ?? null }, affected: ['accounting', 'contracts', 'management'] });
@@ -102,10 +100,10 @@ export default function mountPayments(app, db) {
     const t = pending(req, req.params.id), b = req.body || {};
     const amount = b.amount == null || b.amount === '' ? t.amount : paymentAmount(b.amount), tx_date = b.tx_date == null || b.tx_date === '' ? t.tx_date : bankDate(b.tx_date);
     const similar = similarPayments(db, { ...t, amount, tx_date });
-    if (similar.length && b.separate !== true) asSimilar(similar);
+    if (similar.length && b.separate !== true) refuseSimilar(similar);
     const f = { status: 'paid', amount, tx_date };
-    if (t.has_vat) f.vat_amount = r2(t.vat_amount * amount / t.amount);
     updateRow(db, 'transactions', t.id, f, b.row_version);
+    settleRow(db, t.id, { before: t, separate: true });
     audit(db, req.user, { project_id: t.project_id, entity_type: 'transaction', entity_id: t.id, action: 'payment_confirm', before: { status: t.status, amount: t.amount, tx_date: t.tx_date }, after: f, module: 'accounting' });
     emit(db, req.user, { type: 'contract.payment_recorded', origin: 'accounting', project_id: t.project_id, entity_type: 'transaction', entity_id: t.id, dedupe_key: `payment.paid:${t.id}`,
       next: { code: t.code, amount, tx_date }, affected: ['accounting', 'contracts', 'management'] });
@@ -122,9 +120,12 @@ export default function mountPayments(app, db) {
   app.post('/api/payments/:id/merge', h(req => tx(db, () => {
     const t = pending(req, req.params.id), into = rowOf(db, Number(req.body?.into));
     if (!into || !similarPayments(db, t).some(s => s.id === into.id)) throw bad('Изберете плащане със същата сума и близка дата по същия обект');
+    const clash = ['proforma_id', 'contract_payment_id', 'supplier_order_id', 'order_stage', 'document_id'].find(k => into[k] != null && t[k] != null && into[k] !== t[k]);
+    if (clash) throw bad('Двете плащания са за различни неща — не са едно и също');
     const links = {};
     for (const k of ['proforma_id', 'contract_payment_id', 'supplier_order_id', 'order_stage', 'document_id']) if (into[k] == null && t[k] != null) links[k] = t[k];
     if (Object.keys(links).length) updateRow(db, 'transactions', into.id, links);
+    settleRow(db, into.id, { before: into, separate: true });
     updateRow(db, 'transactions', t.id, { status: 'voided', note: [t.note, `Същото плащане като ${into.code}`].filter(Boolean).join(' · ') }, req.body?.row_version);
     audit(db, req.user, { project_id: t.project_id, entity_type: 'transaction', entity_id: t.id, action: 'payment_merge', before: { status: t.status, amount: t.amount }, after: { into: into.code, links }, module: 'accounting' });
     return { payment: rowOf(db, into.id) };

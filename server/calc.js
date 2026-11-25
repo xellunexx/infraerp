@@ -97,12 +97,14 @@ export function supplierOrderView(row, dates, today = new Date().toISOString().s
   const ready_date = addDays(o.advance_paid_at, o.prod_days);
   const days_left = ready_date ? Math.round((Date.parse(ready_date) - Date.parse(today)) / 86400000) : null;
   const final_eur = o.total_eur != null && o.advance_eur != null ? r2(o.total_eur - o.advance_eur) : null;
+  // paid in full with the advance: nothing more to pay, production end alone sets the delivery
+  const full = !!o.advance_paid_at && o.total_eur > 0 && final_eur != null && final_eur <= 0;
   const expected_delivery = o.final_paid_at && o.transport_days != null ? addDays(o.final_paid_at, o.transport_days)
     : ready_date && o.transport_days != null ? addDays(ready_date, o.transport_days) : null;
-  const forecast = !(o.final_paid_at && o.transport_days != null) && expected_delivery != null;
+  const forecast = !full && !(o.final_paid_at && o.transport_days != null) && expected_delivery != null;
   let computed_status = 'ordered';
   if (o.status === 'delivered' || o.status === 'cancelled') computed_status = o.status;
-  else if (o.final_paid_at) computed_status = 'in_transit';
+  else if (o.final_paid_at || (full && ready_date && today >= ready_date)) computed_status = 'in_transit';
   else if (o.advance_paid_at) computed_status = 'in_production';
   return { ...o, ready_date, days_left, final_eur, expected_delivery, delivery_forecast: forecast, computed_status };
 }

@@ -263,3 +263,112 @@ test('a payment named by milestone also settles the oldest open proforma of that
   assert.equal((await acc.get('/api/proformas')).data.find(x => x.id === pf.id).status, 'paid');
   assert.equal((await adv()).paid, 3720, 'counted once');
 }));
+
+// ---- независим преглед 2026-11-25: едно правило за книгата, независимо откъде идва записът
+const T = (a, b) => a.post('/api/transactions', { category: 'x', tx_date: '2026-11-01', ...b });
+test('review 1: a change request cannot create, revive or distort a payment', () => world(async (t, a) => {
+  const { pid, pf } = await signed(t);
+  const d = (await T(a, { project_id: pid, direction: 'out', amount: 1200, status: 'committed' })).data;
+  const v = (await T(a, { project_id: pid, direction: 'in', amount: 3720, status: 'committed', proforma_id: pf.id })).data;
+  for (const [id, p] of [[d.id, { status: 'voided' }], [d.id, { direction: 'in' }], [d.id, { amount: 1 }], [v.id, { status: 'paid' }]])
+    assert.equal((await a.post('/api/change-requests', { entity_type: 'transaction', entity_id: id, kind: 'edit', payload: p, reason: 'x' })).status, 400, JSON.stringify(p));
+}));
+test('review 2: a report cannot be confirmed against a document that changed; the document cannot change under a report', () => world(async (t, a) => {
+  const { pid, fin } = await signed(t), lg = await t.mkUser('lg', 'logistics');
+  const o = (await lg.post('/api/supplier-orders', { project_id: pid, supplier: 'S', total_eur: 1200, advance_eur: 500 })).data;
+  const d = (await T(a, { project_id: pid, direction: 'out', amount: 1200, status: 'committed' })).data;
+  const rep = (await lg.post(`/api/supplier-orders/${o.id}/payments`, { stage: 'advance', amount: 500, tx_date: '2026-11-02', document_id: d.id })).data.payment;
+  for (const status of ['paid', 'voided']) assert.equal((await a.patch(`/api/transactions/${d.id}`, { status })).status, 400, status);
+  t.db.prepare("UPDATE transactions SET status = 'paid' WHERE id = ?").run(d.id); // the state an older version could have left
+  assert.equal((await a.post(`/api/payments/${rep.id}/confirm`, { row_version: rep.row_version })).status, 400);
+  assert.equal((await fin()).payments_made, 1200);
+}));
+test('review 3, 7: a linked payment lives in the project it pays for', () => world(async (t, a) => {
+  const { pid, pf, adv, fin } = await signed(t);
+  assert.equal((await T(a, { direction: 'in', amount: 3720, proforma_id: pf.id })).status, 200);
+  assert.deepEqual([(await adv()).paid, (await fin()).payments_received, (await fin()).result_to_date], [3720, 3720, 3100]);
+  const other = await seedOffer2(t, a), d = (await T(a, { project_id: pid, direction: 'out', amount: 1200, status: 'committed' })).data;
+  assert.equal((await T(a, { project_id: other, direction: 'out', amount: 400, document_id: d.id })).status, 400);
+  assert.equal((await T(a, { direction: 'out', amount: 400, document_id: d.id })).data.project_id, pid, 'a payment without a project inherits it');
+  const brig = await t.mkUser('brig', 'brigadier'), uid = t.db.prepare("SELECT id FROM users WHERE username = 'brig'").get().id;
+  await a.put(`/api/users/${uid}/overrides`, { rows: [{ resource: 'finance', can_read: 1, can_write: 1, can_approve: 0 }] });
+  assert.equal((await T(brig, { direction: 'in', amount: 1, proforma_id: pf.id })).status, 403);
+  assert.equal((await T(brig, { direction: 'out', amount: 1, document_id: d.id })).status, 403);
+}));
+test('review 4: a signed plan and order amounts are not lowered to start a deadline', () => world(async (t, a) => {
+  const { pid, adv, contract } = await signed(t), con = await t.mkUser('con', 'contracts'), lg = await t.mkUser('lg', 'logistics'), m = await adv(), url = `/api/projects/${pid}/contract/payments`;
+  for (const p of [{ amount: 0 }, { amount: 833.33 }, { pct: 1 }]) assert.equal((await con.put(url, { kind: 'advance', ...p })).status, 403, JSON.stringify(p));
+  assert.equal((await con.put(url, { kind: 'advance', note: 'ок', pct: m.pct, amount: m.amount })).status, 200, 'a note and unchanged figures are fine');
+  assert.equal((await contract()).schedule_gap, 0);
+  assert.equal((await a.put(url, { kind: 'final', amount: 1000 })).status, 200); assert.equal((await contract()).schedule_gap, -240);
+  const o = (await lg.post('/api/supplier-orders', { project_id: pid, supplier: 'S', total_eur: 10000, advance_eur: 5000, prod_days: 30 })).data;
+  assert.equal((await lg.patch(`/api/supplier-orders/${o.id}`, { advance_eur: 4000 })).status, 200, 'before any payment');
+  await a.post(`/api/supplier-orders/${o.id}/payments`, { stage: 'advance', amount: 1000, tx_date: '2026-11-01' });
+  assert.equal((await lg.patch(`/api/supplier-orders/${o.id}`, { advance_eur: 1000 })).status, 403);
+  assert.equal((await lg.patch(`/api/supplier-orders/${o.id}`, { advance_eur: 4000, total_eur: 10000, note: 'x' })).status, 200);
+}));
+test('review 5: editing a row ends in the same rules as recording it', () => world(async (t, a) => {
+  const { pid, pf, adv } = await signed(t);
+  const plan = (await T(a, { project_id: pid, direction: 'in', amount: 3720, status: 'planned', tx_date: '2027-06-01', proforma_id: pf.id })).data;
+  assert.equal((await a.patch(`/api/transactions/${plan.id}`, { status: 'paid' })).status, 400, 'future bank date');
+  const plain = (await T(a, { project_id: pid, direction: 'in', amount: 10, tx_date: '2027-06-01' })).data;
+  assert.equal((await a.patch(`/api/transactions/${plain.id}`, { proforma_id: pf.id })).status, 400);
+  const out = (await T(a, { project_id: pid, direction: 'out', amount: 10 })).data;
+  assert.equal((await a.patch(`/api/transactions/${out.id}`, { proforma_id: pf.id })).status, 400);
+  const m = await adv(), p1 = (await a.post(`/api/projects/${pid}/payments`, { amount: 3720, tx_date: '2026-11-05', contract_payment_id: m.id })).data.payment;
+  const inter = (await a.post('/api/proformas', { project_id: pid, kind: 'interim', amount: 5 })).data;
+  assert.equal((await a.patch(`/api/transactions/${p1.id}`, { proforma_id: inter.id })).status, 400, 'advance row, interim proforma');
+  const p2 = (await a.post(`/api/projects/${pid}/payments`, { amount: 3720, tx_date: '2026-11-06', contract_payment_id: m.id, separate: true })).data.payment;
+  await a.patch(`/api/transactions/${p2.id}`, { status: 'voided' });
+  assert.equal((await a.patch(`/api/transactions/${p2.id}`, { status: 'paid' })).status, 409, 'a voided duplicate does not come back silently');
+}));
+test('review 6: merge carries VAT and refuses contradicting payments', () => world(async (t, a) => {
+  const { pid, pf, fin } = await signed(t), con = await t.mkUser('con', 'contracts'), lg = await t.mkUser('lg', 'logistics');
+  const plain = (await T(a, { project_id: pid, direction: 'in', amount: 3720 })).data;
+  const rep = (await con.post(`/api/projects/${pid}/payments`, { amount: 3720, tx_date: '2026-11-02', proforma_id: pf.id })).data.payment;
+  assert.equal((await a.post(`/api/payments/${rep.id}/merge`, { into: plain.id, row_version: rep.row_version })).status, 200);
+  assert.equal((await fin()).result_to_date, 3100);
+  const mk = async () => (await lg.post('/api/supplier-orders', { project_id: pid, supplier: 'S', total_eur: 9000, advance_eur: 5000 })).data.id, A = await mk(), B = await mk();
+  const pa = (await a.post(`/api/supplier-orders/${A}/payments`, { stage: 'advance', amount: 5000, tx_date: '2026-11-03' })).data.payment;
+  const rb = (await lg.post(`/api/supplier-orders/${B}/payments`, { stage: 'advance', amount: 5000, tx_date: '2026-11-05' })).data.payment;
+  assert.equal((await a.post(`/api/payments/${rb.id}/merge`, { into: pa.id, row_version: rb.row_version })).status, 400);
+}));
+test('review 8: the signed schedule adds up to the contract and matches its advance', () => world(async (t, a) => {
+  const s = await seedOffer(t); await a.post(`/api/offers/${s.offer.id}/confirm`); t.sync();
+  const url = '/api/projects/1/contract', sign = () => a.post(`${url}/sign`, { signed_on: '2026-10-01', install_start: '2026-12-01', install_deadline: '2026-12-20' });
+  await a.put(`${url}/payments`, { kind: 'advance', pct: 40, amount: 1000 });
+  await a.post(`${url}/submit`, { advance_pct: 50 }); await a.post(`${url}/approve`);
+  assert.equal((await a.post('/api/change-requests', { entity_type: 'contract', entity_id: 1, kind: 'edit', payload: { advance_pct: 10 }, reason: 'x' })).status, 400, 'frozen from approval');
+  assert.equal((await sign()).status, 400);
+  await a.put(`${url}/payments`, { kind: 'advance', amount: 3100 }); await a.put(`${url}/payments`, { kind: 'interim', amount: 1000 });
+  assert.equal((await sign()).status, 200);
+  const c = (await a.get(url)).data;
+  assert.deepEqual(c.payments.map(p => p.net), [3100, 1000, 2100]); assert.equal(c.payments.reduce((x, p) => x + p.gross, 0), 7440); assert.equal(c.payments[0].pct, 50);
+}));
+test('review 9: a milestone closes on its net value, whatever rate or split the proformas used; old milestones keep their rate', () => world(async (t, a) => {
+  const { pid, pf, adv } = await signed(t);
+  await a.post(`/api/proformas/${pf.id}/cancel`);
+  const p9 = (await a.post('/api/proformas', { project_id: pid, kind: 'advance', amount: 3100, vat_pct: 9 })).data;
+  await a.post(`/api/proformas/${p9.id}/paid`, { paid_at: '2026-11-10' });
+  assert.equal((await adv()).paid_at, '2026-11-10');
+  t.db.exec("UPDATE contract_payments SET vat_pct = NULL, gross = NULL WHERE kind = 'interim'");
+  const { bootstrap } = await import('../server/core.js'); bootstrap(t.db);
+  await a.put('/api/settings', { vat_pct: '9' });
+  assert.equal((await a.get(`/api/projects/${pid}/contract`)).data.payments[1].gross, 2232);
+}));
+test('review 10: a real extra payment on a paid proforma is kept; a repeated submit with other figures is refused', () => world(async (t, a) => {
+  const { pid, pf, adv } = await signed(t), url = `/api/proformas/${pf.id}/paid`;
+  await a.post(url, { paid_at: '2026-11-10', uid: 'a' });
+  const r = await a.post(url, { paid_at: '2026-11-11', amount: 100, uid: 'b', note: 'надплатено' });
+  assert.equal(r.data.deduped, false); assert.equal((await adv()).over, 100);
+  assert.equal(t.db.prepare('SELECT note FROM transactions WHERE id = ?').get(r.data.transaction.id).note, 'надплатено');
+  assert.equal((await a.post(url, { paid_at: '2026-11-11', amount: 100, uid: 'b' })).data.deduped, true);
+  assert.equal((await a.post(url, { paid_at: '2026-11-11', amount: 200, uid: 'b' })).status, 409);
+}));
+test('review 11: an order paid in full in advance moves on when production is over', () => world(async (t, a) => {
+  const { pid } = await signed(t);
+  const o = (await a.post('/api/supplier-orders', { project_id: pid, supplier: 'S', total_eur: 100, advance_eur: 100, prod_days: 10, transport_days: 5 })).data;
+  await a.post(`/api/supplier-orders/${o.id}/payments`, { stage: 'advance', amount: 100, tx_date: '2026-10-01' });
+  const v = (await a.get('/api/supplier-orders')).data[0];
+  assert.deepEqual([v.computed_status, v.expected_delivery, v.delivery_forecast, v.advance_paid_amount], ['in_transit', '2026-10-16', false, 100]);
+}));

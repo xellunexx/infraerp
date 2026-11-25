@@ -20,11 +20,13 @@ export function splitSchedule(net, vatPct, advancePct) {
 }
 
 /** When a target is reached by dated rows; null until then. A zero target is never "paid". */
-export function paidState(rows, gross) {
-  let sum = 0, paid_at = null;
+/** With `net`, rows carrying their own VAT may also reach it in net terms (another rate, or cents lost by splitting). */
+export function paidState(rows, gross, net = null) {
+  let sum = 0, netSum = 0, n = 0, paid_at = null;
   for (const t of [...rows].sort((a, b) => a.tx_date < b.tx_date ? -1 : a.tx_date > b.tx_date ? 1 : a.id - b.id)) {
     sum = r2(sum + t.amount);
-    if (!paid_at && gross > 0 && sum >= gross - EPS) paid_at = t.tx_date;
+    netSum += netOf(t); n++;
+    if (!paid_at && gross > 0 && (sum >= gross - EPS || (net > 0 && netSum >= net - 0.01 * n - EPS))) paid_at = t.tx_date;
   }
   return { paid: sum, paid_at, over: gross > 0 ? r2(Math.max(0, sum - gross)) : 0 };
 }
@@ -38,9 +40,7 @@ export function milestones(db, contractId) {
   return db.prepare("SELECT * FROM contract_payments WHERE contract_id = ? ORDER BY CASE kind WHEN 'advance' THEN 1 WHEN 'interim' THEN 2 ELSE 3 END").all(contractId).map(m => {
     const vat = m.vat_pct ?? vatSetting(db);
     const gross = m.gross ?? (m.amount == null ? null : grossOf(m.amount, vat));
-    // the remainder milestone may differ by a cent from a proforma issued on its net amount: either closes it
-    const target = gross == null ? null : Math.min(gross, grossOf(m.amount ?? gross, m.amount == null ? 0 : vat));
-    const rows = milestoneRows(db, m, c.project_id, 'paid'), st = paidState(rows, target);
+    const rows = milestoneRows(db, m, c.project_id, 'paid'), st = paidState(rows, gross ?? 0, m.amount);
     const reported = r2(milestoneRows(db, m, c.project_id, 'reported').reduce((s, t) => s + t.amount, 0));
     return { id: m.id, kind: m.kind, pct: m.pct, amount: m.amount, net: m.amount, gross, vat_pct: vat, note: m.note, paid: st.paid, paid_at: st.paid_at,
       over: gross > 0 ? r2(Math.max(0, st.paid - gross)) : 0, reported, unmatched_date: m.paid_at && !rows.length ? m.paid_at : null };
@@ -81,7 +81,8 @@ export function projectMoney(db, projectId) {
 export function orderDates(db, order) {
   const rows = stage => db.prepare("SELECT * FROM transactions WHERE supplier_order_id = ? AND order_stage = ? AND status = 'paid'").all(order.id, stage);
   const rest = r2((order.total_eur || 0) - (order.advance_eur || 0));
-  return { advance_paid_at: paidState(rows('advance'), order.advance_eur || 0).paid_at, final_paid_at: paidState(rows('final'), rest).paid_at };
+  const a = paidState(rows('advance'), order.advance_eur || 0), f = paidState(rows('final'), rest);
+  return { advance_paid_at: a.paid_at, final_paid_at: f.paid_at, advance_paid_amount: a.paid, final_paid_amount: f.paid };
 }
 
 /** Payments that could be the same transfer: same project and direction, same amount, within 5 days. */

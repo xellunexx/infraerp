@@ -190,19 +190,20 @@ function PaymentsCard({ pid, d, cur, write, busy, onSaved }: { pid: number; d: a
     {(direct || write) && choices.length > 0 && <button className="primary sm" onClick={() => setPay(true)}>{direct ? 'Запиши плащане' : 'Докладвай плащане'}</button>}
     {d.final_deadline ? <span className="badge warn">Краен срок по договора: {fmtDate(d.final_deadline)}</span> : <span className="muted small">крайният срок се изчислява след платен аванс + срокове</span>}</>}>
     {(d.unmatched_paid_at || []).map((u: any) => <div key={u.kind} className="alert warn">Непотвърдена дата: {MILESTONE[u.kind] || u.kind} — {fmtDate(u.date)}. Няма записано плащане, затова срокът не тече. Счетоводство записва плащането или изчиства датата.</div>)}
+    {d.schedule_gap ? <div className="alert warn">Графикът се различава от договорната стойност с {fmtMoney(d.schedule_gap, cur)} без ДДС.</div> : null}
     <div className="table-wrap"><table className="t"><thead><tr>
       <th>Плащане</th><th className="num">%</th><th className="num">Без ДДС, {cur}</th><th className="num">С ДДС, {cur}</th><th className="num">Получено с ДДС</th><th>Дата</th><th>Състояние</th><th>Бележка</th>{write && <th style={{ width: 60 }} />}</tr></thead>
-      <tbody>{rows.map(({ k, label, p }) => <MilestoneRow key={`${k}|${p.pct}|${p.amount}|${p.note}`} kind={k} label={label} p={p} disabled={!write || busy} onSave={save} />)}</tbody></table></div>
+      <tbody>{rows.map(({ k, label, p }) => <MilestoneRow key={`${k}|${p.pct}|${p.amount}|${p.note}`} kind={k} label={label} p={p} disabled={!write || busy} locked={d.status === 'signed' && !direct} onSave={save} />)}</tbody></table></div>
     {d.deadline_start && <div className="muted small" style={{ marginTop: 8 }}>{d.advance_paid_at ? `Аванс платен ${fmtDate(d.advance_paid_at)}` : `Без аванс — от подписването ${fmtDate(d.deadline_start)}`}{d.prod_delivery_days != null ? ` + ${d.prod_delivery_days} дн. производство/доставка` : ''}{d.install_days != null ? ` + ${d.install_days} дн. монтаж` : ''}{d.final_deadline ? ` → ${fmtDate(d.final_deadline)}` : ' — въведете двата срока за изчисление'}</div>}
     {pay && <PaymentForm title={direct ? 'Ново плащане от клиента' : 'Докладване на плащане'} url={`/projects/${pid}/payments`} report={!direct} choices={choices} onClose={() => setPay(false)} onDone={onSaved} />}
   </Card>;
 }
-function MilestoneRow({ kind, label, p, disabled, onSave }: any) {
+function MilestoneRow({ kind, label, p, disabled, locked, onSave }: any) {
   const f = useForm({ pct: p.pct ?? '', amount: p.amount ?? '', note: p.note || '' });
   const dirty = String(f.v.pct) !== String(p.pct ?? '') || String(f.v.amount) !== String(p.amount ?? '') || f.v.note !== (p.note || '');
   return <tr><td><b>{label}</b></td>
-    <td className="num"><input type="number" min="0" max="100" style={{ width: 64, textAlign: 'right' }} {...f.bind('pct')} disabled={disabled} /></td>
-    <td className="num"><input type="number" min="0" step="any" style={{ width: 110, textAlign: 'right' }} {...f.bind('amount')} disabled={disabled} /></td>
+    <td className="num"><input type="number" min="0" max="100" style={{ width: 64, textAlign: 'right' }} {...f.bind('pct')} disabled={disabled || locked} /></td>
+    <td className="num"><input type="number" min="0" step="any" style={{ width: 110, textAlign: 'right' }} {...f.bind('amount')} disabled={disabled || locked} /></td>
     <td className="num">{fmtMoney(p.gross)}</td>
     <td className="num">{fmtMoney(p.paid)}{p.over > 0 ? <div className="small muted">надплатено {fmtMoney(p.over)}</div> : null}</td>
     <td>{fmtDate(p.paid_at)}</td>
