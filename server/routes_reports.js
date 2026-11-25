@@ -209,9 +209,9 @@ function runFinance(db, q) {
       work_not_invoiced: f.work_not_invoiced, cost_variance: f.cost_variance }; });
   return { title: 'Финансов преглед по обекти', cols: [
       { key: 'project', label: 'Обект' }, { key: 'customer', label: 'Клиент' }, { key: 'status', label: 'Статус' }, { key: 'progress_pct', label: 'Прогрес %', num: true },
-      { key: 'contract_value', label: 'Договор', num: true }, { key: 'invoiced', label: 'Фактурирано', num: true }, { key: 'received', label: 'Получено', num: true },
-      { key: 'receivables', label: 'Вземания', num: true }, { key: 'payables', label: 'Задължения', num: true },
-      { key: 'result_to_date', label: 'Резултат до сега', num: true }, { key: 'forecast_result', label: 'Прогнозен резултат', num: true },
+      { key: 'contract_value', label: 'Договор без ДДС', num: true }, { key: 'invoiced', label: 'Фактурирано с ДДС', num: true }, { key: 'received', label: 'Получено с ДДС', num: true },
+      { key: 'receivables', label: 'Вземания с ДДС', num: true }, { key: 'payables', label: 'Задължения с ДДС', num: true },
+      { key: 'result_to_date', label: 'Резултат до сега без ДДС', num: true }, { key: 'forecast_result', label: 'Прогнозен резултат без ДДС', num: true },
       { key: 'work_not_invoiced', label: 'Извършено, нефактурирано', num: true }, { key: 'cost_variance', label: 'Отклонение разходи', num: true }], rows };
 }
 

@@ -1,6 +1,7 @@
 // Счетоводство: портфолио от финансови показатели, проформи, приходи/разходи, заявки за плащане с одобрение, настаняване.
 import React, { useState } from 'react';
 import { api, fmtDate, fmtMoney, today } from '../api';
+import { ConfirmTab, PaymentForm, orderChoices, useQueue } from './PaymentForm';
 import { Card, Empty, Field, Loader, Modal, Status, Table, Tabs, useAction, useCan, useCurrency, useForm, useLoad, usePath } from '../ui';
 
 const KIND: Record<string, string> = { advance: 'Аванс', interim: 'Междинна', final: 'Окончателна', other: 'Друга' };
@@ -13,7 +14,9 @@ const money = (n: any, cur: string) => fmtMoney(n, cur);
 export function Accounting() {
   const path = usePath();
   const [pid, setPid] = useState(new URLSearchParams(path.split('?')[1] || '').get('pid') || '');
-  const [tab, setTab] = useState('proformas');
+  const [tab, setTab] = useState(new URLSearchParams(path.split('?')[1] || '').get('tab') || 'proformas');
+  const queue = useQueue(true);
+  const waiting = (queue.data?.reported?.length || 0) + (queue.data?.unmatched?.length || 0);
   const port = useLoad<any>('/accounting');
   const q = pid ? `?project_id=${pid}` : '';
   const proformas = useLoad<any[]>(`/proformas${q}`);
@@ -25,7 +28,7 @@ export function Accounting() {
   const orders = useLoad<any[]>(tab === 'orders' ? `/supplier-orders${q}` : null);
   const [lf, setLf] = useState<Record<string, string>>({});
   const ledger = useLoad<any>(tab === 'ledger' ? '/ledger' + (() => { const p = new URLSearchParams(); if (pid) p.set('project_id', pid); for (const k of ['direction', 'tx_kind', 'company', 'person_id', 'cost_center_id', 'from', 'to', 'roots']) if (lf[k]) p.set(k, lf[k]); const s = p.toString(); return s ? '?' + s : ''; })() : null, [lf]);
-  const reloadAll = () => { port.reload(); proformas.reload(); transactions.reload(); requests.reload(); accommodations.reload(); persons.reload(); centers.reload(); orders.reload(); ledger.reload(); };
+  const reloadAll = () => { queue.reload(); port.reload(); proformas.reload(); transactions.reload(); requests.reload(); accommodations.reload(); persons.reload(); centers.reload(); orders.reload(); ledger.reload(); };
   const can = useCan();
   const cur = useCurrency();
   const { run, busy } = useAction();
@@ -38,9 +41,8 @@ export function Accounting() {
   const close = () => setModal(null);
 
   const proformaAction = (r: any, action: 'paid' | 'cancel') => {
-    if (action === 'paid' && !window.confirm(`Отбелязване на ${r.code} като платена създава входяща транзакция. Продължаване?`)) return;
-    run(async () => { await api.post(`/proformas/${r.id}/${action}`); reloadAll(); },
-      action === 'paid' ? 'Проформата е платена' : 'Проформата е отменена');
+    if (action === 'paid') { setModal({ kind: 'pay_proforma', row: r }); return; }
+    run(async () => { await api.post(`/proformas/${r.id}/${action}`); reloadAll(); }, 'Проформата е отменена');
   };
   const requestAction = (r: any, action: 'approve' | 'reject') => {
     const note = window.prompt(action === 'approve' ? 'Бележка при одобрение (по желание):' : 'Причина за отхвърляне:') || '';
@@ -58,22 +60,22 @@ export function Accounting() {
 
     <Loader state={port}>
       {totals && <div className="grid g4" style={{ marginBottom: 14 }}>
-        <div className="kpi bad"><div className="label">Вземания (неплатени проформи)</div><div className="value">{money(totals.receivables, cur)}</div></div>
-        <div className="kpi warn"><div className="label">Задължения към доставчици</div><div className="value">{money(totals.payables, cur)}</div></div>
-        <div className="kpi"><div className="label">Получени плащания</div><div className="value">{money(totals.payments_received, cur)}</div></div>
-        <div className="kpi"><div className="label">Резултат до момента</div><div className="value">{money(totals.result_to_date, cur)}</div><div className="sub">прогноза: {money(totals.forecast_result, cur)}</div></div>
+        <div className="kpi bad"><div className="label">Вземания с ДДС (неплатени проформи)</div><div className="value">{money(totals.receivables, cur)}</div></div>
+        <div className="kpi warn"><div className="label">Задължения към доставчици с ДДС</div><div className="value">{money(totals.payables, cur)}</div></div>
+        <div className="kpi"><div className="label">Получени плащания с ДДС</div><div className="value">{money(totals.payments_received, cur)}</div></div>
+        <div className="kpi"><div className="label">Резултат до момента без ДДС</div><div className="value">{money(totals.result_to_date, cur)}</div><div className="sub">прогноза: {money(totals.forecast_result, cur)}</div></div>
       </div>}
       <Card title="Финансови показатели по обекти" pad={false}>
         <Table rows={projects} empty={<Empty title="Няма обекти">Обектите се появяват при потвърдена оферта.</Empty>} cols={[
           { key: 'code', title: '№ / Обект', render: (r: any) => `${r.code} — ${r.name}` },
           { key: 'customer_name', title: 'Клиент' },
-          { key: 'contract_value', title: `Договор, ${cur}`, num: true, render: (r: any) => money(r.contract_value, cur) },
-          { key: 'invoiced', title: 'Издадени', num: true, render: (r: any) => money(r.invoiced, cur) },
-          { key: 'payments_received', title: 'Получени', num: true, render: (r: any) => money(r.payments_received, cur) },
-          { key: 'payments_made', title: 'Платени', num: true, render: (r: any) => money(r.payments_made, cur) },
-          { key: 'receivables', title: 'Вземания', num: true, render: (r: any) => r.receivables ? <span className="badge warn">{money(r.receivables, cur)}</span> : money(0, cur) },
-          { key: 'payables', title: 'Задължения', num: true, render: (r: any) => r.payables ? <span className="badge bad">{money(r.payables, cur)}</span> : money(0, cur) },
-          { key: 'result_to_date', title: 'Резултат', num: true, render: (r: any) => <span className={r.result_to_date < 0 ? 'badge bad' : ''}>{money(r.result_to_date, cur)}</span> },
+          { key: 'contract_value', title: `Договор без ДДС, ${cur}`, num: true, render: (r: any) => money(r.contract_value, cur) },
+          { key: 'invoiced', title: 'Издадени с ДДС', num: true, render: (r: any) => money(r.invoiced, cur) },
+          { key: 'payments_received', title: 'Получени с ДДС', num: true, render: (r: any) => money(r.payments_received, cur) },
+          { key: 'payments_made', title: 'Платени с ДДС', num: true, render: (r: any) => money(r.payments_made, cur) },
+          { key: 'receivables', title: 'Вземания с ДДС', num: true, render: (r: any) => r.receivables ? <span className="badge warn">{money(r.receivables, cur)}</span> : money(0, cur) },
+          { key: 'payables', title: 'Задължения с ДДС', num: true, render: (r: any) => r.payables ? <span className="badge bad">{money(r.payables, cur)}</span> : money(0, cur) },
+          { key: 'result_to_date', title: 'Резултат без ДДС', num: true, render: (r: any) => <span className={r.result_to_date < 0 ? 'badge bad' : ''}>{money(r.result_to_date, cur)}</span> },
         ]} foot={totals && <tr>
           <td colSpan={2}>Общо</td>
           <td className="num">{money(totals.contract_value, cur)}</td><td className="num">{money(totals.invoiced, cur)}</td>
@@ -83,13 +85,15 @@ export function Accounting() {
       </Card>
     </Loader>
 
-    <Tabs value={tab} onChange={setTab} tabs={[['ledger', 'Книга'], ['proformas', 'Проформи'], ['transactions', 'Приходи и разходи'], ['persons', 'Подотчетни лица'], ['orders', 'Поръчки'], ['centers', 'Центрове'], ['requests', 'Заявки за плащане'], ['accommodations', 'Настаняване']]} />
+    <Tabs value={tab} onChange={setTab} tabs={[['confirm', `За потвърждение${waiting ? ` (${waiting})` : ''}`], ['ledger', 'Книга'], ['proformas', 'Проформи'], ['transactions', 'Приходи и разходи'], ['persons', 'Подотчетни лица'], ['orders', 'Поръчки'], ['centers', 'Центрове'], ['requests', 'Заявки за плащане'], ['accommodations', 'Настаняване']]} />
+
+    {tab === 'confirm' && <ConfirmTab queue={queue} onDone={reloadAll} />}
 
     {tab === 'ledger' && <LedgerTab ledger={ledger} persons={persons} centers={centers} lf={lf} setLf={setLf} cur={cur} />}
 
     {tab === 'persons' && <PersonsTab persons={persons} write={write} cur={cur} onNew={() => setModal({ kind: 'person' })} />}
 
-    {tab === 'orders' && <OrdersTab orders={orders} write={write} cur={cur} projects={projects} busy={busy} onNew={() => setModal({ kind: 'order' })} onEdit={(o: any) => setModal({ kind: 'order', row: o })} />}
+    {tab === 'orders' && <OrdersTab orders={orders} write={write} cur={cur} projects={projects} busy={busy} onNew={() => setModal({ kind: 'order' })} onEdit={(o: any) => setModal({ kind: 'order', row: o })} onPay={(o: any) => setModal({ kind: 'pay_order', row: o })} />}
 
     {tab === 'centers' && <CentersTab centers={centers} write={write} onNew={() => setModal({ kind: 'center' })} />}
 
@@ -101,11 +105,12 @@ export function Accounting() {
         { key: 'kind', title: 'Вид', render: (r: any) => KIND[r.kind] || r.kind },
         { key: 'amount', title: `Сума без ДДС, ${cur}`, num: true, render: (r: any) => money(r.amount, cur) },
         { key: 'vat_pct', title: 'ДДС', num: true, render: (r: any) => r.vat_pct + '%' },
+        { key: 'gross', title: 'С ДДС', num: true, render: (r: any) => <>{money(r.gross, cur)}{r.paid > 0 && r.status !== 'paid' ? <div className="small muted">получено {money(r.paid, cur)}</div> : null}</> },
         { key: 'issued_on', title: 'Издадена', render: (r: any) => fmtDate(r.issued_on) },
         { key: 'due_on', title: 'Срок', render: (r: any) => fmtDate(r.due_on) },
         { key: 'status', title: 'Статус', render: (r: any) => <Status value={r.status} /> },
         { key: 'x', title: '', width: 170, render: (r: any) => write && r.status === 'issued' ? <span className="row" style={{ flexWrap: 'nowrap' }}>
-          <button className="sm primary" disabled={busy} onClick={() => proformaAction(r, 'paid')}>Платена</button>
+          <button className="sm primary" disabled={busy} onClick={() => proformaAction(r, 'paid')}>Запиши плащане</button>
           <button className="sm ghost" disabled={busy} onClick={() => proformaAction(r, 'cancel')}>Отказ</button></span> : null },
       ]} /></Loader></Card>
     </>}
@@ -122,7 +127,7 @@ export function Accounting() {
         { key: 'status', title: 'Статус', render: (r: any) => <Status value={r.status} /> },
         { key: 'counterparty', title: 'Контрагент' },
         { key: 'proforma_code', title: 'Проформа', render: (r: any) => r.proforma_code || '—' },
-        { key: 'x', title: '', width: 40, render: (r: any) => write ? <button className="ghost sm" onClick={() => setModal({ kind: 'transaction', row: r })}>✎</button> : null },
+        { key: 'x', title: '', width: 40, render: (r: any) => write && r.status !== 'reported' ? <button className="ghost sm" onClick={() => setModal({ kind: 'transaction', row: r })}>✎</button> : null },
       ]} /></Loader></Card>
     </>}
 
@@ -154,6 +159,8 @@ export function Accounting() {
       ]} /></Loader></Card>
     </>}
 
+    {modal?.kind === 'pay_proforma' && <PaymentForm title={`Плащане по ${modal.row.code}`} url={`/proformas/${modal.row.id}/paid`} dateKey="paid_at" report={false} amount={Math.round((modal.row.gross - modal.row.paid) * 100) / 100} onClose={close} onDone={reloadAll} />}
+    {modal?.kind === 'pay_order' && <PaymentForm title={`Плащане по ${modal.row.code} — ${modal.row.supplier}`} url={`/supplier-orders/${modal.row.id}/payments`} report={false} choices={orderChoices(modal.row)} onClose={close} onDone={reloadAll} />}
     {modal?.kind === 'proforma' && <ProformaForm projects={projects} pid={pid} onClose={close} onDone={reloadAll} />}
     {modal?.kind === 'transaction' && <TransactionForm projects={projects} pid={pid} row={modal.row} onClose={close} onDone={reloadAll} />}
     {modal?.kind === 'request' && <RequestForm projects={projects} pid={pid} onClose={close} onDone={reloadAll} />}
@@ -223,7 +230,7 @@ function TransactionForm({ projects, pid, row, onClose, onDone }: { projects: an
     onDone(); onClose();
   }, edit ? 'Транзакцията е обновена' : 'Транзакцията е записана');
   const ok = f.v.category && f.v.tx_date && (labour ? labourAmt != null : Number(f.v.amount) > 0);
-  const docs: any[] = (openDocs.data?.rows || []).filter((t: any) => t.status !== 'voided' && (!edit || t.id !== row.id));
+  const docs: any[] = (openDocs.data?.rows || []).filter((t: any) => t.status !== 'voided' && t.open_amount > 0 && (!edit || t.id !== row.id));
   return <Modal wide title={edit ? `Транзакция ${row.code}` : 'Нова транзакция'} onClose={onClose} footer={<><button className="ghost" onClick={onClose}>Отказ</button><button className="primary" disabled={busy || !ok} onClick={save}>Запази</button></>}>
     <div className="form c3">
       <ProjSelect projects={projects} value={f.v.project_id} onChange={v => f.set('project_id', v)} allowEmpty={!edit} />
@@ -394,7 +401,7 @@ function PersonsTab({ persons, write, cur, onNew }: any) {
 }
 
 // ---------------------------------------------------------------- Поръчки към доставчици: обратното броене върви от реални банкови дати (§14.4)
-function OrdersTab({ orders, write, cur, onNew, onEdit }: any) {
+function OrdersTab({ orders, write, cur, onNew, onEdit, onPay }: any) {
   return <>
     {write && <div className="row" style={{ marginBottom: 10 }}><button className="primary sm" onClick={onNew}>+ Нова поръчка</button></div>}
     <Card pad={false}><Loader state={orders}><Table rows={orders.data || []}
@@ -408,7 +415,7 @@ function OrdersTab({ orders, write, cur, onNew, onEdit }: any) {
         { key: 'final_eur', title: `Доплащане, ${cur}`, num: true, render: (r: any) => <>{money(r.final_eur, cur)}{r.final_paid_at ? <div className="small muted">платено {fmtDate(r.final_paid_at)}</div> : null}</> },
         { key: 'expected_delivery', title: 'Доставка в БГ', render: (r: any) => r.expected_delivery ? <>{fmtDate(r.expected_delivery)}{r.delivery_forecast ? <div className="small muted">прогноза</div> : null}</> : <span className="muted">—</span> },
         { key: 'computed_status', title: 'Статус', render: (r: any) => { const s = SO_STATUS[r.computed_status] || [r.computed_status, '']; return <span className={'badge ' + s[1]}>{s[0]}</span>; } },
-        { key: 'x', title: '', width: 40, render: (r: any) => write ? <button className="ghost sm" onClick={() => onEdit(r)}>✎</button> : null },
+        { key: 'x', title: '', width: 150, render: (r: any) => write ? <span className="row" style={{ flexWrap: 'nowrap' }}><button className="sm" onClick={() => onPay(r)}>Плащане</button><button className="ghost sm" onClick={() => onEdit(r)}>✎</button></span> : null },
       ]} /></Loader></Card>
   </>;
 }
@@ -450,15 +457,15 @@ function OrderForm({ projects, pid, row, onClose, onDone }: { projects: any[]; p
   const { run, busy } = useAction();
   const edit = !!row;
   const f = useForm({ project_id: row ? String(row.project_id) : pid, project_line_id: row?.project_line_id ? String(row.project_line_id) : '', supplier: row?.supplier || '', order_doc_no: row?.order_doc_no || '',
-    total_eur: row?.total_eur != null ? String(row.total_eur) : '', advance_eur: row?.advance_eur != null ? String(row.advance_eur) : '', advance_paid_at: row?.advance_paid_at || '',
-    prod_days: row?.prod_days != null ? String(row.prod_days) : '', final_paid_at: row?.final_paid_at || '', transport_days: row?.transport_days != null ? String(row.transport_days) : '',
+    total_eur: row?.total_eur != null ? String(row.total_eur) : '', advance_eur: row?.advance_eur != null ? String(row.advance_eur) : '',
+    prod_days: row?.prod_days != null ? String(row.prod_days) : '', transport_days: row?.transport_days != null ? String(row.transport_days) : '',
     status: 'auto', note: row?.note || '' });
   const proj = useLoad<any>(f.v.project_id ? `/projects/${f.v.project_id}` : null, [f.v.project_id]);
   const save = () => run(async () => {
     const body: any = { supplier: f.v.supplier, order_doc_no: f.v.order_doc_no || undefined,
       total_eur: f.v.total_eur === '' ? undefined : Number(f.v.total_eur), advance_eur: f.v.advance_eur === '' ? undefined : Number(f.v.advance_eur),
-      advance_paid_at: f.v.advance_paid_at || null, prod_days: f.v.prod_days === '' ? undefined : Number(f.v.prod_days),
-      final_paid_at: f.v.final_paid_at || null, transport_days: f.v.transport_days === '' ? undefined : Number(f.v.transport_days),
+      prod_days: f.v.prod_days === '' ? undefined : Number(f.v.prod_days),
+      transport_days: f.v.transport_days === '' ? undefined : Number(f.v.transport_days),
       project_line_id: f.v.project_line_id ? Number(f.v.project_line_id) : null, note: f.v.note || undefined };
     if (edit) { if (f.v.status !== 'auto') body.status = f.v.status; await api.patch(`/supplier-orders/${row.id}`, { ...body, row_version: row.row_version }); }
     else await api.post('/supplier-orders', { ...body, project_id: Number(f.v.project_id) });
@@ -473,13 +480,11 @@ function OrderForm({ projects, pid, row, onClose, onDone }: { projects: any[]; p
       <Field label="Поръчка / проформа №"><input {...f.bind('order_doc_no')} /></Field>
       <Field label="Обща стойност"><input type="number" min="0" step="any" {...f.bind('total_eur')} /></Field>
       <Field label="Аванс"><input type="number" min="0" step="any" {...f.bind('advance_eur')} /></Field>
-      <Field label="Аванс платен на"><input type="date" {...f.bind('advance_paid_at')} /></Field>
       <Field label="Производство (дни)"><input type="number" min="0" {...f.bind('prod_days')} /></Field>
-      <Field label="Доплащане на"><input type="date" {...f.bind('final_paid_at')} /></Field>
       <Field label="Транспорт до БГ (дни)"><input type="number" min="0" {...f.bind('transport_days')} /></Field>
       {edit && <Field label="Статус"><select {...f.bind('status')}><option value="auto">Автоматичен (по дати)</option><option value="ordered">Нулирай към автоматичен</option><option value="delivered">Доставена</option><option value="cancelled">Отменена</option></select></Field>}
       <Field label="Бележка" full><input {...f.bind('note')} /></Field>
-      <div className="muted small" style={{ gridColumn: '1 / -1' }}>Готовност = дата на аванс + производство. Доставка = доплащане + транспорт (прогноза: готовност + транспорт).</div>
+      <div className="muted small" style={{ gridColumn: '1 / -1' }}>Датите на плащане идват от записаните плащания. Готовност = дата на аванс + производство. Доставка = доплащане + транспорт (прогноза: готовност + транспорт).</div>
     </div>
   </Modal>;
 }

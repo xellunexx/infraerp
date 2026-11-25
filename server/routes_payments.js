@@ -2,7 +2,7 @@
 import crypto from 'node:crypto';
 import { tx, nextCode } from './db.js';
 import { HttpError, bad, need, can, needProject, scopeRows, audit, emit, notify, on, updateRow } from './core.js';
-import { milestones, similarPayments, vatInside, localToday } from './payments.js';
+import { milestones, proformaOpenSql, similarPayments, vatInside, localToday } from './payments.js';
 import { h, reqStr } from './app.js';
 
 const r2 = n => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -50,6 +50,8 @@ export function clientTarget(db, projectId, b) {
     milestone = db.prepare('SELECT m.* FROM contract_payments m JOIN contracts c ON c.id = m.contract_id WHERE m.id = ? AND c.project_id = ?').get(Number(b.contract_payment_id), projectId);
     if (!milestone) throw bad('Няма такъв етап на плащане за този обект');
   }
+  // named only by milestone: it also settles the oldest open proforma of that kind, so the proforma does not keep reminding
+  if (milestone && !proforma) proforma = db.prepare(`SELECT f.* FROM proformas f WHERE f.project_id = ? AND f.kind = ? AND ${proformaOpenSql('f')} ORDER BY f.id`).get(projectId, milestone.kind) ?? null;
   if (proforma && milestone && proforma.kind !== milestone.kind) throw bad('Проформата и етапът са от различен вид');
   return { proforma, milestone };
 }

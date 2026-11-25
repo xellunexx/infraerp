@@ -267,7 +267,7 @@ export default function mountAccounting(app, db) {
     if (kids.length && f.amount !== undefined && f.amount < settled - 0.005) throw bad(`По документа вече е платено ${settled.toFixed(2)}`);
     // a linked bank payment keeps its VAT share when the amount is corrected, and its date stays a real bank date
     if (t.proforma_id || t.contract_payment_id || t.supplier_order_id) {
-      if (f.amount !== undefined) { f.amount = paymentAmount(f.amount); if (t.has_vat && b.vat_amount === undefined) f.vat_amount = round2(t.vat_amount * f.amount / t.amount); }
+      if (f.amount !== undefined) { f.amount = paymentAmount(f.amount); }
       if (f.tx_date !== undefined) f.tx_date = bankDate(f.tx_date);
     }
     if (f.proforma_id !== undefined && f.proforma_id !== null) {
@@ -277,6 +277,8 @@ export default function mountAccounting(app, db) {
       f.proforma_id = pf.id;
     }
     Object.assign(f, txFields(req, b, t.project_id, t.direction));
+    // the form echoes the old VAT share: an untouched one follows a corrected amount
+    if ((t.proforma_id || t.contract_payment_id) && t.has_vat && f.amount !== undefined && f.amount !== t.amount && (b.vat_amount === undefined || Number(b.vat_amount) === t.vat_amount)) f.vat_amount = round2(t.vat_amount * f.amount / t.amount);
     if (f.document_id != null && kids.length) throw bad('Документ с плащания не може да стане плащане');
     if (f.document_id === t.id) throw bad('Плащането не може да сочи към самия документ');
     updateRow(db, 'transactions', t.id, f, b.row_version);

@@ -700,6 +700,8 @@ per-project, per-person card, per-company, per-cost-center. No row is ever enter
 - `contract_payments(contract_id, kind)`: advance|interim|final milestones, each with `pct`, `amount`,
   `paid_at` — editable after signing (real bank dates arrive later; contract body stays versioned).
 - `contracts.prod_delivery_days` (уточнен с доставчик), `contracts.install_days`.
+- *(2026-11-25)* `paid_at` is no longer typed: milestones, proformas and order dates are derived from `transactions`
+  (`server/payments.js`). Contracts/Logistics report (`status='reported'`), Accounting confirms; only `paid` counts.
 - **`final_deadline` is computed** = advance.paid_at + prod_delivery_days + install_days; displayed, never typed.
 - Signed scans (договор, приложения, актове, ППП) attach as `documents` on the contract entity.
 

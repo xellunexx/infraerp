@@ -18,11 +18,11 @@ export function Management() {
     <div className="page-head"><h1>Управител</h1><span className="muted small">Портфолио, пари и какво изисква внимание</span></div>
     <div className="grid g4 kpis-m" style={{ marginBottom: 14 }}>
       <Kpi label="Активни обекти" value={k.active_projects ?? 0} />
-      {money && <Kpi label={`Договорна стойност, ${cur}`} value={fmtMoney(k.contract_value, cur)} />}
-      {money && <Kpi label={`Вземания, ${cur}`} value={fmtMoney(k.receivables, cur)} tone={k.receivables > 0 ? 'warn' : undefined} />}
-      {money && <Kpi label={`Плащания, ${cur}`} value={fmtMoney(k.payables, cur)} />}
-      {money && <Kpi label={`Резултат до момента, ${cur}`} value={fmtMoney(k.result_to_date, cur)} />}
-      {money && <Kpi label={`Прогноза, ${cur}`} value={fmtMoney(k.forecast_result, cur)} />}
+      {money && <Kpi label={`Договорна стойност без ДДС, ${cur}`} value={fmtMoney(k.contract_value, cur)} />}
+      {money && <Kpi label={`Вземания с ДДС, ${cur}`} value={fmtMoney(k.receivables, cur)} tone={k.receivables > 0 ? 'warn' : undefined} />}
+      {money && <Kpi label={`Задължения с ДДС, ${cur}`} value={fmtMoney(k.payables, cur)} />}
+      {money && <Kpi label={`Резултат до момента без ДДС, ${cur}`} value={fmtMoney(k.result_to_date, cur)} />}
+      {money && <Kpi label={`Прогноза без ДДС, ${cur}`} value={fmtMoney(k.forecast_result, cur)} />}
       <Kpi label="Изисква одобрение" value={k.pending_approvals ?? 0} tone={k.pending_approvals ? 'warn' : undefined} />
       <Kpi label="Закъснели задачи" value={k.overdue_tasks ?? 0} tone={k.overdue_tasks ? 'warn' : undefined} />
       <Kpi label="Критични проблеми" value={k.critical_issues ?? 0} tone={k.critical_issues ? 'bad' : undefined} />
@@ -64,13 +64,13 @@ export function Management() {
         { key: 'status', title: 'Статус', render: (r: any) => <Status value={r.status} /> },
         { key: 'progress_pct', title: 'Изпълнение', width: 120, render: (r: any) => <div className="row" style={{ flexWrap: 'nowrap' }}><Progress pct={r.progress_pct} /><span className="small num" style={{ width: 38 }}>{r.progress_pct}%</span></div> },
         ...(money ? [
-          { key: 'contract_value', title: 'Договор', num: true, render: (r: any) => fmtMoney(r.contract_value, cur) },
-          { key: 'invoiced', title: 'Фактурирано', num: true, render: (r: any) => fmtMoney(r.invoiced, cur) },
-          { key: 'received', title: 'Получено', num: true, render: (r: any) => fmtMoney(r.received, cur) },
-          { key: 'receivables', title: 'Вземания', num: true, render: (r: any) => fmtMoney(r.receivables, cur) },
-          { key: 'payables', title: 'Плащания', num: true, render: (r: any) => fmtMoney(r.payables, cur) },
-          { key: 'result_to_date', title: 'Резултат', num: true, render: (r: any) => <span style={{ color: (r.result_to_date || 0) >= 0 ? 'inherit' : 'var(--bad)' }}>{fmtMoney(r.result_to_date, cur)}</span> },
-          { key: 'forecast_result', title: 'Прогноза', num: true, render: (r: any) => fmtMoney(r.forecast_result, cur) },
+          { key: 'contract_value', title: 'Договор без ДДС', num: true, render: (r: any) => fmtMoney(r.contract_value, cur) },
+          { key: 'invoiced', title: 'Фактурирано с ДДС', num: true, render: (r: any) => fmtMoney(r.invoiced, cur) },
+          { key: 'received', title: 'Получено с ДДС', num: true, render: (r: any) => fmtMoney(r.received, cur) },
+          { key: 'receivables', title: 'Вземания с ДДС', num: true, render: (r: any) => fmtMoney(r.receivables, cur) },
+          { key: 'payables', title: 'Задължения с ДДС', num: true, render: (r: any) => fmtMoney(r.payables, cur) },
+          { key: 'result_to_date', title: 'Резултат без ДДС', num: true, render: (r: any) => <span style={{ color: (r.result_to_date || 0) >= 0 ? 'inherit' : 'var(--bad)' }}>{fmtMoney(r.result_to_date, cur)}</span> },
+          { key: 'forecast_result', title: 'Прогноза без ДДС', num: true, render: (r: any) => fmtMoney(r.forecast_result, cur) },
         ] : []),
         { key: 'critical_issues', title: 'Пробл.', width: 70, num: true, render: (r: any) => r.critical_issues ? <span className="badge bad">{r.critical_issues}</span> : '0' },
       ]} /></Card></div>

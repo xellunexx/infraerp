@@ -107,7 +107,7 @@ const STATUS: Record<string, [string, string]> = {
   open: ['Отворено', 'warn'], offered: ['С оферта', 'info'], in_progress: ['В работа', 'info'], done: ['Готово', 'ok'], cancelled: ['Отменено', ''], active: ['Активен', 'info'], skipped: ['Пропуснат', ''],
   submitted: ['Подадена', 'warn'], reserved: ['Резервирана', 'ok'], partial: ['Частично налична', 'warn'], to_purchase: ['За закупуване', 'bad'], issued: ['Издадена', 'info'], fulfilled: ['Изпълнена', 'ok'],
   planned: ['Планирана', ''], in_transit: ['На път', 'info'], delivered: ['Доставена', 'ok'], delayed: ['Закъснява', 'bad'], paid: ['Платено', 'ok'], committed: ['Задължение', 'warn'], resolved: ['Решено', 'ok'],
-  ordered: ['Поръчана', ''], in_production: ['В производство', 'info'],
+  reported: ['Докладвано', 'warn'], voided: ['Анулирано', ''], ordered: ['Поръчана', ''], in_production: ['В производство', 'info'],
 };
 export function Status({ value }: { value?: string | null }) { if (!value) return null; const s = STATUS[value] || [value, '']; return <span className={'badge ' + s[1]}>{s[0]}</span>; }
 export const statusLabel = (v: string) => (STATUS[v] || [v])[0];

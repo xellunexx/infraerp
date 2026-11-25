@@ -2,6 +2,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api, fmtDate, fmtDateTime, fmtMoney, fmtNum } from '../api';
 import { WeatherCard } from './Weather';
+import { MILESTONE, PaymentForm, milestoneChoices } from './PaymentForm';
 import { Card, DeptBadge, Empty, Field, Kpi, Link, Loader, Modal, NewVersionButton, Progress, Status, Table, Tabs, navigate, useAction, useCan, useCurrency, useForm, useLoad, useMessages, usePath, VersionLinks } from '../ui';
 
 const EVENT_LABEL: Record<string, string> = { 'offer.confirmed': 'Потвърдена оферта', 'contract.submitted': 'Договор изпратен за одобрение', 'contract.signed': 'Подписан договор',
@@ -25,7 +26,7 @@ function ContractTab({ pid, onChange }: { pid: number; onChange: () => void }) {
   const [ver, setVer] = useState<any | null>(null);
   const [signF, setSignF] = useState<any | null>(null);
   useEffect(() => { if (c.data) f.setV({ template: c.data.template, special_terms: c.data.special_terms || '', delivery_deadline: c.data.delivery_deadline || '', install_start: c.data.install_start || '',
-    install_deadline: c.data.install_deadline || '', advance_pct: c.data.advance_pct, payment_terms_days: c.data.payment_terms_days,
+    install_deadline: c.data.install_deadline || '', advance_pct: c.data.advance_set ? c.data.advance_pct : '', payment_terms_days: c.data.payment_terms_days,
     contract_kind: c.data.contract_kind || 'standard', prod_delivery_days: c.data.prod_delivery_days ?? '', install_days: c.data.install_days ?? '' }); }, [c.data?.row_version]);
   const docs = useLoad<any[]>(`/projects/${pid}/documents`);
   const d = c.data;
@@ -41,16 +42,16 @@ function ContractTab({ pid, onChange }: { pid: number; onChange: () => void }) {
   return <>
     <Card title={<span>Договор {d.code} <Status value={d.status} /> {d.active_version ? <span className="badge">версия {d.active_version}</span> : null}</span>} actions={<>
       {(draft || daysDirty) && <button disabled={busy} onClick={saveContract}>Запис</button>}
-      {draft && <button className="primary" disabled={busy} onClick={() => act('submit', {}, 'Изпратен за одобрение')}>Изпрати за одобрение</button>}
+      {draft && <button className="primary" disabled={busy} onClick={() => act('submit', f.v.advance_pct === '' ? {} : { advance_pct: Number(f.v.advance_pct) }, 'Изпратен за одобрение')}>Изпрати за одобрение</button>}
       {d.status === 'review' && write && <button disabled={busy} onClick={() => act('return', { note: window.prompt('Причина за връщане:') || '' }, 'Върнат за корекция')}>Върни за корекция</button>}
       {d.status === 'review' && (special ? can('approvals', 'approve') : write) && <button className="primary" disabled={busy} onClick={() => act('approve', {}, 'Договорът е одобрен. Създадена е версия 1.')}>Одобри</button>}
-      {d.status === 'approved' && write && <button className="primary" disabled={busy} onClick={() => setSignF({ signed_on: new Date().toISOString().slice(0, 10), install_start: d.install_start || '', install_deadline: d.install_deadline || '' })}>Отбележи като подписан</button>}</>}>
+      {d.status === 'approved' && write && <button className="primary" disabled={busy} onClick={() => setSignF({ signed_on: new Date().toISOString().slice(0, 10), install_start: d.install_start || '', install_deadline: d.install_deadline || '', ...(d.advance_set ? {} : { advance_pct: '' }) })}>Отбележи като подписан</button>}</>}>
       {d.status === 'review' && special && <div className="alert warn">Договорът е със специални условия и се одобрява от Управител.</div>}
       {d.status !== 'draft' && <div className="alert">Договорените клаузи са заключени — промени в количества, цени и дати се правят с анекс. Дневните срокове се уточняват и след подпис.</div>}
       <div className="form c3">
         <Field label="Образец"><select {...f.bind('template')} disabled={!draft}><option value="standard">Стандартен</option><option value="special">Със специални условия</option></select></Field>
         <Field label="Вид на договора"><select {...f.bind('contract_kind')} disabled={!draft}><option value="standard">Наш образец</option><option value="client_template">По образец на възложителя</option></select></Field>
-        <Field label="Аванс %"><input type="number" min="0" max="100" {...f.bind('advance_pct')} disabled={!draft} /></Field>
+        <Field label="Аванс % (0 = без аванс)"><input type="number" min="0" max="100" {...f.bind('advance_pct')} disabled={!draft} /></Field>
         <Field label="Срок за плащане (дни)"><input type="number" min="0" {...f.bind('payment_terms_days')} disabled={!draft} /></Field>
         <Field label="Срок производство + доставка (дни)"><input type="number" min="0" {...f.bind('prod_delivery_days')} disabled={!write} /></Field>
         <Field label="Срок за монтаж (дни)"><input type="number" min="0" {...f.bind('install_days')} disabled={!write} /></Field>
@@ -66,8 +67,9 @@ function ContractTab({ pid, onChange }: { pid: number; onChange: () => void }) {
         <Field label="Дата на подписване"><input type="date" value={signF.signed_on} onChange={e => setSignF({ ...signF, signed_on: e.target.value })} /></Field>
         <Field label="Начало на монтажа"><input type="date" value={signF.install_start} onChange={e => setSignF({ ...signF, install_start: e.target.value })} /></Field>
         <Field label="Краен срок за монтаж"><input type="date" value={signF.install_deadline} onChange={e => setSignF({ ...signF, install_deadline: e.target.value })} /></Field>
+        {signF.advance_pct !== undefined && <Field label="Аванс % (0 = без аванс)"><input type="number" min="0" max="100" value={signF.advance_pct} onChange={e => setSignF({ ...signF, advance_pct: e.target.value })} /></Field>}
       </div>
-      <div className="row" style={{ justifyContent: 'flex-end' }}><button className="primary" disabled={busy || !signF.install_start || !signF.install_deadline}
+      <div className="row" style={{ justifyContent: 'flex-end' }}><button className="primary" disabled={busy || !signF.install_start || !signF.install_deadline || signF.advance_pct === ''}
         onClick={() => run(async () => { await api.post(`/projects/${pid}/contract/sign`, signF); setSignF(null); await c.reload(); onChange(); }, 'Договорът е подписан. Сроковете са активни.')}>Подпиши</button></div>
     </Modal>}
     <ContractTimeline d={d} />
@@ -131,11 +133,11 @@ function ContractTimeline({ d }: { d: any }) {
   const T = today.getTime();
   const ts = (s: any) => (s ? Date.parse(s) : NaN);
   const iso = (t: number) => new Date(t).toISOString().slice(0, 10);
-  const prodEnd = d.advance_paid_at && d.prod_delivery_days != null ? ts(d.advance_paid_at) + Number(d.prod_delivery_days) * DAY_MS : NaN;
+  const prodEnd = d.deadline_start && d.prod_delivery_days != null ? ts(d.deadline_start) + Number(d.prod_delivery_days) * DAY_MS : NaN;
   const instStart = ts(d.install_start) || prodEnd;
   const instEnd = ts(d.install_deadline) || ts(d.final_deadline);
 
-  const unpaid = (d.payments || []).some((p: any) => !p.paid_at);
+  const unpaid = (d.payments || []).some((p: any) => p.gross !== 0 && !p.paid_at);
   const pastDeadline = ts(d.final_deadline) && ts(d.final_deadline) < T;
   const deliveryDue = ts(d.delivery_due); // delivery_due се дерива на сървъра — отпада когато срокът не е уточнен
   type Pt = { t: number; label: string; state: 'done' | 'active' | 'pending' | 'late' };
@@ -148,7 +150,7 @@ function ContractTimeline({ d }: { d: any }) {
 
   type Seg = { a: number; b: number; label: string; state: 'done' | 'active' | 'pending' | 'late' };
   const segs: Seg[] = [];
-  if (!isNaN(ts(d.advance_paid_at)) && !isNaN(prodEnd)) segs.push({ a: ts(d.advance_paid_at), b: prodEnd, label: 'Производство и доставка', state: prodEnd < T ? 'done' : T >= ts(d.advance_paid_at) ? 'active' : 'pending' });
+  if (!isNaN(ts(d.deadline_start)) && !isNaN(prodEnd)) segs.push({ a: ts(d.deadline_start), b: prodEnd, label: 'Производство и доставка', state: prodEnd < T ? 'done' : T >= ts(d.deadline_start) ? 'active' : 'pending' });
   if (!isNaN(instStart) && !isNaN(instEnd)) segs.push({ a: instStart, b: instEnd, label: 'Монтаж', state: instEnd < T ? 'done' : T >= instStart ? 'active' : 'pending' });
   const payDots = (d.payments || []).filter((p: any) => p.paid_at && p.kind !== 'advance').map((p: any) => ({ t: ts(p.paid_at), label: p.kind === 'interim' ? 'Междинно плащане' : 'Окончателно плащане' }));
 
@@ -176,24 +178,36 @@ function ContractTimeline({ d }: { d: any }) {
 }
 
 const MS: [string, string][] = [['advance', 'Аванс'], ['interim', 'Междинно плащане'], ['final', 'Окончателно плащане']];
+// Планът (%, сума без ДДС) се редактира тук; полученото и датата се четат от книгата.
 function PaymentsCard({ pid, d, cur, write, busy, onSaved }: { pid: number; d: any; cur: string; write: boolean; busy: boolean; onSaved: () => Promise<void> }) {
   const { run } = useAction();
-  const rows = MS.map(([k, label]) => ({ k, label, p: (d.payments || []).find((x: any) => x.kind === k) || { kind: k, pct: null, amount: null, paid_at: null, note: null } }));
-  const save = (k: string, f: any) => run(async () => { await api.put(`/projects/${pid}/contract/payments`, { kind: k, pct: f.pct === '' ? null : Number(f.pct), amount: f.amount === '' ? null : Number(f.amount), paid_at: f.paid_at || null, note: f.note || null }); await onSaved(); }, 'Плащането е записано');
-  return <Card title="Разплащателен график" actions={d.final_deadline ? <span className="badge warn">Краен срок по договора: {fmtDate(d.final_deadline)}</span> : <span className="muted small">крайният срок се изчислява след платен аванс + срокове</span>}>
+  const can = useCan();
+  const [pay, setPay] = useState(false);
+  const direct = can('finance', 'write'), choices = milestoneChoices(d.payments || []);
+  const rows = MS.map(([k, label]) => ({ k, label, p: (d.payments || []).find((x: any) => x.kind === k) || { kind: k, pct: null, amount: null, gross: null, paid: 0, paid_at: null, reported: 0, note: null } }));
+  const save = (k: string, f: any) => run(async () => { await api.put(`/projects/${pid}/contract/payments`, { kind: k, pct: f.pct === '' ? null : Number(f.pct), amount: f.amount === '' ? null : Number(f.amount), note: f.note || null }); await onSaved(); }, 'Планът е записан');
+  return <Card title="Разплащателен график" actions={<>
+    {(direct || write) && choices.length > 0 && <button className="primary sm" onClick={() => setPay(true)}>{direct ? 'Запиши плащане' : 'Докладвай плащане'}</button>}
+    {d.final_deadline ? <span className="badge warn">Краен срок по договора: {fmtDate(d.final_deadline)}</span> : <span className="muted small">крайният срок се изчислява след платен аванс + срокове</span>}</>}>
+    {(d.unmatched_paid_at || []).map((u: any) => <div key={u.kind} className="alert warn">Непотвърдена дата: {MILESTONE[u.kind] || u.kind} — {fmtDate(u.date)}. Няма записано плащане, затова срокът не тече. Счетоводство записва плащането или изчиства датата.</div>)}
     <div className="table-wrap"><table className="t"><thead><tr>
-      <th>Плащане</th><th className="num">%</th><th className="num">Сума, {cur}</th><th>Платено на</th><th>Бележка</th>{write && <th style={{ width: 60 }} />}</tr></thead>
-      <tbody>{rows.map(({ k, label, p }) => <MilestoneRow key={k} kind={k} label={label} p={p} disabled={!write || busy} onSave={save} />)}</tbody></table></div>
-    {d.advance_paid_at && <div className="muted small" style={{ marginTop: 8 }}>Аванс платен {fmtDate(d.advance_paid_at)}{d.prod_delivery_days != null ? ` + ${d.prod_delivery_days} дн. производство/доставка` : ''}{d.install_days != null ? ` + ${d.install_days} дн. монтаж` : ''}{d.final_deadline ? ` → ${fmtDate(d.final_deadline)}` : ' — въведете двата срока за изчисление'}</div>}
+      <th>Плащане</th><th className="num">%</th><th className="num">Без ДДС, {cur}</th><th className="num">С ДДС, {cur}</th><th className="num">Получено с ДДС</th><th>Дата</th><th>Състояние</th><th>Бележка</th>{write && <th style={{ width: 60 }} />}</tr></thead>
+      <tbody>{rows.map(({ k, label, p }) => <MilestoneRow key={`${k}|${p.pct}|${p.amount}|${p.note}`} kind={k} label={label} p={p} disabled={!write || busy} onSave={save} />)}</tbody></table></div>
+    {d.deadline_start && <div className="muted small" style={{ marginTop: 8 }}>{d.advance_paid_at ? `Аванс платен ${fmtDate(d.advance_paid_at)}` : `Без аванс — от подписването ${fmtDate(d.deadline_start)}`}{d.prod_delivery_days != null ? ` + ${d.prod_delivery_days} дн. производство/доставка` : ''}{d.install_days != null ? ` + ${d.install_days} дн. монтаж` : ''}{d.final_deadline ? ` → ${fmtDate(d.final_deadline)}` : ' — въведете двата срока за изчисление'}</div>}
+    {pay && <PaymentForm title={direct ? 'Ново плащане от клиента' : 'Докладване на плащане'} url={`/projects/${pid}/payments`} report={!direct} choices={choices} onClose={() => setPay(false)} onDone={onSaved} />}
   </Card>;
 }
 function MilestoneRow({ kind, label, p, disabled, onSave }: any) {
-  const f = useForm({ pct: p.pct ?? '', amount: p.amount ?? '', paid_at: p.paid_at || '', note: p.note || '' });
-  const dirty = String(f.v.pct) !== String(p.pct ?? '') || String(f.v.amount) !== String(p.amount ?? '') || f.v.paid_at !== (p.paid_at || '') || f.v.note !== (p.note || '');
+  const f = useForm({ pct: p.pct ?? '', amount: p.amount ?? '', note: p.note || '' });
+  const dirty = String(f.v.pct) !== String(p.pct ?? '') || String(f.v.amount) !== String(p.amount ?? '') || f.v.note !== (p.note || '');
   return <tr><td><b>{label}</b></td>
     <td className="num"><input type="number" min="0" max="100" style={{ width: 64, textAlign: 'right' }} {...f.bind('pct')} disabled={disabled} /></td>
     <td className="num"><input type="number" min="0" step="any" style={{ width: 110, textAlign: 'right' }} {...f.bind('amount')} disabled={disabled} /></td>
-    <td><input type="date" style={{ width: 140 }} {...f.bind('paid_at')} disabled={disabled} /></td>
+    <td className="num">{fmtMoney(p.gross)}</td>
+    <td className="num">{fmtMoney(p.paid)}{p.over > 0 ? <div className="small muted">надплатено {fmtMoney(p.over)}</div> : null}</td>
+    <td>{fmtDate(p.paid_at)}</td>
+    <td>{p.gross === 0 ? <span className="badge">няма</span> : p.paid_at ? <span className="badge ok">платено</span> : p.paid > 0 ? <span className="badge warn">частично</span> : <span className="badge">неплатено</span>}
+      {p.reported > 0 ? <div className="small muted">докладвано {fmtMoney(p.reported)} — чака потвърждение</div> : null}</td>
     <td><input style={{ width: '100%' }} {...f.bind('note')} disabled={disabled} /></td>
     {!disabled && <td>{dirty && <button className="primary sm" onClick={() => onSave(kind, f.v)}>Запис</button>}</td>}</tr>;
 }
@@ -250,7 +264,7 @@ export function ProjectCard({ id }: { id: number }) {
     {d.archived ? <div className="alert bad">Обектът е архивиран — показан е архивният запис, не активна работа.{write ? ' „Възстанови от архив“ го връща в списъка.' : ''}</div> : null}
     <div className="grid g4 kpis-m" style={{ marginBottom: 14 }}>
       <Kpi label="Изпълнение" value={d.progress_pct + '%'} sub={<Progress pct={d.progress_pct} />} />
-      {money ? <Kpi label={`Договорна стойност, ${cur}`} value={fmtMoney(d.finance.contract_value)} sub={`себестойност ${fmtMoney(d.finance.cost_price)}`} /> : <Kpi label="Договор" value={d.contract ? d.contract.code : '—'} sub={d.contract && <Status value={d.contract.status} />} />}
+      {money ? <Kpi label={`Договорна стойност без ДДС, ${cur}`} value={fmtMoney(d.finance.contract_value)} sub={`себестойност ${fmtMoney(d.finance.cost_price)}`} /> : <Kpi label="Договор" value={d.contract ? d.contract.code : '—'} sub={d.contract && <Status value={d.contract.status} />} />}
       <Kpi label="Планирано изпълнение" value={d.planned_start ? `${fmtDate(d.planned_start)} – ${fmtDate(d.planned_end)}` : 'няма срокове'} sub={d.contract?.delivery_deadline ? `доставка до ${fmtDate(d.contract.delivery_deadline)}` : 'сроковете се активират при подписан договор'} />
       <Kpi label="Отговорници" value={<span style={{ fontSize: 14 }}>{d.technical_name || 'няма Техник'} / {d.brigadier_name || 'няма Бригадир'}</span>} tone={!d.technical_id || !d.brigadier_id ? 'warn' : undefined} sub="Техник / Бригадир" />
     </div>
@@ -366,19 +380,19 @@ function FinanceTab({ pid }: { pid: number }) {
   const m = (n: any) => fmtMoney(n, cur);
   return <>
     <div className="grid g4 kpis-m" style={{ marginBottom: 14 }}>
-      <Kpi label={`Договорна стойност, ${cur}`} value={m(d.contract_value)} sub={`оферта: ${m(d.offer_value)}`} />
-      <Kpi label={`Издадени проформи, ${cur}`} value={m(d.invoiced)} sub={`вземания: ${m(d.receivables)}`} tone={d.receivables > 0 ? 'warn' : undefined} />
-      <Kpi label={`Получени / платени, ${cur}`} value={m(d.payments_received)} sub={`изплатени: ${m(d.payments_made)}`} />
-      <Kpi label={`Резултат до момента, ${cur}`} value={m(d.result_to_date)} sub={`прогноза: ${m(d.forecast_result)}`} tone={d.result_to_date < 0 ? 'bad' : undefined} />
-      <Kpi label={`Оставащ бюджет, ${cur}`} value={m(d.remaining_budget)} sub={`планирани разходи: ${m(d.planned_expenses)}`} />
-      <Kpi label={`Планиран резултат, ${cur}`} value={m(d.planned_result)} sub={`себестойност: ${m(d.cost_price)}`} />
+      <Kpi label={`Договорна стойност без ДДС, ${cur}`} value={m(d.contract_value)} sub={`оферта: ${m(d.offer_value)}`} />
+      <Kpi label={`Издадени проформи с ДДС, ${cur}`} value={m(d.invoiced)} sub={`вземания: ${m(d.receivables)}`} tone={d.receivables > 0 ? 'warn' : undefined} />
+      <Kpi label={`Получени / платени с ДДС, ${cur}`} value={m(d.payments_received)} sub={`изплатени: ${m(d.payments_made)}`} />
+      <Kpi label={`Резултат до момента без ДДС, ${cur}`} value={m(d.result_to_date)} sub={`прогноза: ${m(d.forecast_result)}`} tone={d.result_to_date < 0 ? 'bad' : undefined} />
+      <Kpi label={`Оставащ бюджет без ДДС, ${cur}`} value={m(d.remaining_budget)} sub={`планирани разходи: ${m(d.planned_expenses)}`} />
+      <Kpi label={`Планиран резултат без ДДС, ${cur}`} value={m(d.planned_result)} sub={`себестойност: ${m(d.cost_price)}`} />
     </div>
-    <Card title="Сверка с изпълнението" pad={false}>
+    <Card title="Сверка с изпълнението (без ДДС)" pad={false}>
       <Table rows={[
         { k: 'Извършена работа (КС × изпълнено)', v: d.earned_value },
         { k: 'Не издадена за фактуриране', v: d.work_not_invoiced, warn: d.work_not_invoiced > 0 },
         { k: 'Изпълнена себестойност', v: d.earned_cost },
-        { k: 'Фактически разходи (платени + задължения)', v: d.actual_expenses },
+        { k: 'Фактически разходи (всеки документ веднъж)', v: d.actual_expenses },
         { k: 'Отклонение на разходите', v: d.cost_variance, warn: d.cost_variance > 0 },
         { k: 'Планирани разходи по КС', v: d.planned_out },
         { k: 'Не фактурирано от договора', v: d.not_invoiced },

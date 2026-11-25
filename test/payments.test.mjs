@@ -62,6 +62,11 @@ test('proforma payment: gross, bank date, deadline; void and date edits follow t
   assert.deepEqual([(await fin()).payments_received, (await fin()).receivables, (await fin()).result_to_date], [3720, 0, 3100]);
   assert.equal((await a.post(`/api/proformas/${pf.id}/paid`, { paid_at: '2026-11-10' })).data.deduped, true);
   assert.equal((await a.post(`/api/proformas/${pf.id}/cancel`)).status, 400);
+  // the edit form echoes the old VAT share; a corrected amount must not keep it
+  await a.patch(`/api/transactions/${r.data.transaction.id}`, { amount: 1200, vat_amount: '620', has_vat: true });
+  assert.equal((await fin()).result_to_date, 1000);
+  await a.patch(`/api/transactions/${r.data.transaction.id}`, { amount: 3720 });
+  assert.equal((await fin()).result_to_date, 3100);
   await a.patch(`/api/transactions/${r.data.transaction.id}`, { tx_date: '2026-11-05' });
   assert.equal((await contract()).final_deadline, '2026-12-20');
   await a.patch(`/api/transactions/${r.data.transaction.id}`, { status: 'voided' });
@@ -249,3 +254,12 @@ test('the stored milestone date has a single reader', () => {
     .filter(([, , l]) => /contract_payments/.test(l) && /\bpaid_at\b/.test(l) && !/paid_at = NULL/.test(l)).map(([x, i]) => `${x}:${i}`));
   assert.deepEqual(hits, []);
 });
+
+test('a payment named by milestone also settles the oldest open proforma of that kind', () => world(async (t, a) => {
+  const { pid, pf, adv } = await signed(t), m = await adv();
+  const con = await t.mkUser('con', 'contracts'), acc = await t.mkUser('acc', 'accounting');
+  const rep = (await con.post(`/api/projects/${pid}/payments`, { amount: 3720, tx_date: '2026-11-08', contract_payment_id: m.id })).data.payment;
+  assert.equal((await acc.post(`/api/payments/${rep.id}/confirm`, { row_version: rep.row_version })).status, 200);
+  assert.equal((await acc.get('/api/proformas')).data.find(x => x.id === pf.id).status, 'paid');
+  assert.equal((await adv()).paid, 3720, 'counted once');
+}));
