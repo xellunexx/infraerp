@@ -106,7 +106,7 @@ CREATE TABLE IF NOT EXISTS contracts (
   offer_id INTEGER REFERENCES offers(id), offer_version INTEGER, template TEXT NOT NULL DEFAULT 'standard', special_terms TEXT,
   status TEXT NOT NULL DEFAULT 'draft', active_version INTEGER, signed_on TEXT, delivery_deadline TEXT, install_start TEXT, install_deadline TEXT,
   advance_pct REAL NOT NULL DEFAULT 0, payment_terms_days INTEGER NOT NULL DEFAULT 14, created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  contract_kind TEXT, prod_delivery_days REAL, install_days REAL,
+  contract_kind TEXT, prod_delivery_days REAL, install_days REAL, advance_set INTEGER NOT NULL DEFAULT 0,
   row_version INTEGER NOT NULL DEFAULT 1);
 CREATE TABLE IF NOT EXISTS contract_appendices (id INTEGER PRIMARY KEY, contract_id INTEGER NOT NULL REFERENCES contracts(id),
   number INTEGER NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, contract_version INTEGER NOT NULL, UNIQUE (contract_id, number, contract_version));
@@ -182,7 +182,8 @@ CREATE TABLE IF NOT EXISTS transactions (
   tx_kind TEXT, method TEXT, company TEXT, document_id INTEGER REFERENCES transactions(id),
   cost_center_id INTEGER REFERENCES cost_centers(id), person_id INTEGER REFERENCES accountable_persons(id), asset_id INTEGER REFERENCES assets(id),
   has_vat INTEGER NOT NULL DEFAULT 0, vat_amount REAL, pko_no TEXT, rko_no TEXT,
-  labour_worker TEXT, labour_days REAL, labour_rate REAL);
+  labour_worker TEXT, labour_days REAL, labour_rate REAL,
+  contract_payment_id INTEGER REFERENCES contract_payments(id), supplier_order_id INTEGER REFERENCES supplier_orders(id), order_stage TEXT);
 CREATE TABLE IF NOT EXISTS payment_requests (
   id INTEGER PRIMARY KEY, code TEXT NOT NULL UNIQUE, project_id INTEGER REFERENCES projects(id), category TEXT NOT NULL, amount REAL NOT NULL,
   payee TEXT NOT NULL, reason TEXT, exceptional INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'pending', approval_id INTEGER,
@@ -201,7 +202,7 @@ CREATE TABLE IF NOT EXISTS accountable_persons (
   user_id INTEGER REFERENCES users(id), note TEXT, active INTEGER NOT NULL DEFAULT 1, row_version INTEGER NOT NULL DEFAULT 1);
 CREATE TABLE IF NOT EXISTS contract_payments (
   id INTEGER PRIMARY KEY, contract_id INTEGER NOT NULL REFERENCES contracts(id), kind TEXT NOT NULL,
-  pct REAL, amount REAL, paid_at TEXT, note TEXT, updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  pct REAL, amount REAL, paid_at TEXT, note TEXT, vat_pct REAL, gross REAL, updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE (contract_id, kind));
 CREATE TABLE IF NOT EXISTS supplier_orders (
   id INTEGER PRIMARY KEY, code TEXT NOT NULL UNIQUE, project_id INTEGER NOT NULL REFERENCES projects(id),

@@ -2,6 +2,7 @@
 // отдел/потребител. Всяко изпращане се записва в reminders_log (дедупликация: 1/ден/случай)
 // — това е историческата основа, върху която отчетите мерят „изпратено ли е, Attention ли е обърнато“.
 import { audit } from './core.js';
+import { proformaOpenSql } from './payments.js';
 
 const HOUR_MS = 3600e3;
 const THRESHOLD_H = 12;
@@ -41,8 +42,11 @@ const WATCHDOGS = [
     sql: `SELECT p.id, p.code, p.amount, p.payee, p.project_id FROM payment_requests p WHERE p.status = 'pending'
       AND p.created_at < datetime('now', ?)`,
     args: [`-${THRESHOLD_H} hours`], link: () => '/accounting', targets: () => ({ departments: ['management'], users: [] }) },
+  { kind: 'payment_reported', entity: 'transaction', label: 'Докладвано плащане чака потвърждение',
+    sql: `SELECT t.id, t.code, t.project_id FROM transactions t WHERE t.status = 'reported' AND t.created_at < datetime('now', ?)`,
+    args: [`-${THRESHOLD_H} hours`], link: () => '/accounting?tab=confirm', targets: () => ({ departments: ['accounting'], users: [] }) },
   { kind: 'proforma_due', entity: 'proforma', label: 'Проформа с изтекъл падеж',
-    sql: `SELECT p.id, p.code, p.amount, p.due_on, p.project_id FROM proformas p WHERE p.status = 'issued'
+    sql: `SELECT p.id, p.code, p.amount, p.due_on, p.project_id FROM proformas p WHERE ${proformaOpenSql('p')}
       AND p.due_on IS NOT NULL AND p.due_on < date('now')`,
     args: [], link: () => '/accounting', targets: () => ({ departments: ['accounting'], users: [] }) },
   { kind: 'issue_open', entity: 'issue', label: 'Критичен проблем е отворен',

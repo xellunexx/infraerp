@@ -1,4 +1,5 @@
 // Derived project figures. Nothing here is stored: every number is computed from the shared records.
+import { projectMoney, grossOf } from './payments.js';
 const r2 = n => Math.round((n + Number.EPSILON) * 100) / 100;
 const r3 = n => Math.round((n + Number.EPSILON) * 1000) / 1000;
 
@@ -52,25 +53,21 @@ export function finance(db, projectId) {
   const p = progressSummary(db, projectId);
   const offer = db.prepare(`SELECT COALESCE(SUM(ol.qty * ol.unit_price), 0) * (1 - ov.discount_pct / 100.0) AS v FROM projects pr JOIN offers o ON o.id = pr.offer_id
     JOIN offer_versions ov ON ov.offer_id = o.id AND ov.version = o.confirmed_version LEFT JOIN offer_lines ol ON ol.version_id = ov.id AND (ol.section_id IS NULL OR ol.section_id IN (SELECT id FROM offer_sections WHERE alternative = 0 OR selected = 1)) WHERE pr.id = ?`).get(projectId);
-  const t = db.prepare(`SELECT
-      COALESCE(SUM(CASE WHEN direction = 'in' AND status = 'paid' THEN amount END), 0) AS received,
-      COALESCE(SUM(CASE WHEN direction = 'out' AND status = 'paid' THEN amount END), 0) AS paid,
-      COALESCE(SUM(CASE WHEN direction = 'out' AND status = 'planned' THEN amount END), 0) AS planned_out,
-      COALESCE(SUM(CASE WHEN direction = 'out' AND status = 'committed' THEN amount END), 0) AS payables,
-      COALESCE(SUM(CASE WHEN direction = 'in' AND status IN ('planned', 'committed') THEN amount END), 0) AS expected_in
-    FROM transactions WHERE project_id = ?`).get(projectId);
-  const invoiced = db.prepare("SELECT COALESCE(SUM(amount), 0) AS v FROM proformas WHERE project_id = ? AND status != 'cancelled'").get(projectId).v;
-  const actualExpenses = t.paid + t.payables;
+  // received/paid/receivables/payables are gross (bank money); expenses, results and budget are net, like the contract value
+  const t = projectMoney(db, projectId);
+  const pfs = db.prepare("SELECT amount, vat_pct FROM proformas WHERE project_id = ? AND status != 'cancelled'").all(projectId);
+  const invoicedNet = pfs.reduce((s, f) => s + f.amount, 0), invoiced = pfs.reduce((s, f) => s + grossOf(f.amount, f.vat_pct), 0);
+  const actualExpenses = t.expense_net;
   const plannedExpenses = p.cost_price;
   return {
     contract_value: p.contract_value, offer_value: r2(offer?.v || 0), cost_price: p.cost_price, planned_expenses: r2(plannedExpenses),
-    actual_expenses: r2(actualExpenses), payments_made: r2(t.paid), payments_received: r2(t.received), invoiced: r2(invoiced),
-    receivables: r2(Math.max(0, invoiced - t.received)), not_invoiced: r2(Math.max(0, p.contract_value - invoiced)), payables: r2(t.payables),
-    planned_out: r2(t.planned_out), remaining_budget: r2(plannedExpenses - actualExpenses), planned_result: r2(p.contract_value - plannedExpenses),
-    result_to_date: r2(t.received - t.paid), forecast_result: r2(p.contract_value - Math.max(plannedExpenses, actualExpenses)),
+    actual_expenses: r2(actualExpenses), payments_made: t.paid_out, payments_received: t.received, invoiced: r2(invoiced),
+    receivables: r2(Math.max(0, invoiced - t.received)), not_invoiced: r2(Math.max(0, p.contract_value - invoicedNet)), payables: t.payables,
+    planned_out: t.planned_out, remaining_budget: r2(plannedExpenses - actualExpenses), planned_result: r2(p.contract_value - plannedExpenses),
+    result_to_date: r2(t.received_net - t.paid_net), forecast_result: r2(p.contract_value - Math.max(plannedExpenses, actualExpenses)),
     earned_value: p.earned_value, earned_cost: p.earned_cost, progress_pct: p.progress_pct,
     // reconciliation: completed work against what was invoiced / received and against what was actually spent
-    work_not_invoiced: r2(Math.max(0, p.earned_value - invoiced)), cost_variance: r2(actualExpenses - p.earned_cost),
+    work_not_invoiced: r2(Math.max(0, p.earned_value - invoicedNet)), cost_variance: r2(actualExpenses - p.earned_cost),
   };
 }
 
@@ -95,7 +92,8 @@ export function scheduleStatus(db, projectId, today = new Date().toISOString().s
  *  ready_date = advance paid + production days; expected_delivery is real after the final
  *  payment (final_paid_at + transport days) and a forecast before it (ready_date + transport). */
 const addDays = (iso, days) => days == null || !iso ? null : new Date(Date.parse(iso) + Math.round(Number(days)) * 86400000).toISOString().slice(0, 10);
-export function supplierOrderView(o, today = new Date().toISOString().slice(0, 10)) {
+export function supplierOrderView(row, dates, today = new Date().toISOString().slice(0, 10)) {
+  const o = { ...row, ...dates }; // payment dates come from the ledger, never from the order row
   const ready_date = addDays(o.advance_paid_at, o.prod_days);
   const days_left = ready_date ? Math.round((Date.parse(ready_date) - Date.parse(today)) / 86400000) : null;
   const final_eur = o.total_eur != null && o.advance_eur != null ? r2(o.total_eur - o.advance_eur) : null;

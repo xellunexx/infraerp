@@ -3,6 +3,7 @@
 import { need, needAdmin, needProject, scopeRows, canSeeMoney, redactMoney, audit, updateRow, reindex, emit, HttpError, bad } from './core.js';
 import { h, pick, reqStr } from './app.js';
 import { tx, nextCode } from './db.js';
+import { advancePct } from './domain.js';
 
 // ---- колони с числови стойности (по име — общ механизъм, не по конкретен запис)
 const NUM_RE = /(^|_)(qty|amount|price|cost|pct|percent|days|hours|beds|pallets|sort|version|latitude|longitude|norm|min_stock|pallet_qty|terms_days|pallets|advance|vat|discount|prelim|validity|labour)/;
@@ -144,6 +145,20 @@ const ENT = {
 export const ENTITY_TYPES = ENT;
 
 const entRow = (db, type, id) => db.prepare(`SELECT * FROM ${ENT[type].table} WHERE id = ?`).get(id);
+/** Money already paid and values already signed are not edited around: payments are voided in the ledger, contracts change by annex. */
+const signedContract = (db, projectId) => !!db.prepare("SELECT 1 FROM contracts WHERE project_id = ? AND status = 'signed'").get(projectId);
+const FROZEN = {
+  transaction: (db, r) => ['paid', 'reported'].includes(r.status) ? { keys: ['amount', 'direction', 'status', 'tx_date'], del: true, why: 'Платено или докладвано плащане се коригира само в книгата' } : null,
+  proforma: (db, r) => ({ keys: db.prepare("SELECT 1 FROM transactions WHERE proforma_id = ? AND status IN ('paid', 'reported')").get(r.id) ? ['status', 'amount', 'vat_pct', 'kind'] : ['status'], why: 'Състоянието на проформата следва плащанията' }),
+  project_line: (db, r) => signedContract(db, r.project_id) ? { keys: ['qty', 'unit_price'], del: true, why: 'Договорът е подписан — количества и цени се менят само с анекс' } : null,
+  contract: (db, r) => r.status === 'signed' ? { keys: ['advance_pct'], why: 'Договорът е подписан — авансът се мени само с анекс' } : null,
+};
+function needUnfrozen(db, type, row, kind, payload) {
+  const z = FROZEN[type]?.(db, row);
+  if (z && (kind === 'delete' ? z.del : Object.keys(payload || {}).some(k => z.keys.includes(k)))) throw bad(z.why);
+  if (type === 'contract' && payload?.advance_pct !== undefined) advancePct(payload.advance_pct);
+}
+
 /** The project a record belongs to: the project itself, or the project it hangs on. */
 const projectOf = (type, r) => (type === 'project' ? r.id : r.project_id ?? null);
 const entityLabel = (db, type, id) => { const r = entRow(db, type, id); return r ? ENT[type].labelOf(r) : `#${id}`; };
@@ -158,6 +173,7 @@ function applyEdit(db, type, id, payload, user) {
   if (!Object.keys(fields).length) throw bad('Няма предложени промени');
   const before = entRow(db, type, id);
   if (!before) throw new HttpError(404, 'Записът не е намерен');
+  if (type === 'contract' && fields.advance_pct !== undefined) fields.advance_set = 1;
   const result = e.apply ? e.apply(db, id, fields, user) : updateRow(db, e.table, id, fields);
   const after = entRow(db, type, id);
   e.reindex?.(db, after);
@@ -223,6 +239,7 @@ export default function mountChangeRequests(app, db) {
     if (!row) throw new HttpError(404, 'Записът не е намерен');
     const pid = projectOf(type, row);
     if (pid != null) needProject(db, req.user, pid);
+    needUnfrozen(db, type, row, kind, b.payload);
     let payload = null;
     if (kind === 'edit' && b.payload != null) {
       if (typeof b.payload !== 'object' || Array.isArray(b.payload)) throw bad('Предложените стойности трябва да са обект');
@@ -268,6 +285,8 @@ export default function mountChangeRequests(app, db) {
       let result = null;
       if (decision === 'approve') {
         try {
+          const row = entRow(db, r.entity_type, r.entity_id);
+          if (row) needUnfrozen(db, r.entity_type, row, r.kind, JSON.parse(r.payload || '{}'));
           if (r.kind === 'delete') result = applyDelete(db, r.entity_type, r.entity_id, req.user);
           else {
             const p = JSON.parse(r.payload || '{}');

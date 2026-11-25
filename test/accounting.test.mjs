@@ -13,7 +13,7 @@ async function signedProject(t, dates = { install_start: '2026-01-05', install_d
   const c0 = (await t.admin.get(`/api/projects/${p.id}/contract`)).data;
   const upd = await t.admin.patch(`/api/projects/${p.id}/contract`, { ...dates, row_version: c0.row_version });
   assert.equal(upd.status, 200);
-  await t.admin.post(`/api/projects/${p.id}/contract/submit`);
+  await t.admin.post(`/api/projects/${p.id}/contract/submit`, { advance_pct: 50 });
   await t.admin.post(`/api/projects/${p.id}/contract/approve`);
   const sign = await t.admin.post(`/api/projects/${p.id}/contract/sign`, { signed_on: '2025-12-29' });
   assert.equal(sign.status, 200);
@@ -29,7 +29,7 @@ test('signing seeds the 50/30/20 schedule + advance proforma; paying it marks th
 
     const c = (await t.admin.get(`/api/projects/${project.id}/contract`)).data;
     const pay = Object.fromEntries(c.payments.map(p => [p.kind, p]));
-    assert.equal(pay.advance.pct, 50, 'advance defaults to 50%');
+    assert.equal(pay.advance.pct, 50, 'the agreed advance');
     assert.equal(pay.interim.pct, 30);
     assert.equal(pay.final.pct, 20, 'final is the remainder');
     assert.equal(pay.advance.amount, Math.round(c.total * 0.5 * 100) / 100);
@@ -40,7 +40,7 @@ test('signing seeds the 50/30/20 schedule + advance proforma; paying it marks th
     assert.equal(pf.amount, pay.advance.amount);
     assert.equal(pf.status, 'issued');
 
-    const paid = await acc.post(`/api/proformas/${pf.id}/paid`);
+    const paid = await acc.post(`/api/proformas/${pf.id}/paid`, { paid_at: '2026-11-20' });
     assert.equal(paid.status, 200);
     const c2 = (await t.admin.get(`/api/projects/${project.id}/contract`)).data;
     const adv = c2.payments.find(p => p.kind === 'advance');
@@ -50,15 +50,15 @@ test('signing seeds the 50/30/20 schedule + advance proforma; paying it marks th
     assert.equal(c2.final_deadline, expectedFinal, 'final deadline = paid date + production + install days');
 
     const pf2 = (await acc.post('/api/proformas', { project_id: project.id, kind: 'advance', amount: 10 })).data;
-    await acc.post(`/api/proformas/${pf2.id}/paid`);
+    await acc.post(`/api/proformas/${pf2.id}/paid`, { paid_at: '2026-11-21' });
     const adv2 = (await t.admin.get(`/api/projects/${project.id}/contract`)).data.payments.find(p => p.kind === 'advance');
     assert.equal(adv2.paid_at, adv.paid_at, 'a second advance payment does not move the recorded date');
     const interim = (await t.admin.get(`/api/projects/${project.id}/contract`)).data.payments.find(p => p.kind === 'interim');
     assert.equal(interim.paid_at, null, 'unrelated milestones stay unmarked');
 
     const pf3 = (await acc.post('/api/proformas', { project_id: project.id, kind: 'other', amount: 10 })).data;
-    await acc.post(`/api/proformas/${pf3.id}/paid`);
-    assert.equal(t.db.prepare('SELECT COUNT(*) n FROM contract_payments WHERE contract_id = (SELECT id FROM contracts WHERE project_id = ?) AND paid_at IS NOT NULL').get(project.id).n, 1,
+    await acc.post(`/api/proformas/${pf3.id}/paid`, { paid_at: '2026-11-21', separate: true });
+    assert.equal((await t.admin.get(`/api/projects/${project.id}/contract`)).data.payments.filter(p => p.paid_at).length, 1,
       'proformas of kind "other" do not touch the schedule');
   } finally { await t.stop(); }
 });
@@ -112,28 +112,28 @@ test('proformas: issue against contract, mark paid posts one receipt, cancel rul
     assert.equal(list[0].project_code, project.code);
 
     const fin0 = (await acc.get(`/api/projects/${project.id}/finance`)).data;
-    assert.equal(fin0.invoiced, 1200 + autoPf.amount);
-    assert.equal(fin0.receivables, 1200 + autoPf.amount, 'unpaid proformas = receivable');
+    assert.equal(fin0.invoiced, 1440 + autoPf.amount * 1.2);
+    assert.equal(fin0.receivables, 1440 + autoPf.amount * 1.2, 'unpaid proformas = receivable');
 
-    const paid = await acc.post(`/api/proformas/${pf.id}/paid`);
+    const paid = await acc.post(`/api/proformas/${pf.id}/paid`, { paid_at: '2026-11-20' });
     assert.equal(paid.status, 200);
     const tx = paid.data.transaction;
     assert.equal(tx.direction, 'in');
     assert.equal(tx.status, 'paid');
-    assert.equal(tx.amount, 1200);
+    assert.equal(tx.amount, 1440);
     assert.equal(tx.proforma_id, pf.id);
     assert.equal(tx.project_id, project.id);
     assert.equal(tx.counterparty, 'Тест Клиент ООД', 'receipt counterparty = customer');
 
-    const again = await acc.post(`/api/proformas/${pf.id}/paid`);
+    const again = await acc.post(`/api/proformas/${pf.id}/paid`, { paid_at: '2026-11-20' });
     assert.equal(again.status, 200);
     assert.equal(again.data.transaction.id, tx.id, 'second paid call returns same transaction');
     const txCount = t.db.prepare('SELECT COUNT(*) n FROM transactions WHERE proforma_id = ?').get(pf.id).n;
     assert.equal(txCount, 1, 'no double-posted receipt');
 
     const fin1 = (await acc.get(`/api/projects/${project.id}/finance`)).data;
-    assert.equal(fin1.payments_received, 1200);
-    assert.equal(fin1.receivables, autoPf.amount, 'the auto advance proforma is still owed');
+    assert.equal(fin1.payments_received, 1440);
+    assert.equal(fin1.receivables, autoPf.amount * 1.2, 'the auto advance proforma is still owed');
 
     const cancelPaid = await acc.post(`/api/proformas/${pf.id}/cancel`);
     assert.equal(cancelPaid.status, 400, 'paid proforma cannot be cancelled');
@@ -143,7 +143,7 @@ test('proformas: issue against contract, mark paid posts one receipt, cancel rul
     assert.equal(cx.status, 200);
     assert.equal(cx.data.status, 'cancelled');
     const fin2 = (await acc.get(`/api/projects/${project.id}/finance`)).data;
-    assert.equal(fin2.invoiced, 1200 + autoPf.amount, 'cancelled proforma excluded from invoiced');
+    assert.equal(fin2.invoiced, 1440 + autoPf.amount * 1.2, 'cancelled proforma excluded from invoiced');
   } finally { await t.stop(); }
 });
 
@@ -242,14 +242,14 @@ test('accommodations + portfolio + per-project finance bundle', async () => {
     const autoAmt = t.db.prepare("SELECT amount FROM proformas WHERE project_id = ? AND kind = 'advance' AND status != 'cancelled'").get(project.id)?.amount || 0;
     await acc.post('/api/proformas', { project_id: project.id, amount: 6000 });
     const pf = (await acc.get('/api/proformas?project_id=' + project.id)).data[0];
-    await acc.post(`/api/proformas/${pf.id}/paid`);
+    await acc.post(`/api/proformas/${pf.id}/paid`, { paid_at: '2026-11-20' });
     await acc.post('/api/transactions', { project_id: project.id, direction: 'out', category: 'materialy', amount: 800, tx_date: '2026-01-20', status: 'committed' });
 
     const fin = (await acc.get(`/api/projects/${project.id}/finance`)).data;
     for (const k of ['contract_value', 'offer_value', 'invoiced', 'payments_received', 'payments_made', 'receivables', 'payables', 'planned_expenses', 'actual_expenses', 'remaining_budget', 'planned_result', 'result_to_date', 'forecast_result', 'earned_value', 'earned_cost', 'progress_pct', 'work_not_invoiced', 'cost_variance'])
       assert.ok(k in fin, `finance.${k} present`);
-    assert.equal(fin.invoiced, 6000 + autoAmt);
-    assert.equal(fin.payments_received, 6000);
+    assert.equal(fin.invoiced, 7200 + autoAmt * 1.2);
+    assert.equal(fin.payments_received, 7200);
     assert.equal(fin.payables, 800);
     assert.equal(fin.proformas.length, 2, 'manual proforma + auto advance proforma');
     assert.equal(fin.transactions.length, 2, 'proforma receipt + manual expense');
@@ -260,7 +260,7 @@ test('accommodations + portfolio + per-project finance bundle', async () => {
     assert.ok(Array.isArray(port.projects));
     const row = port.projects.find(p => p.id === project.id);
     assert.ok(row, 'project in portfolio');
-    assert.equal(row.invoiced, 6000 + autoAmt);
+    assert.equal(row.invoiced, 7200 + autoAmt * 1.2);
     assert.ok(port.totals.invoiced >= 6000 + autoAmt);
   } finally { await t.stop(); }
 });

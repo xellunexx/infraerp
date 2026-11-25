@@ -3,6 +3,7 @@ import { tx, nextCode } from './db.js';
 import { on, emit, notify, audit, reindex, bad, HttpError, setting } from './core.js';
 import { progressSummary, round2, consumption, scheduleStatus } from './calc.js';
 import { validUntil } from './pricing.js';
+import { splitSchedule, grossOf } from './payments.js';
 
 /** Lines that count towards the offer: no section, a normal section, or (once confirmed) the chosen alternative. */
 export const COUNTED_LINES = `FROM offer_lines l LEFT JOIN offer_sections s ON s.id = l.section_id WHERE l.version_id = ? AND (s.id IS NULL OR s.alternative = 0 OR s.selected = 1)`;
@@ -71,7 +72,14 @@ function writeAppendices(db, contractId, projectId, version) {
   ins.run(contractId, 3, 'Приложение №3 — Срокове и условия на плащане', a3, version);
 }
 
-export function signContract(db, user, projectId, { signed_on, install_start, install_deadline } = {}) {
+/** The advance is an explicit number: 0 is a decision, empty is not. */
+export function advancePct(v) {
+  const n = v === null || v === undefined || v === '' || typeof v === 'boolean' ? NaN : Number(v);
+  if (!Number.isFinite(n) || n < 0 || n > 100) throw bad('Въведете аванс % между 0 и 100 (0 = без аванс)');
+  return n;
+}
+
+export function signContract(db, user, projectId, { signed_on, install_start, install_deadline, advance_pct } = {}) {
   return tx(db, () => {
     const c = db.prepare('SELECT * FROM contracts WHERE project_id = ?').get(projectId);
     if (!c) throw new HttpError(404, 'Няма договор за този обект');
@@ -83,26 +91,32 @@ export function signContract(db, user, projectId, { signed_on, install_start, in
     const instEnd = c.install_deadline || install_deadline || null;
     if (!instStart || !instEnd) throw bad('Въведете начало и краен срок за монтаж при подписване');
     if (instEnd < instStart) throw bad('Крайният срок е преди началото на монтажа');
+    for (const d of [signed_on, instStart, instEnd]) if (d && (!/^\d{4}-\d{2}-\d{2}$/.test(d) || isNaN(Date.parse(d)))) throw bad('Невалидна дата');
+    // договори, одобрени преди правилото: авансът се посочва при подписа и влиза като нова версия, за да съвпада Приложение 3
+    if (!c.advance_set) {
+      c.advance_pct = advancePct(advance_pct);
+      db.prepare('UPDATE contracts SET advance_pct = ?, advance_set = 1 WHERE id = ?').run(c.advance_pct, c.id);
+      c.active_version = newContractVersion(db, projectId, 'Уточнен аванс при подписване', { approved_by: user?.id ?? null }).version;
+    }
     const signDate = signed_on || new Date().toISOString().slice(0, 10);
     db.prepare("UPDATE contracts SET status = 'signed', signed_on = ?, install_start = ?, install_deadline = ?, row_version = row_version + 1 WHERE id = ?").run(signDate, instStart, instEnd, c.id);
 
-    // Разплащателен график се ражда при подписване: аванс % от договора (по подразбиране 50),
+    // Разплащателен график се ражда при подписване: аванс % от договора,
     // междинно 30, окончателно — остатъкът. Ръчно въведени редове не се презаписват.
     const total = db.prepare('SELECT total_value FROM contract_versions WHERE contract_id = ? AND version = ?').get(c.id, c.active_version)?.total_value
       ?? progressSummary(db, projectId).contract_value;
-    const advPct = Number(c.advance_pct) > 0 ? Number(c.advance_pct) : 50;
-    const intPct = Math.min(30, Math.max(0, 100 - advPct));
-    const finPct = Math.max(0, round2(100 - advPct - intPct));
-    const seed = db.prepare(`INSERT INTO contract_payments(contract_id, kind, pct, amount) VALUES (?,?,?,?)
-      ON CONFLICT(contract_id, kind) DO UPDATE SET pct = COALESCE(contract_payments.pct, excluded.pct), amount = COALESCE(contract_payments.amount, excluded.amount)`);
-    const amt = p => total ? round2(total * p / 100) : null;
-    seed.run(c.id, 'advance', advPct, amt(advPct));
-    seed.run(c.id, 'interim', intPct, amt(intPct));
-    seed.run(c.id, 'final', finPct, amt(finPct));
+    const vat = Number(setting(db, 'vat_pct', '20')), plan = splitSchedule(total || 0, vat, Number(c.advance_pct));
+    for (const p of plan) {
+      const cur = db.prepare('SELECT * FROM contract_payments WHERE contract_id = ? AND kind = ?').get(c.id, p.kind);
+      const net = cur?.amount ?? (total ? p.net : null);
+      db.prepare(`INSERT INTO contract_payments(contract_id, kind, pct, amount, vat_pct, gross) VALUES (?,?,?,?,?,?)
+        ON CONFLICT(contract_id, kind) DO UPDATE SET pct = COALESCE(contract_payments.pct, excluded.pct), amount = excluded.amount, vat_pct = excluded.vat_pct, gross = excluded.gross`)
+        .run(c.id, p.kind, p.pct, net, vat, net == null ? null : cur?.amount != null ? grossOf(net, vat) : p.gross);
+    }
 
     // Авансовата проформа излиза веднага след подписа — счетоводството я маркира платена,
     // което първо отбелязва етапа в графика и стартира договорния календар.
-    const advAmount = amt(advPct);
+    const advAmount = db.prepare("SELECT amount FROM contract_payments WHERE contract_id = ? AND kind = 'advance'").get(c.id).amount;
     if (advAmount > 0 && !db.prepare("SELECT 1 FROM proformas WHERE project_id = ? AND kind = 'advance' AND status != 'cancelled'").get(projectId)) {
       const pfId = Number(db.prepare(`INSERT INTO proformas(code, project_id, kind, amount, vat_pct, issued_on, due_on, status, note, created_by) VALUES (?,?,?,?,?,?,?,?,?,?)`)
         .run(nextCode(db, 'PF'), projectId, 'advance', advAmount, Number(setting(db, 'vat_pct', '20')), signDate,

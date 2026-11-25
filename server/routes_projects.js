@@ -1,7 +1,8 @@
 // Договори + Картон на обекта (core view) + engine visibility, notifications, search.
 import { tx, nextCode } from './db.js';
-import { HttpError, bad, need, can, needProject, canSeeProject, scopeRows, canSeeMoney, redactMoney, audit, updateRow, emit, reindex, resolveApproval } from './core.js';
-import { signContract, newContractVersion, setStage, deriveProjectStatus, syncProjectStatus } from './domain.js';
+import { HttpError, bad, need, can, needProject, canSeeProject, scopeRows, canSeeMoney, redactMoney, audit, updateRow, emit, reindex, resolveApproval, setting } from './core.js';
+import { milestones, grossOf } from './payments.js';
+import { signContract, advancePct, newContractVersion, setStage, deriveProjectStatus, syncProjectStatus } from './domain.js';
 import { progressSummary, finance } from './calc.js';
 import { h, pick } from './app.js';
 import { refreshProject, weatherView } from './weather.js';
@@ -16,19 +17,22 @@ export default function mountProjects(app, db) {
     c.versions = db.prepare(`SELECT v.id, v.version, v.reason, v.total_value, v.amendment_id, v.created_at, u.full_name AS approved_by_name
       FROM contract_versions v LEFT JOIN users u ON u.id = v.approved_by WHERE v.contract_id = ? ORDER BY v.version`).all(c.id);
     c.appendices = db.prepare('SELECT * FROM contract_appendices WHERE contract_id = ? AND contract_version = ? ORDER BY number').all(c.id, c.active_version ?? 0);
-    c.payments = db.prepare('SELECT * FROM contract_payments WHERE contract_id = ? ORDER BY CASE kind WHEN \'advance\' THEN 1 WHEN \'interim\' THEN 2 ELSE 3 END').all(c.id);
+    c.payments = milestones(db, c.id);
     // §14.3: final deadline is computed, never typed — advance paid + production/delivery + install days
     const adv = c.payments.find(p => p.kind === 'advance');
     c.advance_paid_at = adv?.paid_at || null;
+    // a contract without an advance runs from its signing; with one, from the day the advance is complete in the ledger
+    c.deadline_start = c.advance_paid_at || (c.status === 'signed' && adv && adv.gross === 0 ? c.signed_on : null);
+    c.unmatched_paid_at = c.payments.filter(p => p.unmatched_date).map(p => ({ kind: p.kind, date: p.unmatched_date }));
     const days = (a, n) => new Date(Date.parse(a) + Math.round(Number(n)) * 86400000).toISOString().slice(0, 10);
-    c.final_deadline = c.advance_paid_at && c.prod_delivery_days != null && c.install_days != null
-      ? days(days(c.advance_paid_at, c.prod_delivery_days), c.install_days) : null;
+    c.final_deadline = c.deadline_start && c.prod_delivery_days != null && c.install_days != null
+      ? days(days(c.deadline_start, c.prod_delivery_days), c.install_days) : null;
     // §14.3: delivery deadline anchors to the real advance payment once paid; before that the typed date is only a forecast.
     // Once the advance is real, a missing production term means "not specified yet" — the stale typed date must not pose as a forecast.
-    c.delivery_due = c.advance_paid_at
-      ? (c.prod_delivery_days != null ? days(c.advance_paid_at, c.prod_delivery_days) : null)
+    c.delivery_due = c.deadline_start
+      ? (c.prod_delivery_days != null ? days(c.deadline_start, c.prod_delivery_days) : null)
       : c.delivery_deadline;
-    c.delivery_due_real = !!(c.advance_paid_at && c.prod_delivery_days != null);
+    c.delivery_due_real = !!(c.deadline_start && c.prod_delivery_days != null);
     c.total = progressSummary(db, projectId).contract_value;
     return c;
   };
@@ -54,6 +58,7 @@ export default function mountProjects(app, db) {
       throw bad('Договорът вече е изпратен за одобрение. Променя се само след връщане или с анекс. Дневните срокове се уточняват и след подпис.');
     if (f.contract_kind !== undefined && f.contract_kind != null && !['standard', 'client_template'].includes(f.contract_kind)) throw bad('Невалиден вид договор');
     for (const k of ['prod_delivery_days', 'install_days']) if (f[k] !== undefined && f[k] != null && f[k] !== '') { const n = Number(f[k]); if (!Number.isFinite(n) || n < 0) throw bad('Невалиден срок в дни'); f[k] = n; } else if (f[k] === '') f[k] = null;
+    if (f.advance_pct !== undefined) { if (f.advance_pct === null) f.advance_set = 0; else f.advance_set = 1; f.advance_pct = f.advance_pct === null ? 0 : advancePct(f.advance_pct); }
     const s = f.install_start ?? c.install_start, e = f.install_deadline ?? c.install_deadline;
     if (s && e && e < s) throw bad('Крайният срок е преди началото на монтажа');
     updateRow(db, 'contracts', c.id, f, req.body?.row_version);
@@ -72,6 +77,8 @@ export default function mountProjects(app, db) {
       if (action === 'submit') {
         need(req.user, 'contracts', 'write');
         if (c.status !== 'draft') throw bad('Договорът не е в статус „проект“');
+        if (req.body?.advance_pct !== undefined) { c.advance_pct = advancePct(req.body.advance_pct); c.advance_set = 1; db.prepare('UPDATE contracts SET advance_pct = ?, advance_set = 1 WHERE id = ?').run(c.advance_pct, c.id); }
+        if (!c.advance_set) advancePct(null);
         db.prepare("UPDATE contracts SET status = 'review', row_version = row_version + 1 WHERE id = ?").run(c.id);
         setStage(db, pid, 'contract_generation', 'done', req.user); setStage(db, pid, 'contract_approval', 'active');
         emit(db, req.user, { type: 'contract.submitted', origin: 'contracts', project_id: pid, entity_type: 'contract', entity_id: c.id, dedupe_key: `contract.submitted:${c.id}:${c.row_version}`,
@@ -104,19 +111,17 @@ export default function mountProjects(app, db) {
     if (!c) throw new HttpError(404, 'Няма договор');
     const b = req.body || {};
     if (!['advance', 'interim', 'final'].includes(b.kind)) throw bad('Видът плащане е advance, interim или final');
+    if (b.paid_at != null && b.paid_at !== '') throw bad('Датата идва от самото плащане — използвайте „Запиши плащане“');
     const num = v => v == null || v === '' ? null : Number(v);
-    for (const k of ['pct', 'amount']) if (num(b[k]) != null && !Number.isFinite(num(b[k]))) throw bad('Невалидна стойност');
-    const paid_at = b.paid_at == null || b.paid_at === '' ? null : String(b.paid_at);
-    if (paid_at && !/^\d{4}-\d{2}-\d{2}$/.test(paid_at)) throw bad('Невалидна дата на плащане');
+    for (const k of ['pct', 'amount']) if (num(b[k]) != null && !(Number.isFinite(num(b[k])) && num(b[k]) >= 0)) throw bad('Невалидна стойност');
     const before = db.prepare('SELECT * FROM contract_payments WHERE contract_id = ? AND kind = ?').get(c.id, b.kind);
-    db.prepare(`INSERT INTO contract_payments(contract_id, kind, pct, amount, paid_at, note) VALUES (?,?,?,?,?,?)
-      ON CONFLICT(contract_id, kind) DO UPDATE SET pct = excluded.pct, amount = excluded.amount, paid_at = excluded.paid_at,
-      note = excluded.note, updated_at = datetime('now')`).run(c.id, b.kind, num(b.pct), num(b.amount), paid_at, b.note || null);
-    audit(db, req.user, { project_id: pid, entity_type: 'contract', entity_id: c.id, action: 'payment', before: before ? pick(before, ['kind', 'pct', 'amount', 'paid_at']) : null,
-      after: { kind: b.kind, pct: num(b.pct), amount: num(b.amount), paid_at }, module: 'contracts' });
-    if (paid_at && paid_at !== before?.paid_at)
-      emit(db, req.user, { type: 'contract.payment_recorded', origin: 'contracts', project_id: pid, entity_type: 'contract', entity_id: c.id,
-        dedupe_key: `contract.payment:${c.id}:${b.kind}:${paid_at}`, next: { kind: b.kind, amount: num(b.amount), paid_at }, affected: ['accounting', 'management', 'technical'] });
+    const keep = (k, v) => b[k] === undefined ? before?.[k] ?? null : v;
+    const vat = before?.vat_pct ?? Number(setting(db, 'vat_pct', '20')), amount = keep('amount', num(b.amount));
+    db.prepare(`INSERT INTO contract_payments(contract_id, kind, pct, amount, vat_pct, gross, note) VALUES (?,?,?,?,?,?,?)
+      ON CONFLICT(contract_id, kind) DO UPDATE SET pct = excluded.pct, amount = excluded.amount, vat_pct = excluded.vat_pct, gross = excluded.gross,
+      note = excluded.note, updated_at = datetime('now')`).run(c.id, b.kind, keep('pct', num(b.pct)), amount, vat, amount == null ? null : amount === before?.amount && before.gross != null ? before.gross : grossOf(amount, vat), keep('note', b.note || null));
+    audit(db, req.user, { project_id: pid, entity_type: 'contract', entity_id: c.id, action: 'payment_plan', before: before ? pick(before, ['kind', 'pct', 'amount']) : null,
+      after: { kind: b.kind, pct: keep('pct', num(b.pct)), amount }, module: 'contracts' });
     return contractView(pid);
   })));
 
@@ -126,7 +131,7 @@ export default function mountProjects(app, db) {
     need(req.user, 'projects');
     const rows = db.prepare(`SELECT p.id, p.code, p.name, p.status, p.actual_start, c.name AS customer_name,
         ct.status AS contract_status, ct.signed_on, ct.install_start, ct.install_deadline,
-        (SELECT cp.paid_at FROM contract_payments cp WHERE cp.contract_id = ct.id AND cp.kind = 'advance') AS advance_paid_at,
+        ct.id AS contract_id,
         (SELECT COUNT(*) FROM progress_entries e WHERE e.project_id = p.id AND e.voided = 0) AS entries
       FROM projects p JOIN customers c ON c.id = p.customer_id LEFT JOIN contracts ct ON ct.project_id = p.id
       WHERE p.archived = 0 AND p.status NOT IN ('closed', 'completed', 'on_hold')`).all()
@@ -134,7 +139,7 @@ export default function mountProjects(app, db) {
       .map(p => ({ ...p, progress_pct: progressSummary(db, p.id).progress_pct }));
     const negotiating = rows.filter(p => p.contract_status !== 'signed');
     const upcoming = rows.filter(p => p.contract_status === 'signed' && !p.actual_start && p.status !== 'execution')
-      .map(p => ({ ...p, awaiting_advance: !p.advance_paid_at }));
+      .map(p => { const adv = milestones(db, p.contract_id).find(m => m.kind === 'advance'); return { ...p, advance_paid_at: adv?.paid_at ?? null, awaiting_advance: !adv || (adv.gross !== 0 && !adv.paid_at) }; });
     const executing = rows.filter(p => p.contract_status === 'signed' && (p.actual_start || p.status === 'execution' || p.entries > 0));
     return { negotiating, upcoming, executing };
   }));

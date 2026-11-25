@@ -4,6 +4,7 @@
 import { can, need, HttpError, bad } from './core.js';
 import { h } from './app.js';
 import { finance, stock } from './calc.js';
+import { proformaOpenSql } from './payments.js';
 
 const ageH = col => `CAST((julianday('now') - julianday(${col}))*24.0 AS INTEGER)`;
 const parseTs = s => { if (!s) return null; const str = String(s); const norm = str.includes('T') ? str : str.includes(' ') ? str.replace(' ', 'T') + 'Z' : str + 'T00:00:00Z'; const t = Date.parse(norm); return isNaN(t) ? null : t; };
@@ -52,14 +53,14 @@ const DWELL = {
       NULL AS resolved_at, '/accounting' AS link
       FROM payment_requests pr LEFT JOIN projects p ON p.id = pr.project_id`,
     where: `pr.status = 'pending'` },
-  proforma: { label: 'Проформа', pending: `f.status = 'issued'`, since: 'f.due_on', pcol: 'f.project_id',
+  proforma: { label: 'Проформа', pending: proformaOpenSql('f'), since: 'f.due_on', pcol: 'f.project_id',
     sql: `SELECT f.id, f.code AS ref, f.kind AS what, f.project_id, p.code AS pcode, f.status,
       f.due_on AS since, ${ageH('f.due_on')} AS age_h, f.due_on, 'Счетоводство' AS dept,
       (SELECT COUNT(*) FROM reminders_log r WHERE r.entity_type = 'proforma' AND r.entity_id = f.id) AS reminders,
       (SELECT MAX(r.created_at) FROM reminders_log r WHERE r.entity_type = 'proforma' AND r.entity_id = f.id) AS last_reminder,
       NULL AS resolved_at, '/accounting' AS link
       FROM proformas f JOIN projects p ON p.id = f.project_id`,
-    where: `f.status = 'issued' AND f.due_on < date('now')` },
+    where: `${proformaOpenSql('f')} AND f.due_on < date('now')` },
   issue: { label: 'Проблем', pending: `i.status = 'open'`, since: 'i.created_at', pcol: 'i.project_id',
     sql: `SELECT i.id, i.code AS ref, i.title AS what, i.project_id, p.code AS pcode, i.status,
       i.created_at AS since, ${ageH('i.created_at')} AS age_h, i.severity AS due, d.name AS dept,
@@ -183,7 +184,7 @@ function runExceptions(db, q) {
     push('Закъсняла доставка', d.code, d.kind, d.pcode, 'Логистика', d.planned_date, '/logistics');
   for (const m of db.prepare(`SELECT m.*, p.code AS pcode FROM material_requests m JOIN projects p ON p.id = m.project_id WHERE m.status = 'submitted'`).all())
     push('Заявка за материали', m.code, m.status, m.pcode, 'Склад', m.created_at, '/warehouse');
-  for (const f of db.prepare(`SELECT f.*, p.code AS pcode FROM proformas f JOIN projects p ON p.id = f.project_id WHERE f.status = 'issued' AND f.due_on < date('now')`).all())
+  for (const f of db.prepare(`SELECT f.*, p.code AS pcode FROM proformas f JOIN projects p ON p.id = f.project_id WHERE ${proformaOpenSql('f')} AND f.due_on < date('now')`).all())
     push('Проформа с изтекъл падеж', f.code, f.kind, f.pcode, 'Счетоводство', f.due_on, '/accounting');
   for (const p of db.prepare(`SELECT id, code, name, created_at FROM projects WHERE status = 'contract_pending' AND archived = 0 AND created_at < datetime('now', ?)`).all(`-${minH} hours`))
     push('Обект чака договор', p.code, p.name, null, 'Договори', p.created_at, `/projects/${p.id}`);

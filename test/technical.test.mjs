@@ -13,7 +13,7 @@ async function signedProject(t, dates = { install_start: '2026-01-05', install_d
   const c0 = (await t.admin.get(`/api/projects/${p.id}/contract`)).data;
   const upd = await t.admin.patch(`/api/projects/${p.id}/contract`, { ...dates, row_version: c0.row_version });
   assert.equal(upd.status, 200);
-  await t.admin.post(`/api/projects/${p.id}/contract/submit`);
+  await t.admin.post(`/api/projects/${p.id}/contract/submit`, { advance_pct: 50 });
   await t.admin.post(`/api/projects/${p.id}/contract/approve`);
   const sign = await t.admin.post(`/api/projects/${p.id}/contract/sign`, { signed_on: '2025-12-29' });
   assert.equal(sign.status, 200);
@@ -188,7 +188,7 @@ test('Technical: schedule gate — free-text work lines land on the schedule, pr
     const p = (await t.admin.get('/api/projects')).data[0];
     const c0 = (await t.admin.get(`/api/projects/${p.id}/contract`)).data;
     await t.admin.patch(`/api/projects/${p.id}/contract`, { install_start: '2026-12-01', install_deadline: '2026-12-31', row_version: c0.row_version });
-    await t.admin.post(`/api/projects/${p.id}/contract/submit`);
+    await t.admin.post(`/api/projects/${p.id}/contract/submit`, { advance_pct: 50 });
     await t.admin.post(`/api/projects/${p.id}/contract/approve`);
     await t.admin.post(`/api/projects/${p.id}/contract/sign`, { signed_on: '2026-11-15' });
     t.sync();

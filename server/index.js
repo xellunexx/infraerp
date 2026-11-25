@@ -9,6 +9,7 @@ import mountPrint from './print.js';
 import mountExport from './export.js';
 import mountTechnical from './routes_technical.js';
 import mountAccounting from './routes_accounting.js';
+import mountPayments from './routes_payments.js';
 import mountLogistics from './routes_logistics.js';
 import mountBrigade from './routes_brigade.js';
 import mountManagement from './routes_management.js';
@@ -20,7 +21,7 @@ import { startReminderWorker } from './reminders.js';
 import { startBackupWorker } from './backup.js';
 import { syncProjectStatus } from './domain.js';
 
-export const ROUTES = [mountOffers, mountProjects, mountTechnical, mountAccounting, mountLogistics, mountBrigade, mountManagement, mountCatalog, mountChangeRequests, mountWarehouse, mountReports, mountPrint, mountExport];
+export const ROUTES = [mountOffers, mountProjects, mountTechnical, mountAccounting, mountPayments, mountLogistics, mountBrigade, mountManagement, mountCatalog, mountChangeRequests, mountWarehouse, mountReports, mountPrint, mountExport];
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.dirname, 'index.js')) {
   const db = openDb(path.join(DATA_DIR, 'synchro.db'));
   const app = createApp(db, ROUTES);

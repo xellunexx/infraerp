@@ -16,9 +16,10 @@ async function world(t) {
   const other = t.db.prepare('SELECT MAX(id) i FROM projects').get().i;
   await a.patch(`/api/projects/${mine}`, { brigadier_id: t.db.prepare("SELECT id FROM users WHERE username = 'brigadier'").get().id });
   for (const p of [mine, other]) {
-    await a.post(`/api/projects/${p}/contract/submit`); await a.post(`/api/projects/${p}/contract/approve`);
+    await a.post(`/api/projects/${p}/contract/submit`, { advance_pct: 50 }); await a.post(`/api/projects/${p}/contract/approve`);
     await a.post(`/api/projects/${p}/contract/sign`, { signed_on: '2026-11-20', install_start: '2026-12-01', install_deadline: '2026-12-20' });
-    await R.logistics.post('/api/supplier-orders', { project_id: p, supplier: 'VINCI', total_eur: 10000, advance_eur: 4000, advance_paid_at: '2026-11-15', prod_days: 30, transport_days: 7 });
+    const so = (await R.logistics.post('/api/supplier-orders', { project_id: p, supplier: 'VINCI', total_eur: 10000, advance_eur: 4000, prod_days: 30, transport_days: 7 })).data;
+    await a.post(`/api/supplier-orders/${so.id}/payments`, { stage: 'advance', amount: 4000, tx_date: '2026-11-15' });
     await a.post(`/api/projects/${p}/material-requests`, { items: [{ product_id: s.tile.id, qty: 1 }] });
     await a.post('/api/warehouse/movements', { product_id: s.tile.id, kind: 'issue', qty: 1, project_id: p });
   }
@@ -55,7 +56,7 @@ test('scope: brigadier lists never contain another project; foreign writes are r
     const ver = t.db.prepare('SELECT v.id FROM contract_versions v JOIN contracts c ON c.id = v.contract_id WHERE c.project_id = ?').get(other).id;
     assert.equal((await b.get(`/api/contract-versions/${ver}`)).status, 403);
     assert.equal((await b.patch(`/api/projects/${other}/contract`, { install_days: 1 })).status, 403);
-    assert.equal((await b.post(`/api/projects/${other}/contract/submit`)).status, 403);
+    assert.equal((await b.post(`/api/projects/${other}/contract/submit`, { advance_pct: 50 })).status, 403);
     assert.equal((await b.post(`/api/projects/${other}/contract/sign`, {})).status, 403);
     assert.equal((await b.put(`/api/projects/${other}/contract/payments`, { kind: 'interim', pct: 1 })).status, 403);
     assert.equal((await b.patch(`/api/projects/${other}`, { name: 'x' })).status, 403);

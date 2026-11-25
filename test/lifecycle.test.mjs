@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import { start, seedOffer } from './helpers.mjs';
 
 /** offer -> confirm -> contract draft -> submit -> approve -> sign. */
+const payAdvance = async (t, pid, tx_date) => { const m = (await t.admin.get(`/api/projects/${pid}/contract`)).data.payments[0];
+  return t.admin.post(`/api/projects/${pid}/payments`, { amount: m.gross, tx_date, contract_payment_id: m.id }); };
 async function signedProject(t, extra = {}) {
   const s = await seedOffer(t);
   const conf = await t.admin.post(`/api/offers/${s.offer.id}/confirm`);
@@ -13,7 +15,7 @@ async function signedProject(t, extra = {}) {
   const c0 = (await t.admin.get(`/api/projects/${p.id}/contract`)).data;
   const upd = await t.admin.patch(`/api/projects/${p.id}/contract`, { install_start: '2026-01-05', install_deadline: '2026-12-20', delivery_deadline: '2025-12-28', row_version: c0.row_version, ...extra });
   assert.equal(upd.status, 200);
-  await t.admin.post(`/api/projects/${p.id}/contract/submit`);
+  await t.admin.post(`/api/projects/${p.id}/contract/submit`, { advance_pct: 50 });
   await t.admin.post(`/api/projects/${p.id}/contract/approve`);
   const sign = await t.admin.post(`/api/projects/${p.id}/contract/sign`, { signed_on: '2025-12-29' });
   assert.equal(sign.status, 200);
@@ -36,7 +38,7 @@ test('lifecycle: status derives from stages — preparation -> execution -> comp
     // drive the contract through to signed
     const c0 = (await t.admin.get(`/api/projects/${p.id}/contract`)).data;
     await t.admin.patch(`/api/projects/${p.id}/contract`, { install_start: '2026-01-05', install_deadline: '2026-12-20', delivery_deadline: '2025-12-28', row_version: c0.row_version });
-    await t.admin.post(`/api/projects/${p.id}/contract/submit`);
+    await t.admin.post(`/api/projects/${p.id}/contract/submit`, { advance_pct: 50 });
     await t.admin.post(`/api/projects/${p.id}/contract/approve`);
     await t.admin.post(`/api/projects/${p.id}/contract/sign`, { signed_on: '2025-12-29' });
     t.sync();
@@ -146,7 +148,7 @@ test('contract calendar: delivery deadline anchors to the real advance payment',
     const { project } = await signedProject(t, { prod_delivery_days: 30, install_days: 10 });
     const pid = project.id;
     // typed delivery_deadline (2025-12-28) predates the real advance pay date -> confused order before the fix
-    const pay = await t.admin.put(`/api/projects/${pid}/contract/payments`, { kind: 'advance', paid_at: '2026-01-10' });
+    const pay = await payAdvance(t, pid, '2026-01-10');
     assert.equal(pay.status, 200, JSON.stringify(pay.data));
     const c = (await t.admin.get(`/api/projects/${pid}/contract`)).data;
     assert.equal(c.advance_paid_at, '2026-01-10');
@@ -162,7 +164,7 @@ test('contract calendar: post-signing production days are enterable; missing day
   try {
     const { project } = await signedProject(t); // срок за производство не е уточнен — идва след потвърждение от доставчик
     const pid = project.id;
-    const pay = await t.admin.put(`/api/projects/${pid}/contract/payments`, { kind: 'advance', paid_at: '2026-01-10' });
+    const pay = await payAdvance(t, pid, '2026-01-10');
     assert.equal(pay.status, 200);
 
     // авансът е реален, дните липсват -> въведеният преди подписа срок не може да позира като прогноза
@@ -192,7 +194,7 @@ test('contract sign collects the install window agreed at signing; papered dates
     await t.admin.post(`/api/offers/${s.offer.id}/confirm`);
     t.sync();
     const p = (await t.admin.get('/api/projects')).data[0];
-    await t.admin.post(`/api/projects/${p.id}/contract/submit`);
+    await t.admin.post(`/api/projects/${p.id}/contract/submit`, { advance_pct: 50 });
     await t.admin.post(`/api/projects/${p.id}/contract/approve`);
     // одобрен договор без монтажен прозорец — а датите са заключени след чернова:
     // актът на подписване събира ги сам, не изисква ги предварително

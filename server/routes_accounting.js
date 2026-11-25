@@ -2,6 +2,8 @@
 import crypto from 'node:crypto';
 import { tx, nextCode } from './db.js';
 import { HttpError, bad, need, can, canSeeProject, scopeRows, redactMoney, audit, updateRow, emit, notify, on, setting, resolveApproval } from './core.js';
+import { documentState, proformaState, orderDates, similarPayments, vatInside } from './payments.js';
+import { recordPayment, paymentAmount, bankDate } from './routes_payments.js';
 import { finance, personCard, supplierOrderView, round2 } from './calc.js';
 import { h, pick, num, reqStr } from './app.js';
 
@@ -38,7 +40,9 @@ export default function mountAccounting(app, db) {
     LEFT JOIN accountable_persons ap ON ap.id = t.person_id LEFT JOIN cost_centers cc ON cc.id = t.cost_center_id
     LEFT JOIN assets ast ON ast.id = t.asset_id LEFT JOIN transactions d ON d.id = t.document_id`;
   // open balance lives on document rows: what the invoice is still owed after its settlement rows
-  const withOpen = t => t ? { ...t, open_amount: t.document_id == null ? round2(Math.max(0, t.amount - (t.paid_sum || 0))) : null } : t;
+  const withOpen = t => t ? { ...t, open_amount: t.document_id != null || t.status === 'voided' || t.status === 'reported' ? null : t.paid_sum ? round2(Math.max(0, t.amount - t.paid_sum)) : t.status === 'paid' ? 0 : t.amount } : t;
+  const pfView = f => f ? { ...f, ...proformaState(db, f) } : f;
+  const soOut = o => supplierOrderView(o, orderDates(db, o));
   const prView = `SELECT r.*, p.code AS project_code, p.name AS project_name, c.name AS customer_name, u.full_name AS requested_by_name,
       a.decided_by AS approval_decided_by, du.full_name AS decided_by_name, a.decision_note AS approval_note
     FROM payment_requests r LEFT JOIN projects p ON p.id = r.project_id LEFT JOIN customers c ON c.id = p.customer_id
@@ -67,7 +71,7 @@ export default function mountAccounting(app, db) {
     const pid = Number(req.params.pid);
     const w = [pid];
     return { ...finance(db, pid),
-      proformas: db.prepare(`${proformaView} WHERE f.project_id = ? ORDER BY f.id DESC`).all(...w),
+      proformas: db.prepare(`${proformaView} WHERE f.project_id = ? ORDER BY f.id DESC`).all(...w).map(pfView),
       transactions: db.prepare(`${txView} WHERE t.project_id = ? ORDER BY t.tx_date DESC, t.id DESC`).all(...w).map(withOpen),
       payment_requests: db.prepare(`${prView} WHERE r.project_id = ? ORDER BY r.id DESC`).all(...w),
       accommodations: db.prepare(`${accoView} WHERE a.project_id = ? ORDER BY a.id DESC`).all(...w) };
@@ -77,7 +81,7 @@ export default function mountAccounting(app, db) {
   app.get('/api/proformas', h(req => {
     need(req.user, 'finance');
     const w = wherePid(req, 'f.project_id');
-    return scopeRows(db, req.user, db.prepare(`${proformaView}${w ? ' WHERE ' + w : ''} ORDER BY f.id DESC`).all(...(w ? [Number(req.query.project_id)] : [])));
+    return scopeRows(db, req.user, db.prepare(`${proformaView}${w ? ' WHERE ' + w : ''} ORDER BY f.id DESC`).all(...(w ? [Number(req.query.project_id)] : []))).map(pfView);
   }));
   app.post('/api/proformas', h(req => tx(db, () => {
     need(req.user, 'finance', 'write');
@@ -98,54 +102,35 @@ export default function mountAccounting(app, db) {
     audit(db, req.user, { project_id: pid, entity_type: 'proforma', entity_id: id, action: 'issue', after: { code: f.code, amount, kind }, module: 'accounting' });
     emit(db, req.user, { type: 'proforma.issued', origin: 'accounting', project_id: pid, entity_type: 'proforma', entity_id: id,
       dedupe_key: `proforma.issued:${id}`, next: { code: f.code, amount, kind }, affected: ['accounting', 'management'] });
-    return db.prepare(`${proformaView} WHERE f.id = ?`).get(id);
+    return pfView(db.prepare(`${proformaView} WHERE f.id = ?`).get(id));
   })));
   app.post('/api/proformas/:id/:action', h(req => tx(db, () => {
     need(req.user, 'finance', 'write');
     const pf = db.prepare('SELECT * FROM proformas WHERE id = ?').get(Number(req.params.id));
     if (!pf) throw new HttpError(404, 'Няма такава проформа');
     needProjectGuard(req.user, pf.project_id);
-    const action = req.params.action;
+    const action = req.params.action, state = proformaState(db, pf);
     if (action === 'cancel') {
-      if (pf.status !== 'issued') throw bad(pf.status === 'paid' ? 'Платена проформа не се отменя' : 'Проформата вече е отменена');
+      if (state.status === 'cancelled') throw bad('Проформата вече е отменена');
+      if (db.prepare("SELECT 1 FROM transactions WHERE proforma_id = ? AND status IN ('paid', 'reported')").get(pf.id)) throw bad('По проформата има плащане — не се отменя');
       db.prepare("UPDATE proformas SET status = 'cancelled', row_version = row_version + 1 WHERE id = ?").run(pf.id);
       audit(db, req.user, { project_id: pf.project_id, entity_type: 'proforma', entity_id: pf.id, action: 'cancel', before: { status: pf.status }, after: { status: 'cancelled' }, module: 'accounting' });
       emit(db, req.user, { type: 'proforma.cancelled', origin: 'accounting', project_id: pf.project_id, entity_type: 'proforma', entity_id: pf.id,
         dedupe_key: `proforma.cancelled:${pf.id}:${pf.row_version}`, prev: { status: 'issued' }, next: { status: 'cancelled' }, affected: ['accounting'] });
-      return db.prepare(`${proformaView} WHERE f.id = ?`).get(pf.id);
+      return pfView(db.prepare(`${proformaView} WHERE f.id = ?`).get(pf.id));
     }
     if (action !== 'paid') throw bad('Непозната операция');
-    if (pf.status === 'cancelled') throw bad('Отменена проформа не може да бъде платена');
-    const existing = db.prepare('SELECT * FROM transactions WHERE proforma_id = ?').get(pf.id);
-    if (existing) {
-      if (pf.status !== 'paid') db.prepare("UPDATE proformas SET status = 'paid', row_version = row_version + 1 WHERE id = ?").run(pf.id);
-      return { proforma: db.prepare(`${proformaView} WHERE f.id = ?`).get(pf.id), transaction: db.prepare(`${txView} WHERE t.id = ?`).get(existing.id), deduped: true };
-    }
-    if (pf.status !== 'issued') throw bad('Проформата вече е платена');
+    if (state.status === 'cancelled') throw bad('Отменена проформа не може да бъде платена');
+    const out = (row, deduped) => ({ proforma: pfView(db.prepare(`${proformaView} WHERE f.id = ?`).get(pf.id)), transaction: withOpen(db.prepare(`${txView} WHERE t.id = ?`).get(row.id)), deduped });
+    if (state.status === 'paid') return out(db.prepare("SELECT id FROM transactions WHERE proforma_id = ? AND status = 'paid' ORDER BY id DESC").get(pf.id), true);
+    const b = req.body || {}, tx_date = bankDate(b.paid_at), amount = b.amount == null || b.amount === '' ? round2(state.gross - state.paid) : paymentAmount(b.amount);
     const cust = db.prepare('SELECT c.name FROM customers c JOIN projects p ON p.customer_id = c.id WHERE p.id = ?').get(pf.project_id);
-    const tid = Number(db.prepare(`INSERT INTO transactions(code, uid, project_id, direction, category, amount, status, tx_date, counterparty, document_ref, proforma_id, created_by)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
-      .run(nextCode(db, 'TXN'), crypto.randomUUID(), pf.project_id, 'in', pf.kind, pf.amount, 'paid', today(), cust?.name || null, pf.code, pf.id, req.user.id).lastInsertRowid);
-    db.prepare("UPDATE proformas SET status = 'paid', row_version = row_version + 1 WHERE id = ?").run(pf.id);
-    // Платена проформа по етап (аванс/междинно/окончателно) маркира съответния ред на разплащателния
-    // график — когато платеното по вида стигне сумата на етапа. Авансът от тук стартира крайния срок.
-    if (['advance', 'interim', 'final'].includes(pf.kind)) {
-      const cn = db.prepare('SELECT id FROM contracts WHERE project_id = ?').get(pf.project_id);
-      const ms = cn && db.prepare('SELECT * FROM contract_payments WHERE contract_id = ? AND kind = ?').get(cn.id, pf.kind);
-      if (cn && (!ms || !ms.paid_at)) {
-        const paidSum = db.prepare("SELECT COALESCE(SUM(amount), 0) s FROM proformas WHERE project_id = ? AND kind = ? AND status = 'paid'").get(pf.project_id, pf.kind).s;
-        if (!ms || ms.amount == null || paidSum >= ms.amount - 0.005) {
-          db.prepare(`INSERT INTO contract_payments(contract_id, kind, paid_at) VALUES (?,?,?)
-            ON CONFLICT(contract_id, kind) DO UPDATE SET paid_at = excluded.paid_at, updated_at = datetime('now')`).run(cn.id, pf.kind, today());
-          emit(db, req.user, { type: 'contract.payment_recorded', origin: 'contracts', project_id: pf.project_id, entity_type: 'contract', entity_id: cn.id,
-            dedupe_key: `contract.payment:${cn.id}:${pf.kind}:${today()}`, next: { kind: pf.kind, amount: pf.amount, paid_at: today() }, affected: ['accounting', 'management', 'technical'] });
-        }
-      }
-    }
-    audit(db, req.user, { project_id: pf.project_id, entity_type: 'proforma', entity_id: pf.id, action: 'paid', before: { status: 'issued' }, after: { status: 'paid', transaction_id: tid }, module: 'accounting' });
-    emit(db, req.user, { type: 'proforma.paid', origin: 'accounting', project_id: pf.project_id, entity_type: 'proforma', entity_id: pf.id,
-      dedupe_key: `proforma.paid:${pf.id}`, prev: { status: 'issued' }, next: { status: 'paid', amount: pf.amount }, affected: ['accounting'] });
-    return { proforma: db.prepare(`${proformaView} WHERE f.id = ?`).get(pf.id), transaction: db.prepare(`${txView} WHERE t.id = ?`).get(tid), deduped: false };
+    const r = recordPayment(db, req.user, { project_id: pf.project_id, direction: 'in', status: 'paid', uid: b.uid, amount, tx_date, separate: b.separate === true, proforma: pf, vat_pct: pf.vat_pct,
+      category: pf.kind, counterparty: cust?.name, document_ref: pf.code });
+    audit(db, req.user, { project_id: pf.project_id, entity_type: 'proforma', entity_id: pf.id, action: 'paid', before: { paid: state.paid }, after: { transaction_id: r.payment.id, amount }, module: 'accounting' });
+    if (proformaState(db, pf).status === 'paid') emit(db, req.user, { type: 'proforma.paid', origin: 'accounting', project_id: pf.project_id, entity_type: 'proforma', entity_id: pf.id,
+      dedupe_key: `proforma.paid:${pf.id}:${r.payment.id}`, prev: { status: 'issued' }, next: { status: 'paid', amount: pf.amount }, affected: ['accounting'] });
+    return out(r.payment, r.deduped);
   })));
 
   // ---- Транзакции (приходи и разходи)
@@ -175,13 +160,15 @@ export default function mountAccounting(app, db) {
     need(req.user, 'finance');
     const { sql, args } = txFilters(req);
     const rows = scopeRows(db, req.user, db.prepare(`${txView}${sql} ORDER BY t.tx_date DESC, t.id DESC`).all(...args)).map(withOpen);
-    const live = rows.filter(t => t.status !== 'voided');
-    const totals = { in: round2(live.filter(t => t.direction === 'in' && t.status === 'paid').reduce((s, t) => s + t.amount, 0)),
-      out: round2(live.filter(t => t.direction === 'out' && t.status === 'paid').reduce((s, t) => s + t.amount, 0)),
+    // a document with payments is represented by them; planned and reported rows are not owed yet
+    const live = rows.filter(t => !['voided', 'planned', 'reported'].includes(t.status)).map(t => t.document_id == null && t.paid_sum ? { ...t, represented: true } : t);
+    const moved = live.filter(t => t.status === 'paid' && !t.represented);
+    const totals = { in: round2(moved.filter(t => t.direction === 'in').reduce((s, t) => s + t.amount, 0)),
+      out: round2(moved.filter(t => t.direction === 'out').reduce((s, t) => s + t.amount, 0)),
       open_in: round2(live.filter(t => t.direction === 'in' && t.open_amount > 0).reduce((s, t) => s + t.open_amount, 0)),
       open_out: round2(live.filter(t => t.direction === 'out' && t.open_amount > 0).reduce((s, t) => s + t.open_amount, 0)) };
     const by_company = {};
-    for (const t of live.filter(t => t.status === 'paid')) {
+    for (const t of moved) {
       const k = t.company || '—';
       by_company[k] = by_company[k] || { in: 0, out: 0 };
       by_company[k][t.direction] = round2(by_company[k][t.direction] + t.amount);
@@ -211,7 +198,8 @@ export default function mountAccounting(app, db) {
       if (b.document_id == null || b.document_id === '') f.document_id = null;
       else {
         const doc = db.prepare('SELECT * FROM transactions WHERE id = ?').get(Number(b.document_id));
-        if (!doc || doc.status === 'voided') throw bad('Няма такъв документ за плащане');
+        if (!doc || doc.status === 'voided' || doc.status === 'reported') throw bad('Няма такъв документ за плащане');
+        if (doc.status === 'paid' && !db.prepare("SELECT 1 FROM transactions WHERE document_id = ? AND status = 'paid'").get(doc.id)) throw bad('Документът вече е отбелязан като платен изцяло');
         if (doc.direction !== direction) throw bad('Плащането и документът трябва да са в една посока');
         if (doc.document_id != null) throw bad('Плащане не може да се връзва към друго плащане — изберете документа');
         f.document_id = doc.id;
@@ -238,6 +226,15 @@ export default function mountAccounting(app, db) {
       proformaId = pf.id;
     }
     const ext = txFields(req, b, pid, direction);
+    // a payment typed straight into the ledger against a proforma is the same fact as „Запиши плащане“: same checks, same VAT share
+    if (proformaId != null) {
+      if (direction !== 'in') throw bad('По проформа се записва само приход');
+      const pf = db.prepare('SELECT * FROM proformas WHERE id = ?').get(proformaId);
+      if (pf.status === 'cancelled') throw bad('Отменена проформа не може да бъде платена');
+      if (status === 'paid') { bankDate(b.tx_date); const like = similarPayments(db, { project_id: pf.project_id, direction, amount, tx_date: b.tx_date });
+        if (like.length && b.separate !== true) throw new HttpError(409, 'Има подобно плащане по този обект. Посочете дали е същото или отделно.', { similar: like }); }
+      if (b.has_vat === undefined) { ext.has_vat = 1; ext.vat_amount = vatInside(amount, pf.vat_pct); }
+    }
     const companyDefault = JSON.parse(setting(db, 'finance_companies', '[]'))[0] || null;
     const f = { code: nextCode(db, 'TXN'), uid: crypto.randomUUID(), project_id: pid, direction, category, amount, status,
       tx_date: reqDate(b.tx_date, 'Дата'), due_on: reqDate(b.due_on, 'Срок', { required: false }),
@@ -259,11 +256,20 @@ export default function mountAccounting(app, db) {
     if (!t) throw new HttpError(404, 'Няма такава транзакция');
     needProjectGuard(req.user, t.project_id);
     const b = req.body || {};
+    if (t.status === 'reported') throw bad('Докладвано плащане се решава само с потвърждение или отхвърляне');
     const f = pick(b, ['category', 'amount', 'tx_date', 'due_on', 'counterparty', 'document_ref', 'proforma_id', 'status', 'note']);
     if (f.category !== undefined) f.category = reqStr(f.category, 'Категория');
     if (f.amount !== undefined) f.amount = num(f.amount, 'Сума', { min: 0.000001 });
     for (const k of ['tx_date', 'due_on']) if (f[k] !== undefined) f[k] = reqDate(f[k], k === 'tx_date' ? 'Дата' : 'Срок', { required: k === 'tx_date' });
     if (f.status !== undefined && !TX_STATUSES.includes(f.status)) throw bad('Невалиден статус');
+    const kids = db.prepare("SELECT * FROM transactions WHERE document_id = ? AND status = 'paid'").all(t.id), { settled } = documentState({ ...t, status: 'committed' }, kids);
+    if (kids.length && f.status === 'voided') throw bad('По документа има плащания — първо ги анулирайте');
+    if (kids.length && f.amount !== undefined && f.amount < settled - 0.005) throw bad(`По документа вече е платено ${settled.toFixed(2)}`);
+    // a linked bank payment keeps its VAT share when the amount is corrected, and its date stays a real bank date
+    if (t.proforma_id || t.contract_payment_id || t.supplier_order_id) {
+      if (f.amount !== undefined) { f.amount = paymentAmount(f.amount); if (t.has_vat && b.vat_amount === undefined) f.vat_amount = round2(t.vat_amount * f.amount / t.amount); }
+      if (f.tx_date !== undefined) f.tx_date = bankDate(f.tx_date);
+    }
     if (f.proforma_id !== undefined && f.proforma_id !== null) {
       const pf = db.prepare('SELECT * FROM proformas WHERE id = ?').get(Number(f.proforma_id));
       if (!pf) throw bad('Няма такава проформа');
@@ -271,6 +277,7 @@ export default function mountAccounting(app, db) {
       f.proforma_id = pf.id;
     }
     Object.assign(f, txFields(req, b, t.project_id, t.direction));
+    if (f.document_id != null && kids.length) throw bad('Документ с плащания не може да стане плащане');
     if (f.document_id === t.id) throw bad('Плащането не може да сочи към самия документ');
     updateRow(db, 'transactions', t.id, f, b.row_version);
     audit(db, req.user, { project_id: t.project_id, entity_type: 'transaction', entity_id: t.id, action: 'update', before: pick(t, Object.keys(f)), after: f, module: 'accounting' });
@@ -421,15 +428,16 @@ export default function mountAccounting(app, db) {
   const soView = `SELECT o.*, p.code AS project_code, p.name AS project_name, l.description AS line_description, u.full_name AS created_by_name
     FROM supplier_orders o JOIN projects p ON p.id = o.project_id LEFT JOIN project_lines l ON l.id = o.project_line_id
     LEFT JOIN users u ON u.id = o.created_by`;
-  const soFields = (req, b, { forCreate = false } = {}) => {
+  const soFields = (req, b, { forCreate = false, row = null, pid = row?.project_id } = {}) => {
     const f = {};
     if (forCreate || b.supplier !== undefined) f.supplier = reqStr(b.supplier, 'Доставчик');
     for (const k of ['order_doc_no', 'note']) if (b[k] !== undefined) f[k] = b[k] || null;
     for (const k of ['total_eur', 'advance_eur', 'prod_days', 'transport_days']) if (b[k] !== undefined)
-      f[k] = b[k] == null || b[k] === '' ? (forCreate ? 0 : null) : num(b[k], k === 'total_eur' ? 'Обща стойност' : k === 'advance_eur' ? 'Аванс' : 'Дни', { min: 0 });
-    for (const k of ['advance_paid_at', 'final_paid_at']) if (b[k] !== undefined) f[k] = reqDate(b[k], k === 'advance_paid_at' ? 'Дата на аванс' : 'Дата на доплащане', { required: false });
+      f[k] = b[k] == null || b[k] === '' ? (forCreate ? 0 : k.endsWith('_eur') ? (() => { throw bad('Стойността е задължителна'); })() : null) : num(b[k], k === 'total_eur' ? 'Обща стойност' : k === 'advance_eur' ? 'Аванс' : 'Дни', { min: 0 });
+    if (b.advance_paid_at || b.final_paid_at) throw bad('Датата идва от самото плащане — използвайте „Запиши плащане“ по поръчката');
     if (b.status !== undefined) { if (!SO_MANUAL_STATUSES.includes(b.status)) throw bad('Статусът се извежда сам; ръчно може само „delivered“, „cancelled“ или „ordered“ за връщане към автоматичен'); f.status = b.status; }
-    if (b.project_line_id !== undefined) f.project_line_id = b.project_line_id == null || b.project_line_id === '' ? null : (db.prepare('SELECT id FROM project_lines WHERE id = ?').get(Number(b.project_line_id)) || (() => { throw bad('Няма такъв ред от КС'); })()).id;
+    if (b.project_line_id !== undefined) f.project_line_id = b.project_line_id == null || b.project_line_id === '' ? null : (db.prepare('SELECT id FROM project_lines WHERE id = ? AND project_id = ?').get(Number(b.project_line_id), pid) || (() => { throw bad('Няма такъв ред от КС'); })()).id;
+    if ((f.advance_eur ?? row?.advance_eur ?? 0) > (f.total_eur ?? row?.total_eur ?? 0)) throw bad('Авансът не може да е над общата стойност');
     return f;
   };
   app.get('/api/supplier-orders', h(req => {
@@ -437,7 +445,7 @@ export default function mountAccounting(app, db) {
     const w = [], args = [];
     if (req.query.project_id) { w.push('o.project_id = ?'); args.push(Number(req.query.project_id)); }
     // amounts belong to finance and to those who maintain the orders; other readers follow dates and status only
-    const rows = scopeRows(db, req.user, db.prepare(`${soView}${w.length ? ' WHERE ' + w.join(' AND ') : ''} ORDER BY o.id DESC`).all(...args)).map(o => supplierOrderView(o));
+    const rows = scopeRows(db, req.user, db.prepare(`${soView}${w.length ? ' WHERE ' + w.join(' AND ') : ''} ORDER BY o.id DESC`).all(...args)).map(soOut);
     return can(req.user, 'finance') || can(req.user, 'logistics', 'write') ? rows : redactMoney(rows);
   }));
   app.post('/api/supplier-orders', h(req => tx(db, () => {
@@ -445,28 +453,25 @@ export default function mountAccounting(app, db) {
     const b = req.body || {};
     const pid = optProject(req, b.project_id);
     if (pid == null) throw bad('Обектът е задължителен');
-    const f = soFields(req, b, { forCreate: true });
+    const f = soFields(req, b, { forCreate: true, pid });
     const id = Number(db.prepare(`INSERT INTO supplier_orders(code, project_id, project_line_id, supplier, order_doc_no, total_eur, advance_eur,
-      advance_paid_at, prod_days, final_paid_at, transport_days, status, note, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      prod_days, transport_days, status, note, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
       .run(nextCode(db, 'SO'), pid, f.project_line_id ?? null, f.supplier, f.order_doc_no ?? null, f.total_eur ?? 0, f.advance_eur ?? 0,
-        f.advance_paid_at ?? null, f.prod_days ?? null, f.final_paid_at ?? null, f.transport_days ?? null, 'ordered', f.note ?? null, req.user.id).lastInsertRowid);
+        f.prod_days ?? null, f.transport_days ?? null, 'ordered', f.note ?? null, req.user.id).lastInsertRowid);
     audit(db, req.user, { project_id: pid, entity_type: 'supplier_order', entity_id: id, action: 'create', after: { supplier: f.supplier, total_eur: f.total_eur }, module: 'accounting' });
     emit(db, req.user, { type: 'supplier_order.created', origin: 'accounting', project_id: pid, entity_type: 'supplier_order', entity_id: id,
       dedupe_key: `supplier_order.created:${id}`, next: { supplier: f.supplier, total_eur: f.total_eur }, affected: ['accounting', 'logistics'] });
-    return supplierOrderView(db.prepare(`${soView} WHERE o.id = ?`).get(id));
+    return soOut(db.prepare(`${soView} WHERE o.id = ?`).get(id));
   })));
   app.patch('/api/supplier-orders/:id', h(req => tx(db, () => {
     needSO(req.user, 'write');
     const o = db.prepare('SELECT * FROM supplier_orders WHERE id = ?').get(Number(req.params.id));
     if (!o) throw new HttpError(404, 'Няма такава поръчка');
     needProjectGuard(req.user, o.project_id);
-    const f = soFields(req, req.body || {});
+    const f = soFields(req, req.body || {}, { row: o });
     updateRow(db, 'supplier_orders', o.id, f, req.body?.row_version);
     audit(db, req.user, { project_id: o.project_id, entity_type: 'supplier_order', entity_id: o.id, action: 'update', before: pick(o, Object.keys(f)), after: f, module: 'accounting' });
-    const paidKeys = ['advance_paid_at', 'final_paid_at'].filter(k => f[k]);
-    if (paidKeys.length) emit(db, req.user, { type: 'supplier_order.payment', origin: 'accounting', project_id: o.project_id, entity_type: 'supplier_order', entity_id: o.id,
-      dedupe_key: `supplier_order.payment:${o.id}:${f[paidKeys[0]]}:${paidKeys[0]}`, next: pick(f, paidKeys), affected: ['accounting', 'logistics', 'technical'] });
-    return supplierOrderView(db.prepare(`${soView} WHERE o.id = ?`).get(o.id));
+    return soOut(db.prepare(`${soView} WHERE o.id = ?`).get(o.id));
   })));
 }
 

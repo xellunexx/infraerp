@@ -6,7 +6,7 @@ import { start, seedOffer } from './helpers.mjs';
 
 const sign = async (t, pid) => {
   await t.admin.patch(`/api/projects/${pid}/contract`, { delivery_deadline: '2026-01-10', install_start: '2025-12-01', install_deadline: '2026-01-31' });
-  await t.admin.post(`/api/projects/${pid}/contract/submit`);
+  await t.admin.post(`/api/projects/${pid}/contract/submit`, { advance_pct: 50 });
   await t.admin.post(`/api/projects/${pid}/contract/approve`);
   await t.admin.post(`/api/projects/${pid}/contract/sign`, { signed_on: '2025-11-20' });
   await t.sync();
@@ -83,14 +83,14 @@ test('supplier orders: advance date drives production countdown, final payment d
   assert.equal(so.computed_status, 'ordered');
   assert.equal(so.ready_date, null, 'no countdown before the advance is actually paid');
   assert.equal(so.final_eur, 5000);
-  const paid = (await t.admin.patch(`/api/supplier-orders/${so.id}`, { advance_paid_at: '2026-11-15', row_version: so.row_version })).data;
+  const paid = (await t.admin.post(`/api/supplier-orders/${so.id}/payments`, { stage: 'advance', amount: 5000, tx_date: '2026-10-15' }), (await t.admin.get('/api/supplier-orders')).data[0]);
   assert.equal(paid.computed_status, 'in_production');
-  assert.equal(paid.ready_date, '2026-12-15');                    // 15.11 + 30 days
-  assert.equal(paid.expected_delivery, '2026-12-22');             // forecast: ready + 7 transport days
+  assert.equal(paid.ready_date, '2026-11-14');                    // 15.10 + 30 days
+  assert.equal(paid.expected_delivery, '2026-11-21');             // forecast: ready + 7 transport days
   assert.equal(paid.delivery_forecast, true);
-  const done = (await t.admin.patch(`/api/supplier-orders/${so.id}`, { final_paid_at: '2026-12-16', row_version: paid.row_version })).data;
+  const done = (await t.admin.post(`/api/supplier-orders/${so.id}/payments`, { stage: 'final', amount: 5000, tx_date: '2026-11-15' }), (await t.admin.get('/api/supplier-orders')).data[0]);
   assert.equal(done.computed_status, 'in_transit');
-  assert.equal(done.expected_delivery, '2026-12-23');             // real: final paid + 7 days
+  assert.equal(done.expected_delivery, '2026-11-22');             // real: final paid + 7 days
   assert.equal(done.delivery_forecast, false);
   // invalid manual status rejected; delivered allowed
   assert.equal((await t.admin.patch(`/api/supplier-orders/${so.id}`, { status: 'in_transit', row_version: done.row_version })).status, 400);
@@ -114,7 +114,9 @@ test('contract milestones + dashboard buckets + reopen flow', async () => {
   assert.equal(dash.upcoming.length, 1);
   assert.equal(dash.upcoming[0].awaiting_advance, true, 'signed without paid advance -> чака аванс');
   // record the advance milestone -> deadline computes
-  const c = (await t.admin.put(`/api/projects/${prj.id}/contract/payments`, { kind: 'advance', pct: 50, amount: 5000, paid_at: '2026-11-24' })).data;
+  const m = (await t.admin.get(`/api/projects/${prj.id}/contract`)).data.payments[0];
+  await t.admin.post(`/api/projects/${prj.id}/payments`, { amount: m.gross, tx_date: '2026-11-24', contract_payment_id: m.id });
+  const c = (await t.admin.get(`/api/projects/${prj.id}/contract`)).data;
   assert.equal(c.advance_paid_at, '2026-11-24');
   assert.equal(c.final_deadline, '2027-01-08', 'advance 2026-11-24 + 30 prod + 15 install days');
   await t.sync();
