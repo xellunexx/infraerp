@@ -129,6 +129,20 @@ export function useForm<T extends Record<string, any>>(initial: T) {
   return { v, setV, bind, set: (k: keyof T, val: any) => setV(x => ({ ...x, [k]: val })) };
 }
 
+// ---- project conversation: the server sends the newest page; older pages are prepended on demand
+const MESSAGE_PAGE = 300;
+export function useMessages(pid: number, newest: any[] | null) {
+  const [older, setOlder] = useState<any[]>([]);
+  const [end, setEnd] = useState(false);
+  const { run, busy } = useAction();
+  useEffect(() => { setOlder([]); setEnd(false); }, [pid]);
+  const seen = new Set((newest || []).map(m => m.id));
+  const rows = [...older.filter(m => !seen.has(m.id)), ...(newest || [])];
+  const more = !end && (newest || []).length >= MESSAGE_PAGE;
+  const load = () => run(async () => { const page = await api.get<any[]>(`/projects/${pid}/messages?before=${rows[0].id}`); setOlder(o => [...page, ...o]); if (page.length < MESSAGE_PAGE) setEnd(true); });
+  return { rows, older: more ? <button className="sm ghost" disabled={busy} onClick={load}>По-стари съобщения</button> : null };
+}
+
 // ---- document versions: every file keeps its history; new versions are appended, never overwritten
 export function VersionLinks({ doc }: { doc: any }) {
   const vs: any[] = doc?.versions || [];

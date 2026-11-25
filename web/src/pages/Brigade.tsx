@@ -1,7 +1,7 @@
 // Бригадир: терен интерфейс — моите обекти, дневен план, прогрес, присъствие, проблеми, снимки, съобщения.
 import React, { useRef, useState } from 'react';
 import { api, fmtDate, fmtDateTime, fmtNum, today } from '../api';
-import { Card, Empty, Field, Link, Loader, Modal, NewVersionButton, Progress, Status, Table, Tabs, useAction, useAuth, useCan, useForm, useLoad, usePath, useToast, VersionLinks } from '../ui';
+import { Card, Empty, Field, Link, Loader, Modal, NewVersionButton, Progress, Status, Table, Tabs, useAction, useAuth, useCan, useForm, useLoad, useMessages, usePath, useToast, VersionLinks } from '../ui';
 
 const KIND: Record<string, string> = { problem: 'Проблем', delay: 'Закъснение', material_shortage: 'Липса на материал', damage: 'Повреда', additional_work: 'Допълнителна работа', other: 'Друго' };
 const SEV: Record<string, string> = { low: 'Нисък', medium: 'Среден', high: 'Висок', critical: 'Критичен' };
@@ -258,14 +258,14 @@ function PhotosTab({ pid, docs, write, onChanged }: { pid: number; docs: any; wr
 function MessagesTab({ pid, msgs, write, onChanged }: { pid: number; msgs: any; write: boolean; onChanged: () => void }) {
   const { run } = useAction();
   const f = useForm({ body: '' });
-  const rows: any[] = msgs.data || [];
+  const { rows, older } = useMessages(pid, msgs.data);
   const send = () => run(async () => {
     await api.post('/messages', { project_id: pid, body: f.v.body });
     f.setV({ ...f.v, body: '' }); onChanged();
   }, 'Съобщението е изпратено');
   return <Card title="Разговор по обекта">
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12, maxHeight: 420, overflowY: 'auto' }}>
-      {rows.map(m => <div key={m.id} style={{ background: 'var(--panel2)', borderRadius: 8, padding: '8px 12px' }}>
+      {older}{rows.map(m => <div key={m.id} style={{ background: 'var(--panel2)', borderRadius: 8, padding: '8px 12px' }}>
         <div className="small muted">{m.author_name || 'системата'} · {fmtDateTime(m.created_at)}{m.entity_type ? ` · към ${m.entity_type} #${m.entity_id}` : ''}</div>
         <div style={{ whiteSpace: 'pre-wrap' }}>{m.body}</div>
       </div>)}

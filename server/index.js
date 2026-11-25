@@ -17,6 +17,7 @@ import mountChangeRequests from './routes_change_requests.js';
 import mountWarehouse from './routes_warehouse.js';
 import mountReports from './routes_reports.js';
 import { startReminderWorker } from './reminders.js';
+import { startBackupWorker } from './backup.js';
 import { syncProjectStatus } from './domain.js';
 
 export const ROUTES = [mountOffers, mountProjects, mountTechnical, mountAccounting, mountLogistics, mountBrigade, mountManagement, mountCatalog, mountChangeRequests, mountWarehouse, mountReports, mountPrint, mountExport];
@@ -28,6 +29,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.met
   startWorker(db);
   startWeatherWorker(db);
   startReminderWorker(db);
+  startBackupWorker(db);
   const port = Number(process.env.PORT || 4800);
   app.listen(port, '0.0.0.0', () => console.log(`SYNCHRO listening on :${port}, data in ${DATA_DIR}`));
 }

@@ -188,7 +188,10 @@ export function emit(db, user, e) {
   return r.changes ? Number(r.lastInsertRowid) : null;
 }
 
+const DEPT_CODES = new Set(DEPARTMENTS.map(d => d[0]));
 export function notify(db, ev, { departments = [], users = [], title, body = '', link = null, severity = 'info' }) {
+  // a misspelled department would silently reach nobody
+  for (const d of departments) if (!DEPT_CODES.has(d)) throw new Error(`Непознат отдел за известие: ${d}`);
   const ins = db.prepare('INSERT INTO notifications(event_id, user_id, department, project_id, title, body, link, severity, ref_type, ref_id, author_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)');
   const args = [ev?.id ?? null, ev?.project_id ?? null, ev?.entity_type ?? null, ev?.entity_id ?? null, ev?.user_id ?? null];
   for (const d of new Set(departments)) ins.run(args[0], null, d, args[1], title, body, link, severity, args[2], args[3], args[4]);

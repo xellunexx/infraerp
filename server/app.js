@@ -15,18 +15,21 @@ export const num = (v, label, { min = 0 } = {}) => { const n = Number(v); if (v 
 export const offerLetter = v => { const s = String(v ?? '').trim().toUpperCase(); if (!s) return null; if (!/^[A-ZА-Я]{1,3}$/u.test(s)) throw bad('Буквата за оферти е от 1 до 3 букви'); return s; };
 export const h = fn => (req, res, next) => { try { const r = fn(req, res); if (r !== undefined && !res.headersSent) res.json(r); } catch (e) { next(e); } };
 
+/** The proxy header is believed only when the connection comes from this machine (the tunnel); anyone else is who they connect as. */
+export const resolveClientIp = (headers, remote) => (/^(::1|(::ffff:)?127\.)/.test(remote || '') && headers['cf-connecting-ip']) ? String(headers['cf-connecting-ip']) : String(remote || 'unknown');
+
 export function createApp(db, routeModules = []) {
   bootstrap(db);
   const app = express();
   app.disable('x-powered-by');
   // ---- internet exposure hardening
   const viaPublicTunnel = req => !!(req.headers['cf-connecting-ip'] || req.headers['cdn-loop'] || req.headers['cf-ray']);
-  const clientIp = req => String(req.headers['cf-connecting-ip'] || req.socket.remoteAddress || 'unknown');
+  const clientIp = req => resolveClientIp(req.headers, req.socket.remoteAddress);
   app.use((req, res, next) => { res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Referrer-Policy', 'same-origin');
     if (viaPublicTunnel(req)) { res.setHeader('Strict-Transport-Security', 'max-age=31536000'); res.setHeader('X-Robots-Tag', 'noindex, nofollow'); } next(); });
-  // password guessing: 5 wrong attempts per user+address (20 per address) within 15 minutes lock that key for 15 minutes
+  // password guessing: 5 wrong attempts per user+address, 20 per address, 20 per user from any address within 15 minutes lock that key for 15 minutes
   const WINDOW = 15 * 60 * 1000, fails = new Map();
-  const failKeys = (req, username) => [[`u:${String(username).toLowerCase()}|${clientIp(req)}`, 5], [`ip:${clientIp(req)}`, 20]];
+  const failKeys = (req, username) => [[`u:${String(username).toLowerCase()}|${clientIp(req)}`, 5], [`ip:${clientIp(req)}`, 20], [`any:${String(username).toLowerCase()}`, 20]];
   const lockedFor = (req, username) => { const now = Date.now(); let wait = 0;
     for (const [k, max] of failKeys(req, username)) { const f = fails.get(k); if (f && now - f.first > WINDOW) fails.delete(k); else if (f && f.count >= max) wait = Math.max(wait, f.first + WINDOW - now); }
     return wait; };
@@ -40,8 +43,10 @@ export function createApp(db, routeModules = []) {
   const setCookie = (res, token) => res.setHeader('Set-Cookie', `synchro_sid=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${token ? 14 * 86400 : 0}${res.req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : ''}`);
 
   app.get('/api/auth/state', h(req => ({ needs_setup: !db.prepare('SELECT 1 FROM users LIMIT 1').get(), user: req.user,
-    departments: db.prepare('SELECT * FROM departments').all(), settings: { ...Object.fromEntries(db.prepare('SELECT key, value FROM settings').all().map(s => [s.key, s.value])),
-      offer_last_number: String(db.prepare("SELECT value FROM counters WHERE name = 'OFFER'").get()?.value ?? 0) } })));
+    departments: db.prepare('SELECT * FROM departments').all(), // before login only what the sign-in page shows; rates and numbering are business data
+    settings: req.user ? { ...Object.fromEntries(db.prepare('SELECT key, value FROM settings').all().map(s => [s.key, s.value])),
+      offer_last_number: String(db.prepare("SELECT value FROM counters WHERE name = 'OFFER'").get()?.value ?? 0) }
+      : { company_name: db.prepare("SELECT value FROM settings WHERE key = 'company_name'").get()?.value ?? '' } })));
   app.post('/api/auth/setup', h((req, res) => tx(db, () => {
     if (db.prepare('SELECT 1 FROM users LIMIT 1').get()) throw new HttpError(403, 'Системата вече е настроена');
     // the first administrator can only be created from the private address, never through the public internet link
@@ -65,7 +70,7 @@ export function createApp(db, routeModules = []) {
       audit(db, null, { entity_type: 'login', action: 'failed', after: { username, ip: clientIp(req) }, module: 'auth' });
       throw new HttpError(401, 'Грешно потребителско име или парола');
     }
-    fails.delete(`u:${username.toLowerCase()}|${clientIp(req)}`);
+    fails.delete(`u:${username.toLowerCase()}|${clientIp(req)}`); fails.delete(`any:${username.toLowerCase()}`);
     setCookie(res, createSession(db, u.id));
     return { ok: true };
   }));
@@ -96,7 +101,9 @@ export function createApp(db, routeModules = []) {
     const lastAdmin = before.role === 'admin' && before.active && db.prepare("SELECT COUNT(*) n FROM users WHERE role = 'admin' AND active = 1").get().n <= 1;
     if (lastAdmin && ((b.role !== undefined && b.role !== 'admin') || b.active === false || b.active === 0)) throw bad('Не може да премахнете последния администратор');
     if (b.active !== undefined) { f.active = b.active ? 1 : 0; if (!f.active) db.prepare('DELETE FROM sessions WHERE user_id = ?').run(id); }
-    if (b.password) { if (String(b.password).length < 8) throw bad('Паролата трябва да е поне 8 символа'); f.pass_hash = hashPassword(b.password); }
+    if (b.password) { if (String(b.password).length < 8) throw bad('Паролата трябва да е поне 8 символа'); f.pass_hash = hashPassword(b.password);
+      // a changed password ends every other session of that user; the device making the change stays in
+      db.prepare('DELETE FROM sessions WHERE user_id = ? AND token != ?').run(id, parseCookie(req.headers.cookie || '').synchro_sid || ''); }
     updateRow(db, 'users', id, f, b.row_version);
     audit(db, req.user, { entity_type: 'user', entity_id: id, action: 'update', before, after: { ...f, pass_hash: f.pass_hash ? '(changed)' : undefined }, module: 'settings' });
     return { ok: true };
@@ -194,6 +201,7 @@ export function createApp(db, routeModules = []) {
     app.get('*', (_req, res) => res.sendFile(path.join(dist, 'index.html')));
   }
   app.use((err, _req, res, _next) => {
+    if (err.code === 'LIMIT_FILE_SIZE') err = new HttpError(413, 'Файлът е твърде голям — максимумът е 25 MB');
     const status = err.status || (err.type === 'entity.parse.failed' ? 400 : 500);
     if (status === 500) console.error(err);
     res.status(status).json({ error: status === 500 ? 'Вътрешна грешка. Опитайте отново.' : err.message, ...(err.extra || {}) });

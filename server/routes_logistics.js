@@ -136,7 +136,7 @@ export default function mountLogistics(app, db) {
     insertItems(id, b.items);
     audit(db, req.user, { project_id: pid, entity_type: 'delivery', entity_id: id, action: 'create', after: { code: f.code, kind, planned_date: f.planned_date }, module: 'logistics' });
     emit(db, req.user, { type: 'delivery.created', origin: 'logistics', project_id: pid, entity_type: 'delivery', entity_id: id,
-      dedupe_key: `delivery.created:${id}`, next: { code: f.code }, affected: ['warehouse', 'technical', 'brigadir', 'logistics'] });
+      dedupe_key: `delivery.created:${id}`, next: { code: f.code }, affected: ['warehouse', 'technical', 'brigadier', 'logistics'] });
     return { ...db.prepare(`${delivView} WHERE d.id = ?`).get(id), items: deliveryItems(id) };
   })));
   app.patch('/api/deliveries/:id', h(req => tx(db, () => {
@@ -167,7 +167,7 @@ export default function mountLogistics(app, db) {
       before: pick(d, Object.keys(f).filter(k => k !== 'status')), after: f, module: 'logistics' });
     if (f.status === 'delivered')
       emit(db, req.user, { type: 'delivery.delivered', origin: 'logistics', project_id: d.project_id, entity_type: 'delivery', entity_id: d.id,
-        dedupe_key: `delivery.delivered:${d.id}`, prev: { status: d.status }, next: { status: 'delivered' }, affected: ['brigadir', 'technical', 'logistics'] });
+        dedupe_key: `delivery.delivered:${d.id}`, prev: { status: d.status }, next: { status: 'delivered' }, affected: ['brigadier', 'technical', 'logistics'] });
     if (f.status === 'cancelled')
       emit(db, req.user, { type: 'delivery.cancelled', origin: 'logistics', project_id: d.project_id, entity_type: 'delivery', entity_id: d.id,
         dedupe_key: `delivery.cancelled:${d.id}`, prev: { status: d.status }, next: { status: 'cancelled' }, affected: ['warehouse', 'logistics'] });
@@ -257,14 +257,14 @@ export default function mountLogistics(app, db) {
 on('delivery.created', 'notify_ops', (db, ev) => {
   const d = db.prepare('SELECT d.code, p.code AS pcode FROM deliveries d JOIN projects p ON p.id = d.project_id WHERE d.id = ?').get(ev.entity_id);
   if (!d) return { skipped: true };
-  return notify(db, ev, { departments: ['warehouse', 'technical', 'brigadir'],
+  return notify(db, ev, { departments: ['warehouse', 'technical', 'brigadier'],
     title: `Нова доставка ${d.code}${d.pcode ? ' — ' + d.pcode : ''}`,
     body: 'Планирана доставка до обект.', link: `/logistics?pid=${ev.project_id}` });
 });
 on('delivery.delivered', 'notify_site', (db, ev) => {
   const d = db.prepare('SELECT d.code, p.code AS pcode FROM deliveries d JOIN projects p ON p.id = d.project_id WHERE d.id = ?').get(ev.entity_id);
   if (!d) return { skipped: true };
-  return notify(db, ev, { departments: ['brigadir', 'technical'],
+  return notify(db, ev, { departments: ['brigadier', 'technical'],
     title: `Доставката ${d.code} е пристигнала${d.pcode ? ' — ' + d.pcode : ''}`,
     link: `/logistics?pid=${ev.project_id}` });
 });

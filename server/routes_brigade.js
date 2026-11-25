@@ -23,7 +23,7 @@ const ISSUE_FLOW = { open: ['in_progress', 'cancelled'], in_progress: ['resolved
 const DOC_CATEGORIES = ['photo', 'document', 'act', 'contract', 'appendix', 'other'];
 const DOC_ENTITIES = { contract: 'contracts', appendix: 'contract_appendices', amendment: 'amendments', project_line: 'project_lines', offer_line: 'offer_lines', issue: 'issues', smr: 'smr_types', material_request: 'material_requests', supplier_order: 'supplier_orders', delivery: 'deliveries' };
 const OK_MIME = /^(image\/(jpeg|png|gif|webp|heic|heif|vnd\.dwg)|application\/(pdf|json|msword|vnd\.openxmlformats-officedocument\.[\w.]+|vnd\.ms-excel|vnd\.ms-powerpoint|vnd\.oasis\.opendocument\.[\w.]+|acad|dxf)|text\/(plain|csv))/i;
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 }, defParamCharset: 'utf8' });
 
 export default function mountBrigade(app, db) {
   const project = id => db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
@@ -123,7 +123,7 @@ export default function mountBrigade(app, db) {
       .run(code, pid, kind, severity, reqStr(b.title, 'Заглавие'), b.description || null, productId, lineId, req.user.id, assigned).lastInsertRowid);
     audit(db, req.user, { project_id: pid, entity_type: 'issue', entity_id: id, action: 'report', after: { code, kind, severity, title: b.title, assigned_dept: assigned }, module: 'brigade' });
     emit(db, req.user, { type: 'issue.reported', origin: 'brigade', project_id: pid, entity_type: 'issue', entity_id: id,
-      dedupe_key: `issue.reported:${id}`, next: { code, kind, severity, assigned_dept: assigned }, affected: [assigned] });
+      dedupe_key: `issue.reported:${id}`, next: { code, kind, severity, title: b.title, assigned_dept: assigned }, affected: [assigned] });
     return db.prepare(`${issueView} WHERE i.id = ?`).get(id);
   })));
   app.patch('/api/issues/:id', h(req => tx(db, () => {
@@ -159,8 +159,10 @@ export default function mountBrigade(app, db) {
   // ---- Съобщения по обекта
   app.get('/api/projects/:pid/messages', h(req => {
     needField(req, Number(req.params.pid), { resource: 'messages' });
+    // the newest page, oldest first; ?before=<id> pages back
+    const before = Number(req.query.before) || null;
     return db.prepare(`SELECT m.*, u.full_name AS author_name FROM messages m LEFT JOIN users u ON u.id = m.author_id
-      WHERE m.project_id = ? ORDER BY m.id LIMIT 300`).all(Number(req.params.pid));
+      WHERE m.project_id = ? AND (? IS NULL OR m.id < ?) ORDER BY m.id DESC LIMIT 300`).all(Number(req.params.pid), before, before).reverse();
   }));
   app.post('/api/messages', h(req => tx(db, () => {
     const pid = Number(req.body?.project_id);
@@ -259,7 +261,8 @@ export default function mountBrigade(app, db) {
     if (!fs.existsSync(file)) throw new HttpError(404, 'Файлът липсва на диска');
     res.setHeader('Content-Type', v.mime || 'application/octet-stream');
     res.setHeader('Content-Length', v.size);
-    res.setHeader('Content-Disposition', 'inline');
+    const name = String(v.filename || 'file');
+    res.setHeader('Content-Disposition', `inline; filename="${name.replace(/[^\x20-\x7e]|["\\%]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(name.toWellFormed()).replace(/['()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase())}`);
     fs.createReadStream(file).pipe(res);
   }));
 }

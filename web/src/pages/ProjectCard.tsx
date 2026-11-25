@@ -2,7 +2,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api, fmtDate, fmtDateTime, fmtMoney, fmtNum } from '../api';
 import { WeatherCard } from './Weather';
-import { Card, DeptBadge, Empty, Field, Kpi, Link, Loader, Modal, NewVersionButton, Progress, Status, Table, Tabs, navigate, useAction, useCan, useCurrency, useForm, useLoad, usePath, VersionLinks } from '../ui';
+import { Card, DeptBadge, Empty, Field, Kpi, Link, Loader, Modal, NewVersionButton, Progress, Status, Table, Tabs, navigate, useAction, useCan, useCurrency, useForm, useLoad, useMessages, usePath, VersionLinks } from '../ui';
 
 const EVENT_LABEL: Record<string, string> = { 'offer.confirmed': 'Потвърдена оферта', 'contract.submitted': 'Договор изпратен за одобрение', 'contract.signed': 'Подписан договор',
   'project.assigned': 'Определен отговорник', 'stage.changed': 'Промяна на етап', 'request.created': 'Заявка за материали', 'progress.recorded': 'Отчетено изпълнение',
@@ -498,7 +498,7 @@ function DocsTab({ docs, pid, write: docsWrite }: { docs: any; pid: number; writ
 function MessagesTab({ msgs, pid, write, onSent }: { msgs: any; pid: number; write: boolean; onSent: () => void }) {
   const { run } = useAction();
   const f = useForm({ body: '' });
-  const rows: any[] = msgs.data || [];
+  const { rows, older } = useMessages(pid, msgs.data);
   const send = () => run(async () => {
     await api.post('/messages', { project_id: pid, body: f.v.body });
     f.setV({ ...f.v, body: '' }); onSent();
@@ -506,7 +506,7 @@ function MessagesTab({ msgs, pid, write, onSent }: { msgs: any; pid: number; wri
   return <Loader state={msgs}>
     <Card title="Разговор по обекта" actions={<Link to={`/brigade/${pid}`}>Пълен изглед →</Link>}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12, maxHeight: 420, overflowY: 'auto' }}>
-        {rows.map(m => <div key={m.id} style={{ background: 'var(--panel2)', borderRadius: 8, padding: '8px 12px' }}>
+        {older}{rows.map(m => <div key={m.id} style={{ background: 'var(--panel2)', borderRadius: 8, padding: '8px 12px' }}>
           <div className="small muted">{m.author_name || 'системата'} · {fmtDateTime(m.created_at)}{m.entity_type ? ` · към ${m.entity_type} #${m.entity_id}` : ''}</div>
           <div style={{ whiteSpace: 'pre-wrap' }}>{m.body}</div>
         </div>)}
