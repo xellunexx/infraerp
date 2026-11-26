@@ -8,6 +8,21 @@ const KIND: Record<string, string> = { to_site: 'До обект', return: 'Вр
 const NEXT: Record<string, [string, string]> = { planned: ['in_transit', 'На път'], in_transit: ['delivered', 'Доставена'] };
 const ASSET_KIND: Record<string, string> = { vehicle: 'Превозно средство', crane: 'Кран', manlift: 'Повдигач', generator: 'Генератор', other: 'Друго' };
 
+/** The columns of a delivery, the same wherever deliveries are listed (here and in the project card). One item per line. */
+export function deliveryCols(withProject: boolean): any[] {
+  return [
+    { key: 'code', title: '№', width: 90 },
+    ...(withProject ? [{ key: 'pj', title: 'Обект', render: (r: any) => <>{r.project_code} — {r.project_name}<div className="small muted">{r.customer_name}</div></> }] : []),
+    { key: 'kind', title: 'Вид', render: (r: any) => KIND[r.kind] || r.kind },
+    { key: 'planned_date', title: 'Планирана', render: (r: any) => fmtDate(r.planned_date) },
+    { key: 'carrier', title: 'Превозвач' }, { key: 'pallets', title: 'Палети', num: true },
+    { key: 'vehicle', title: 'Техника', render: (r: any) => r.vehicle_name ? `${r.vehicle_name}${r.vehicle_plate ? ' (' + r.vehicle_plate + ')' : ''}` : '—' },
+    { key: 'items_summary', title: 'Съдържание', render: (r: any) => <span className="small" style={{ whiteSpace: 'pre-line' }}>{r.items_summary || '—'}</span> },
+    { key: 'note', title: 'Бележка', render: (r: any) => <span className="small" style={{ whiteSpace: 'pre-line' }}>{[r.note, r.courier_office && `Офис: ${r.courier_office}`, r.access_notes && `Достъп: ${r.access_notes}`].filter(Boolean).join('\n') || '—'}</span> },
+    { key: 'status', title: 'Статус', render: (r: any) => <Status value={r.status} /> },
+  ];
+}
+
 export function Logistics() {
   const path = usePath();
   const [pid, setPid] = useState(new URLSearchParams(path.split('?')[1] || '').get('pid') || '');
@@ -67,14 +82,7 @@ export function Logistics() {
     {tab === 'deliveries' && <>
       {write && <div className="row" style={{ marginBottom: 10 }}><button className="primary sm" onClick={() => setModal({ kind: 'delivery' })}>+ Нова доставка</button></div>}
       <Card pad={false}><Loader state={deliveries}><Table rows={deliveries.data || []} empty={<Empty title="Няма доставки">Планирайте доставка на материали до обект.</Empty>} cols={[
-        { key: 'code', title: '№', width: 90 },
-        { key: 'pj', title: 'Обект', render: (r: any) => <>{r.project_code} — {r.project_name}<div className="small muted">{r.customer_name}</div></> },
-        { key: 'kind', title: 'Вид', render: (r: any) => KIND[r.kind] || r.kind },
-        { key: 'planned_date', title: 'Планирана', render: (r: any) => fmtDate(r.planned_date) },
-        { key: 'carrier', title: 'Превозвач' }, { key: 'pallets', title: 'Палети', num: true },
-        { key: 'vehicle', title: 'Техника', render: (r: any) => r.vehicle_name ? `${r.vehicle_name}${r.vehicle_plate ? ' (' + r.vehicle_plate + ')' : ''}` : '—' },
-        { key: 'items_summary', title: 'Съдържание', render: (r: any) => <span className="small">{r.items_summary || '—'}</span> },
-        { key: 'status', title: 'Статус', render: (r: any) => <Status value={r.status} /> },
+        ...deliveryCols(true),
         { key: 'x', title: '', width: 210, render: (r: any) => write && !['delivered', 'cancelled'].includes(r.status) ? <span className="row" style={{ flexWrap: 'nowrap' }}>
           {NEXT[r.status] && <button className="sm primary" disabled={busy} onClick={() => deliveryAction(r, NEXT[r.status][0], NEXT[r.status][1])}>{NEXT[r.status][1]}</button>}
           <button className="sm ghost" disabled={busy} onClick={() => deliveryAction(r, 'cancelled', 'Отмяна')}>Отказ</button>

@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { api, fmtDate, fmtDateTime, fmtMoney, fmtNum } from '../api';
 import { WeatherCard } from './Weather';
 import { MILESTONE, PaymentForm, milestoneChoices } from './PaymentForm';
+import { deliveryCols } from './Logistics';
 import { Card, DeptBadge, Empty, Field, Kpi, Link, Loader, Modal, NewVersionButton, Progress, Status, Table, Tabs, navigate, useAction, useCan, useCurrency, useForm, useLoad, useMessages, usePath, VersionLinks } from '../ui';
 
 const EVENT_LABEL: Record<string, string> = { 'offer.confirmed': 'Потвърдена оферта', 'contract.submitted': 'Договор изпратен за одобрение', 'contract.signed': 'Подписан договор',
@@ -477,11 +478,7 @@ function LogisticsTab({ logi, pid }: { logi: any; pid: number }) {
   const notes = [['Достъп', lf.access_notes], ['Разтоварване', lf.unloading_notes], ['Съхранение', lf.storage_notes], ['Паркиране', lf.parking_notes], ['Куриерски офис', lf.courier_office]].filter(([, v]) => v);
   return <Loader state={logi}>
     {notes.length ? <Card title="Логистика на обекта" pad={false}><Table rows={notes.map(([k, v]) => ({ k, v }))} cols={[{ key: 'k', title: '', width: 170 }, { key: 'v', title: 'Бележка' }]} /></Card> : null}
-    <Card title="Доставки" pad={false} actions={<Link to={`/logistics?pid=${pid}`}>Управлявай в Логистика →</Link>}><Table rows={d?.deliveries || []} empty={<Empty title="Няма доставки" />} cols={[
-      { key: 'code', title: '№' }, { key: 'planned_date', title: 'Планирана', render: (r: any) => fmtDate(r.planned_date) },
-      { key: 'status', title: 'Статус', render: (r: any) => <Status value={r.status} /> },
-      { key: 'carrier', title: 'Превозвач' }, { key: 'items_summary', title: 'Съдържание' },
-    ]} /></Card>
+    <Card title="Доставки" pad={false} actions={<Link to={`/logistics?pid=${pid}`}>Управлявай в Логистика →</Link>}><Table rows={d?.deliveries || []} empty={<Empty title="Няма доставки" />} cols={deliveryCols(false)} /></Card>
     <Card title="Механизация на обекта" pad={false}><Table rows={d?.allocations || []} empty={<Empty title="Няма разпределена техника" />} cols={[
       { key: 'asset', title: 'Техника', render: (r: any) => `${r.asset_code} — ${r.asset_name}${r.asset_plate ? ' (' + r.asset_plate + ')' : ''}` },
       { key: 'period', title: 'Период', render: (r: any) => `${fmtDate(r.date_from)} → ${fmtDate(r.date_to)}` },
