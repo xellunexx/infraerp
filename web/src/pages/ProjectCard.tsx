@@ -209,7 +209,8 @@ function MilestoneRow({ kind, label, p, disabled, locked, onSave }: any) {
     <td>{fmtDate(p.paid_at)}</td>
     <td>{p.gross === 0 ? <span className="badge">няма</span> : p.paid_at ? <span className="badge ok">платено</span> : p.paid > 0 ? <span className="badge warn">частично</span> : <span className="badge">неплатено</span>}
       {p.reported > 0 ? <div className="small muted">докладвано {fmtMoney(p.reported)} — чака потвърждение</div> : null}</td>
-    <td><input style={{ width: '100%' }} {...f.bind('note')} disabled={disabled} /></td>
+    <td style={{ minWidth: 220 }}><textarea className="grow" rows={1} style={{ width: '100%', fieldSizing: 'content', minHeight: 30, resize: 'vertical' } as any} {...f.bind('note')} disabled={disabled} placeholder="Бележка към етапа" />
+      {(p.payment_notes || []).map((n: any, i: number) => <div key={i} className="small" style={{ marginTop: 4, whiteSpace: 'pre-wrap' }}><span className="muted">{fmtDate(n.date)} · {fmtMoney(n.amount)}:</span> {n.note}</div>)}</td>
     {!disabled && <td>{dirty && <button className="primary sm" onClick={() => onSave(kind, f.v)}>Запис</button>}</td>}</tr>;
 }
 
