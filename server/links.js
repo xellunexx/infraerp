@@ -20,3 +20,6 @@ export function recordLink(type, id, projectId, department = null) {
   if (PROJECT_TAB[type] && projectId != null) return `/projects/${projectId}?tab=${PROJECT_TAB[type]}${type === 'task' || type === 'issue' ? f : ''}`;
   return null;
 }
+
+/** Rows shown away from their home (e.g. in the project card) carry the link to where they are managed. */
+export const withLinks = (rows, type, department = null) => rows.map(r => ({ ...r, link: recordLink(type, r.id, r.project_id, department) }));

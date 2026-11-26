@@ -470,7 +470,8 @@ function CenterForm({ onClose, onDone }: { onClose: () => void; onDone: () => vo
   </Modal>;
 }
 
-function OrderForm({ projects, pid, row, onClose, onDone }: { projects: any[]; pid: string; row?: any; onClose: () => void; onDone: () => void }) {
+/** The one supplier-order form (Accounting and Logistics). */
+export function OrderForm({ projects, pid, row, onClose, onDone }: { projects: any[]; pid: string; row?: any; onClose: () => void; onDone: () => void }) {
   const { run, busy } = useAction();
   const edit = !!row;
   const f = useForm({ project_id: row ? String(row.project_id) : pid, project_line_id: row?.project_line_id ? String(row.project_line_id) : '', supplier: row?.supplier || '', order_doc_no: row?.order_doc_no || '',

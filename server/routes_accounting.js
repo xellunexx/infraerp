@@ -2,6 +2,7 @@
 import crypto from 'node:crypto';
 import { tx, nextCode } from './db.js';
 import { HttpError, bad, need, can, canSeeProject, scopeRows, redactMoney, audit, updateRow, emit, notify, on, setting, resolveApproval } from './core.js';
+import { withLinks } from './links.js';
 import { roleOf } from './roles.js';
 import { proformaState, orderDates } from './payments.js';
 import { recordPayment, paymentAmount } from './routes_payments.js';
@@ -77,10 +78,11 @@ export default function mountAccounting(app, db) {
     const pid = Number(req.params.pid);
     const w = [pid];
     return { ...finance(db, pid),
-      proformas: db.prepare(`${proformaView} WHERE f.project_id = ? ORDER BY f.id DESC`).all(...w).map(pfView),
-      transactions: db.prepare(`${txView} WHERE t.project_id = ? ORDER BY t.tx_date DESC, t.id DESC`).all(...w).map(withOpen),
-      payment_requests: db.prepare(`${prView} WHERE r.project_id = ? ORDER BY r.id DESC`).all(...w),
-      accommodations: db.prepare(`${accoView} WHERE a.project_id = ? ORDER BY a.id DESC`).all(...w) };
+      // each row carries the link to where it is managed (Accounting tab + row)
+      proformas: withLinks(db.prepare(`${proformaView} WHERE f.project_id = ? ORDER BY f.id DESC`).all(...w).map(pfView), 'proforma'),
+      transactions: withLinks(db.prepare(`${txView} WHERE t.project_id = ? ORDER BY t.tx_date DESC, t.id DESC`).all(...w).map(withOpen), 'transaction'),
+      payment_requests: withLinks(db.prepare(`${prView} WHERE r.project_id = ? ORDER BY r.id DESC`).all(...w), 'payment_request'),
+      accommodations: withLinks(db.prepare(`${accoView} WHERE a.project_id = ? ORDER BY a.id DESC`).all(...w), 'accommodation') };
   }));
 
   // ---- Проформи

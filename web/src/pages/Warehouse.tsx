@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { api, fmtDate, fmtDateTime, fmtNum } from '../api';
+import { ASSET_KIND } from './Logistics';
 import { Card, Empty, Field, Loader, Modal, Status, Table, Tabs, useAction, useLoad, useLinkTab } from '../ui';
 
 const KIND_LABEL: Record<string, string> = { receipt: 'Приемане', issue: 'Изписване към обект', return: 'Връщане', adjust: 'Корекция', transfer_out: 'Пренос към друг обект', transfer_in: 'Пренос от друг обект' };
@@ -140,7 +141,7 @@ export function Warehouse() {
     </Loader></Card>}
     {tab === 'fleet' && <Card pad={false}><Loader state={fleet}>
       <Table rows={fleet.data || []} empty={<Empty title="Няма регистрирани машини и инструменти" />} cols={[
-        { key: 'code', title: 'Код' }, { key: 'name', title: 'Наименование' }, { key: 'kind', title: 'Вид' },
+        { key: 'code', title: 'Код' }, { key: 'name', title: 'Наименование' }, { key: 'kind', title: 'Вид', render: r => ASSET_KIND[r.kind] || r.kind },
         { key: 'plate', title: 'Рег. №', render: r => r.plate || '—' }, { key: 'location', title: 'Локация', render: r => r.location || '—' },
         { key: 'status', title: 'Статус', render: r => <Status value={r.status} /> },
         { key: 'allocated_project', title: 'На обект', render: r => r.allocated_project || <span className="muted">— свободен —</span> }]} />
