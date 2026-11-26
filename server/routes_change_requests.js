@@ -3,7 +3,7 @@
 import { need, needAdmin, needProject, scopeRows, canSeeMoney, redactMoney, audit, updateRow, reindex, emit, HttpError, bad } from './core.js';
 import { h, pick, reqStr } from './app.js';
 import { tx, nextCode } from './db.js';
-import { advancePct } from './domain.js';
+import { advancePct, linesChanged } from './domain.js';
 import { settleRow } from './ledger_rules.js';
 
 // ---- колони с числови стойности (по име — общ механизъм, не по конкретен запис)
@@ -296,6 +296,7 @@ export default function mountChangeRequests(app, db) {
             result = Object.keys(p).length ? applyEdit(db, r.entity_type, r.entity_id, p, req.user) : { manual: true };
           }
         } catch (err) { if (err instanceof HttpError) throw err; throw bad(`Неуспешно прилагане: ${err.message}`); }
+        if (r.entity_type === 'project_line') { const pl = db.prepare('SELECT project_id FROM project_lines WHERE id = ?').get(r.entity_id); if (pl) linesChanged(db, req.user, pl.project_id); }
         audit(db, req.user, { entity_type: 'change_request', entity_id: id, action: 'applied', after: { kind: r.kind, entity_type: r.entity_type, entity_id: r.entity_id, result: result.result ?? null }, module: 'governance' });
       }
       db.prepare(`UPDATE change_requests SET status = ?, decided_by = ?, decided_at = datetime('now'), decision_note = ?,
