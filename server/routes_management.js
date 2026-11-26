@@ -2,6 +2,7 @@
 import { can, canSeeProject, need } from './core.js';
 import { h } from './app.js';
 import { finance, progressSummary } from './calc.js';
+import { recordLink } from './links.js';
 
 export default function mountManagement(app, db) {
   app.get('/api/management', h(req => {
@@ -26,14 +27,14 @@ export default function mountManagement(app, db) {
     const active = rows.filter(r => !['closed', 'completed'].includes(r.status));
 
     // ---- опашки за внимание
-    const approvals = db.prepare(`SELECT e.id, e.type, e.project_id, e.ts, e.new_value, p.code AS project_code
+    const approvals = db.prepare(`SELECT e.id, e.type, e.project_id, e.entity_type, e.entity_id, e.ts, e.new_value, p.code AS project_code
       FROM events e LEFT JOIN projects p ON p.id = e.project_id
       WHERE e.approval_status = 'pending' ORDER BY e.id DESC LIMIT 50`).all()
       .map(e => {
         let nv = {}; try { nv = JSON.parse(e.new_value || '{}'); } catch { /* keep {} */ }
         return { id: e.id, type: e.type, project_id: e.project_id, project_code: e.project_code, ts: e.ts, ...nv,
           title: nv.title || nv.code || e.type,
-          link: e.type === 'payment_request.created' ? '/accounting' : e.project_id ? `/projects/${e.project_id}` : null };
+          link: recordLink(e.entity_type, e.entity_id, e.project_id) ?? (e.project_id ? `/projects/${e.project_id}` : null) };
       });
 
     const issues = db.prepare(`SELECT i.id, i.code, i.project_id, i.kind, i.severity, i.title, i.status, i.created_at,

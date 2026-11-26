@@ -220,6 +220,7 @@ export function ProjectCard({ id }: { id: number }) {
   const path = usePath();
   const users = useLoad<any[]>('/users');
   const [tab, setTab] = useState(new URLSearchParams(path.split('?')[1] || '').get('tab') || 'overview');
+  useEffect(() => { const t = new URLSearchParams(path.split('?')[1] || '').get('tab'); if (t) setTab(t); }, [path]);
   const timeline = useLoad<any[]>(tab === 'timeline' || tab === 'overview' ? `/projects/${id}/timeline` : null, [p.data?.row_version]);
   const audit = useLoad<any[]>(tab === 'audit' ? `/projects/${id}/audit` : null);
   const sched = useLoad<any>(tab === 'schedule' ? `/projects/${id}/schedule` : null);
