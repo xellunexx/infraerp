@@ -57,6 +57,7 @@ export const ROUTING = {
   'project.site_changed': () => to([...SITE, 'logistics']),
   'project.on_hold': () => to(ALL_PROJECT), 'project.resumed': () => to(ALL_PROJECT),
   'project.archived': () => to(ALL_PROJECT), 'project.unarchived': () => to(ALL_PROJECT),
+  'project.urgency_set': () => to(ALL_PROJECT),
   // the next stage's owner learns that it is their turn (handler-less type: the stage's own department + the next one)
   'stage.changed': (db, ev) => {
     const s = db.prepare('SELECT department, sort, project_id FROM project_stages WHERE id = ?').get(ev.entity_id);

@@ -401,9 +401,10 @@ export function OfferEditor({ id }: { id: number }) {
     {o.status === 'confirmed' && <div className="alert ok">Офертата е потвърдена (версия {o.confirmed_version}) и е търговската база на обект {o.project_code || '(създава се…)'}. Промени се правят с анекс към договора.</div>}
     {viewVersion != null && viewVersion !== o.current_version && <div className="alert">Преглеждате стара версия v{viewVersion}. <a onClick={() => setViewVersion(null)}>Към текущата</a></div>}
 
-    <Tabs tabs={[['lines', 'Оферта'], ['replica', 'Excel реплика'], ['materials', `Материали (${lines.filter(l => (l.materials || []).length).length}/${lines.length})`], ['labour', 'Труд'], ['head', 'Бележки и логика'], ['versions', `Версии (${o.versions.length})`]]} value={tab} onChange={setTab} />
+    <Tabs tabs={[['lines', 'Оферта'], ['replica', 'Excel реплика'], ['materials', o.status === 'confirmed' && o.project_id ? 'Материали (в КС)' : `Материали (${lines.filter(l => (l.materials || []).length).length}/${lines.length})`], ['labour', 'Труд'], ['head', 'Бележки и логика'], ['versions', `Версии (${o.versions.length})`]]} value={tab} onChange={setTab} />
 
-    {tab === 'materials' && <Card title="Материали и консумативи по редове" actions={<span className="muted small">Стават рецепта на реда в КС при потвърждаване · складът, заявките и бригадирът четат оттук</span>}>
+    {tab === 'materials' && o.status === 'confirmed' && o.project_id ? <ConfirmedMaterials pid={o.project_id} projectCode={o.project_code} products={products.data || []} /> : null}
+    {tab === 'materials' && !(o.status === 'confirmed' && o.project_id) && <Card title="Материали и консумативи по редове" actions={<span className="muted small">Стават рецепта на реда в КС при потвърждаване · складът, заявките и бригадирът четат оттук</span>}>
       {lines.length === 0 ? <div className="empty">Няма редове в офертата.</div> : groups.map(g => {
         const rows = lines.map((l, i) => ({ l, i })).filter(x => (x.l.section || '') === g.key);
         if (!rows.length) return null;
@@ -551,6 +552,33 @@ export function OfferEditor({ id }: { id: number }) {
 }
 
 /** Цял каталог в picker-а — търси всички артикули, добавя като раздел+ред с автом. снимка. */
+// т.24 on a confirmed offer: the offer's materials became the КС recipe of its project — one source from then on.
+// This tab shows that recipe line by line and edits it there (with a reason; Warehouse, Logistics and the brigadier are told),
+// so projects whose offers were confirmed before the materials tab existed can still get their materials.
+function ConfirmedMaterials({ pid, projectCode, products }: { pid: number; projectCode?: string; products: any[] }) {
+  const p = useLoad<any>(`/projects/${pid}`);
+  const can = useCan();
+  const { run, busy } = useAction();
+  const editable = can('technical', 'write') || can('contracts', 'write');
+  const [draft, setDraft] = useState<Record<number, any[]>>({});
+  const [reason, setReason] = useState('');
+  const lines: any[] = p.data?.lines || [];
+  const save = (l: any) => run(async () => {
+    await api.put(`/project-lines/${l.id}/materials`, { items: cleanMats(draft[l.id]), reason });
+    setDraft(d => { const n = { ...d }; delete n[l.id]; return n; }); await p.reload();
+  }, 'Материалите са записани в КС');
+  return <Card title="Материали и консумативи по редове" actions={<span className="muted small">Офертата е потвърдена: това е рецептата в КС на {projectCode || 'обекта'} · складът, заявките и бригадирът четат оттук</span>}>
+    <Loader state={p}>
+      {editable && <Field label="Причина за промяната (задължителна при запис)"><input value={reason} onChange={e => setReason(e.target.value)} placeholder="напр. въвеждане на материалите по офертата" /></Field>}
+      {lines.length === 0 ? <div className="empty">Обектът няма редове в КС.</div> : lines.map((l: any, i: number) => {
+        const items = draft[l.id] ?? l.materials ?? [];
+        return <div key={l.id} className="mat-line"><div className="row" style={{ marginBottom: 6 }}><b>{i + 1}. {l.description || '—'}</b> <span className="muted small">{fmtNum(l.qty)} {l.unit}</span>
+          <span className="spacer" />{draft[l.id] && <button className="primary sm" disabled={busy || !reason.trim()} title={reason.trim() ? '' : 'Напишете причината'} onClick={() => save(l)}>Запази в КС</button>}</div>
+          <MaterialsEditor items={items} onChange={m => setDraft(d => ({ ...d, [l.id]: m }))} products={products} qty={Number(l.qty) || 0} unit={l.unit} editable={editable} smrTypeId={l.smr_type_id} /></div>;
+      })}
+    </Loader></Card>;
+}
+
 function CatalogInsert({ added, onAdd }: { added: Set<number>; onAdd: (it: any) => void }) {
   const [q, setQ] = useState(''); const [cat, setCat] = useState(''); const [brand, setBrand] = useState('');
   const facets = useLoad<any>('/catalog/facets');

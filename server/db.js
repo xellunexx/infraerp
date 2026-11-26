@@ -84,6 +84,7 @@ CREATE TABLE IF NOT EXISTS projects (
   access_notes TEXT, unloading_notes TEXT, storage_notes TEXT, parking_notes TEXT, courier_office TEXT, courier_pallets INTEGER,
   payment_urgency TEXT NOT NULL DEFAULT 'normal', site_questionnaire TEXT NOT NULL DEFAULT '{}', customer_questionnaire TEXT NOT NULL DEFAULT '{}',
   latitude REAL, longitude REAL, geo_label TEXT, geo_source TEXT,
+  urgency_manual TEXT, urgency_reason TEXT, urgency_by INTEGER REFERENCES users(id), urgency_at TEXT,
   archived INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')), row_version INTEGER NOT NULL DEFAULT 1);
 CREATE TABLE IF NOT EXISTS project_members (project_id INTEGER NOT NULL REFERENCES projects(id), user_id INTEGER NOT NULL REFERENCES users(id),
   role TEXT, PRIMARY KEY (project_id, user_id));

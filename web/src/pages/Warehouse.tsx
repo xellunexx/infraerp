@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { api, fmtDate, fmtDateTime, fmtNum } from '../api';
 import { ASSET_KIND } from './Logistics';
-import { Card, Empty, Field, Loader, Modal, Status, Table, Tabs, useAction, useLoad, useLinkTab, usePath } from '../ui';
+import { Card, Empty, Field, Link, Loader, Modal, Status, Table, Tabs, navigate, useAction, useLoad, useLinkTab, usePath } from '../ui';
 
 const KIND_LABEL: Record<string, string> = { receipt: 'Приемане', issue: 'Изписване към обект', return: 'Връщане', adjust: 'Корекция', transfer_out: 'Пренос към друг обект', transfer_in: 'Пренос от друг обект' };
 const FORM_KINDS = ['receipt', 'issue', 'return', 'adjust', 'transfer_out'];
@@ -104,6 +104,9 @@ export function Warehouse() {
   const movements = useLoad<any[]>(`/warehouse/movements${q ? '?' + q : ''}`, [pid]);
   const fleet = useLoad<any[]>(tab === 'fleet' ? '/warehouse/fleet' : null);
   const projects = useLoad<any[]>('/projects');
+  // т.31: the chosen contract's whole material picture — what its КС needs, what is on site, reserved, in stock, still to get
+  const demand = useLoad<any[]>(pid && tab === 'contract' ? `/warehouse/demand?project_id=${pid}` : null, [pid, tab]);
+  const site = useLoad<any>(pid && tab === 'contract' ? `/projects/${pid}/logistics` : null, [pid, tab]);
   const reloadAll = () => { stock.reload(); requests.reload(); reservations.reload(); movements.reload(); };
   const low = (stock.data || []).filter(s => s.low).length;
   return <>
@@ -113,8 +116,28 @@ export function Warehouse() {
       <select value={pid} onChange={e => setPid(e.target.value)} style={{ maxWidth: 280 }}><option value="">Всички обекти</option>
         {(projects.data || []).filter((p: any) => !p.archived).map((p: any) => <option key={p.id} value={p.id}>{p.code} — {p.name}</option>)}</select>
       <button className="sm" onClick={reloadAll}>Обнови</button></div>
-    <Tabs tabs={[['stock', `Склад (${(stock.data || []).length})`], ['requests', `Заявки (${(requests.data || []).length})`],
+    <Tabs tabs={[...(pid ? [['contract', 'По договора'] as [string, string]] : []), ['stock', `Склад (${(stock.data || []).length})`], ['requests', `Заявки (${(requests.data || []).length})`],
       ['reservations', `Резервации (${(reservations.data || []).length})`], ['movements', 'Движения'], ['fleet', 'Машини и инструменти']]} value={tab} onChange={setTab} />
+    {!pid && <div className="muted small" style={{ margin: '0 0 10px' }}>Изберете обект горе вдясно, за да видите материалите по неговия договор (КС → склад → обект).</div>}
+    {tab === 'contract' && pid && <>
+      <Card title="Материали по договора — КС, обект и склад" pad={false} actions={<Link to={`/projects/${pid}?tab=lines`}>КС на обекта →</Link>}><Loader state={demand}>
+        <Table rows={demand.data || []} empty={<Empty title="КС на този обект няма материали">Въвеждат се в КС („✎ материали") или в таба „Материали" на офертата.</Empty>} cols={[
+          { key: 'product', title: 'Продукт', render: (r: any) => <><b>{r.code}</b> {r.name}</> },
+          { key: 'required', title: 'По КС', num: true, render: (r: any) => `${fmtNum(r.required, 3)} ${r.unit || ''}` },
+          { key: 'issued', title: 'Заредено на обекта', num: true, render: (r: any) => fmtNum(r.issued, 3) },
+          { key: 'built', title: 'Вградено', num: true, render: (r: any) => fmtNum(r.consumed, 3) },
+          { key: 'reserved_project', title: 'Резервирано', num: true, render: (r: any) => fmtNum(r.reserved_project, 3) },
+          { key: 'free', title: 'Свободно в склада', num: true, render: (r: any) => fmtNum(r.free, 3) },
+          { key: 'suggest_qty', title: 'Остава за изписване', num: true, render: (r: any) => r.covered ? <span className="badge ok">покрито</span> : fmtNum(r.suggest_qty, 3) },
+          { key: 'short', title: 'За доставка', num: true, render: (r: any) => r.short > 0 ? <span className="badge warn">{fmtNum(r.short, 3)}</span> : '—' }]} />
+      </Loader></Card>
+      <Card title="Планирани доставки към обекта" pad={false} actions={<Link to={`/logistics?tab=deliveries&pid=${pid}`}>Логистика →</Link>}><Loader state={site}>
+        <Table rows={(site.data?.deliveries || []).filter((d: any) => d.status !== 'cancelled')} empty={<Empty title="Няма доставки" />} onRow={(r: any) => r.link && navigate(r.link)} cols={[
+          { key: 'code', title: '№' }, { key: 'planned_date', title: 'Дата', render: (r: any) => r.planned_date ? fmtDate(r.planned_date) : '—' },
+          { key: 'status', title: 'Статус', render: (r: any) => <Status value={r.status} /> },
+          { key: 'items', title: 'Артикули', render: (r: any) => (r.items || []).map((i: any) => `${i.product_name || i.name || ''} × ${fmtNum(i.qty)}`).join('; ') || '—' }]} />
+      </Loader></Card>
+    </>}
     {tab === 'stock' && <Card pad={false}><Loader state={stock}>
       {low > 0 && <div className="alert" style={{ margin: 10 }}>Под минимален запас: {low} продукта.</div>}
       <Table rows={stock.data || []} empty={<Empty title="Няма продукти" />} cols={[

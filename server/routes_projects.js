@@ -11,6 +11,7 @@ import { humanAudit, humanEvent } from './human.js';
 import { lineMaterials } from './materials.js';
 import { amendmentsOf, decideExtraWork } from './amendments.js';
 import { contractCalendar } from './calendar.js';
+import { urgencyOf, URGENCY, URGENCY_LABEL } from './urgency.js';
 
 export default function mountProjects(app, db) {
   // Етапи, управлявани изцяло от домейн действия върху договора — никога ръчни отметки.
@@ -50,6 +51,20 @@ export default function mountProjects(app, db) {
     (SELECT COALESCE(SUM(qty * unit_price), 0) FROM project_lines l WHERE l.project_id = c.project_id AND l.removed = 0) AS total
     FROM contracts c JOIN projects p ON p.id = c.project_id JOIN customers cu ON cu.id = p.customer_id ORDER BY c.id DESC`).all()); }));
   app.get('/api/projects/:pid/contract', h(req => { need(req.user, 'contracts'); needProject(db, req.user, req.params.pid); return contractView(Number(req.params.pid)); }));
+  // т.45: the Manager sets the project's urgency by hand (with a reason) or clears it back to the calculated one
+  app.put('/api/projects/:id/urgency', h(req => tx(db, () => {
+    need(req.user, 'approvals', 'approve'); needProject(db, req.user, req.params.id);
+    const id = Number(req.params.id), p = db.prepare('SELECT urgency_manual, urgency_reason FROM projects WHERE id = ?').get(id);
+    if (!p) throw new HttpError(404, 'Обектът не е намерен');
+    const level = req.body?.level ?? null, reason = String(req.body?.reason || '').trim();
+    if (level != null && !URGENCY.includes(level)) throw bad('Спешността е normal, urgent или very_urgent');
+    if (level != null && !reason) throw bad('Напишете причината за ръчната спешност');
+    db.prepare('UPDATE projects SET urgency_manual = ?, urgency_reason = ?, urgency_by = ?, urgency_at = ?, row_version = row_version + 1 WHERE id = ?')
+      .run(level, level ? reason : null, level ? req.user.id : null, level ? new Date().toISOString().slice(0, 19).replace('T', ' ') : null, id);
+    record(db, req.user, { type: 'project.urgency_set', project_id: id, entity_type: 'project', entity_id: id, action: 'urgency', module: 'projects',
+      before: { urgency: p.urgency_manual ? URGENCY_LABEL[p.urgency_manual] : 'изчислена' }, after: { urgency: level ? URGENCY_LABEL[level] : 'изчислена', reason: level ? reason : null } });
+    return { ok: true };
+  })));
   // т.4, 5, 14: one calendar of the contract for every place that shows it; each lane only for who may read that module
   app.get('/api/projects/:pid/calendar', h(req => {
     need(req.user, 'projects'); needProject(db, req.user, req.params.pid);
@@ -273,6 +288,8 @@ export default function mountProjects(app, db) {
       contract: db.prepare('SELECT id, code, status, active_version, signed_on, delivery_deadline, install_start, install_deadline FROM contracts WHERE project_id = ?').get(id) || null,
       progress_pct: s.progress_pct, lines: (mats => s.lines.map(l => ({ ...(money ? l : { ...l, unit_price: null, unit_cost: null }), materials: mats.get(l.id) || [] })))(lineMaterials(db, s.lines.map(l => l.id))),
       finance: money ? finance(db, id) : null,
+      // т.45: how urgent the project is — calculated with its reasons, or the Manager's level with his reason
+      urgency: urgencyOf(db, { ...p, urgency_by_name: p.urgency_by ? db.prepare('SELECT full_name FROM users WHERE id = ?').get(p.urgency_by)?.full_name : null }, contractView(id)),
       // the contract value card is for Accounting, Logistics and Management only (others see the contract code)
       contract_value_card: ['accounting', 'logistics', 'management'].includes(req.user.department) ? { value: s.contract_value, cost_price: money ? s.cost_price : null } : null,
       stages: db.prepare('SELECT s.*, u.full_name AS done_by_name FROM project_stages s LEFT JOIN users u ON u.id = s.done_by WHERE s.project_id = ? ORDER BY s.sort').all(id),

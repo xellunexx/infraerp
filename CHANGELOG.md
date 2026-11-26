@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-11-26 — The "къде е" points, checked on a copy of the live data (21, 24, 31, 33, 45; 23/29/30/38 unblocked)
+- Checked on a local copy of the live database (port 4801, no weather or outside calls, deleted afterwards). Found the cause behind most of them: the 4 real offers were confirmed before the materials tab existed, and on a confirmed offer that tab was locked and empty — so the КС, the warehouse demand, the material request and the brigadier's list stayed empty.
+- **24, by cause:** on a confirmed offer the materials tab now shows and edits the КС recipe of its project (one source after confirmation; a reason is required; Warehouse, Logistics and the brigadier are told). Checked on the copy: one material on a line → the warehouse sees 26,25 kg for that contract.
+- **21:** every КС line shows its origin — „Оферта № N vX · ред Y" (and the section when it differs) — with a link to the offer for who may read offers; the picture of the line, or else of its section.
+- **31:** with a project chosen, the warehouse has a „По договора" tab: needed by КС, issued to the site, built in, reserved, free in stock, left to issue, to deliver, and the planned deliveries.
+- **33:** in the project card, „Изпълнение по редове" and „Дневни отчети" open Technical (where reports are made and voided), „Проблеми" opens the brigadier's issues.
+- **45:** „Спешност" card under the project figures — calculated from the final deadline, late schedule activities, overdue payment stages and open critical/high issues, each reason listed; the Manager may set a level by hand with a reason until he clears it (`PUT /api/projects/:id/urgency`, an event to everyone on the project).
+- Still to do by people, not code: enter the materials of the 4 real projects (Оферта → Материали or КС → ✎ материали); give projects 2 and 4 real addresses.
+- Tests: `urgency_origin` (urgency reasons, manual level rules and event; offer origin on every КС line). Full suite green.
+
 ## 2026-11-26 — The contract calendar (4, 5, 10, 14) and a checked status of all 45 points
 - **One „Календар на договора"** (`web/src/Calendar.tsx`) fed by one source (`GET /api/projects/:id/calendar`, `server/calendar.js`), shown in „Договор и приложения" (all lanes), inside „Разплащателен график" (Договор + Плащания) and at the top of „Финанси" (Договор + Плащания).
 - Months and days on top; lanes Договор (signed, advance, production + delivery, installation, final deadline), Плащания (every stage on its bank date or due date: empty = to come, green = paid, red = overdue; stages without a date listed), Доставки, Дейности (out-of-contract work striped). Every item opens its record. Lanes only for whoever may read that module; amounts only for money roles.

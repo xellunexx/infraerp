@@ -246,6 +246,7 @@ export function ProjectCard({ id }: { id: number }) {
       <Kpi label="Срок на договора" value={d.planned_start ? `${fmtDate(d.planned_start)} – ${fmtDate(d.planned_end)}` : 'няма срокове'} sub={d.contract?.delivery_deadline ? `доставка до ${fmtDate(d.contract.delivery_deadline)}` : 'сроковете се активират при подписан договор'} />
       <Kpi label="Отговорници" value={<span style={{ fontSize: 14 }}>{d.technical_name || 'няма Техник'} / {d.brigadier_name || 'няма Бригадир'}</span>} tone={!d.technical_id || !d.brigadier_id ? 'warn' : undefined} sub="Техник / Бригадир" />
     </div>
+    {d.urgency && <UrgencyCard pid={id} u={d.urgency} onSaved={() => p.reload()} />}
     {failed > 0 && <div className="alert bad">Има {failed} неуспешно обработени събития по този обект. Виж „Настройки → Синхронизация“.</div>}
     {pending > 0 && <div className="alert">Синхронизацията обработва {pending} събития… <a onClick={() => { p.reload(); timeline.reload(); }}>Обнови</a></div>}
     <Tabs tabs={tabs} value={tab} onChange={setTab} />
@@ -421,13 +422,13 @@ function ProgressTab({ prog, pid }: { prog: any; pid: number }) {
   const lines: any[] = prog.data?.lines || [];
   const entries: any[] = prog.data?.entries || [];
   return <Loader state={prog}>
-    <Card title="Изпълнение по редове" pad={false}><Table rows={lines} empty={<Empty title="Няма редове" />} cols={[
+    <Card title="Изпълнение по редове" pad={false} actions={<span className="muted small">ред → отчет в Технически</span>}><Table rows={lines} onRow={() => navigate(`/technical/${pid}?tab=progress`)} empty={<Empty title="Няма редове" />} cols={[
       { key: 'description', title: 'Ред' }, { key: 'unit', title: 'Мярка', width: 60 },
       { key: 'qty', title: 'Договорено', num: true, render: (r: any) => fmtNum(r.qty) },
       { key: 'done_qty', title: 'Извършено', num: true, render: (r: any) => <>{fmtNum(r.done_qty)}{r.qty > 0 && r.done_qty > r.qty ? <div><span className="badge bad">над договора +{fmtNum(r.done_qty - r.qty, 3)}</span></div> : null}</> },
       { key: 'pct', title: '%', width: 130, render: (r: any) => r.pct != null ? <div className="row" style={{ flexWrap: 'nowrap' }}><Progress pct={r.pct} /><span className="small num" style={{ width: 40 }}>{r.pct}%</span></div> : '—' },
     ]} /></Card>
-    <Card title="Дневни отчети" pad={false} actions={<Link to={`/technical/${pid}`}>Въведи отчет →</Link>}><Table rows={entries} empty={<Empty title="Няма отчети" />} cols={[
+    <Card title="Дневни отчети" pad={false} actions={<Link to={`/technical/${pid}`}>Въведи отчет →</Link>}><Table rows={entries} onRow={(r: any) => navigate(`/technical/${pid}?tab=progress&focus=${r.id}`)} empty={<Empty title="Няма отчети" />} cols={[
       { key: 'work_date', title: 'Дата', render: (r: any) => fmtDate(r.work_date) }, { key: 'line_description', title: 'Ред' },
       { key: 'qty', title: 'Кол-во', num: true, render: (r: any) => <span className={r.voided ? 'muted' : ''} style={r.voided ? { textDecoration: 'line-through' } : {}}>{fmtNum(r.qty)} {r.unit}</span> },
       { key: 'note', title: 'Бележка' }, { key: 'reported_by_name', title: 'От' },
@@ -458,7 +459,7 @@ function TasksTab({ tasks, pid }: { tasks: any; pid: number }) {
       { key: 'priority', title: 'Приоритет', render: (r: any) => PRI[r.priority] || r.priority },
       { key: 'status', title: 'Статус', render: (r: any) => <Status value={r.status} /> },
     ]} /></Card>
-    <Card title="Проблеми" pad={false} actions={<Link to={`/brigade/${pid}`}>В Бригадир →</Link>}><Table rows={d?.issues || []} empty={<Empty title="Няма проблеми" />} cols={[
+    <Card title="Проблеми" pad={false} actions={<Link to={`/brigade/${pid}`}>В Бригадир →</Link>}><Table rows={d?.issues || []} onRow={(r: any) => navigate(`/brigade/${pid}?tab=issues&focus=${r.id}`)} empty={<Empty title="Няма проблеми" />} cols={[
       { key: 'code', title: '№', width: 90 },
       { key: 'title', title: 'Проблем', render: (r: any) => <>{r.title}<div className="small muted">{ISSUE_KIND[r.kind] || r.kind}</div></> },
       { key: 'severity', title: 'Приоритет', render: (r: any) => { const s = SEV[r.severity] || [r.severity, '']; return <span className={'badge ' + s[1]}>{s[0]}</span>; } },
@@ -514,6 +515,35 @@ function MessagesTab({ msgs, pid, write, onSent }: { msgs: any; pid: number; wri
     </Card></Loader>;
 }
 
+// т.45: „Спешност" — calculated from deadline, schedule, overdue payments and critical issues (with the reasons);
+// the Manager may set a level by hand with a reason, until he clears it (operator, 26.11)
+const URG: Record<string, [string, 'ok' | 'warn' | 'bad']> = { normal: ['Нормално', 'ok'], urgent: ['Спешно', 'warn'], very_urgent: ['Много спешно', 'bad'] };
+function UrgencyCard({ pid, u, onSaved }: { pid: number; u: any; onSaved: () => void }) {
+  const can = useCan();
+  const { run, busy } = useAction();
+  const [edit, setEdit] = useState(false);
+  const [level, setLevel] = useState(u.manual?.level || 'urgent');
+  const [reason, setReason] = useState('');
+  const manager = can('approvals', 'approve');
+  const [label, tone] = URG[u.level] || URG.normal;
+  const save = (lv: string | null) => run(async () => { await api.put(`/projects/${pid}/urgency`, { level: lv, reason }); setEdit(false); setReason(''); onSaved(); }, lv ? 'Спешността е зададена' : 'Спешността е отново изчислена');
+  return <Card title="Спешност" actions={<>
+    <span className={`badge ${tone}`} style={{ fontSize: 13 }}>{label}</span>
+    {manager && !edit && <button className="sm" onClick={() => setEdit(true)}>{u.manual ? 'Промени' : 'Задай ръчно'}</button>}
+    {manager && u.manual && !edit && <button className="sm ghost" disabled={busy} onClick={() => save(null)}>Върни изчислената</button>}</>}>
+    {u.manual
+      ? <div className="small">Зададена ръчно от {u.manual.by || 'Управител'}{u.manual.at ? ` на ${fmtDate(u.manual.at)}` : ''}: <b>{u.manual.reason}</b>. Изчислената е „{(URG[u.calculated] || URG.normal)[0]}".</div>
+      : <div className="small muted">Изчислена от сроковете, графика, плащанията и проблемите.</div>}
+    {u.reasons.length ? <ul className="small" style={{ margin: '6px 0 0', paddingLeft: 18 }}>{u.reasons.map((r: any, i: number) => <li key={i}><span className={`badge ${(URG[r.level] || URG.normal)[1]}`}>{(URG[r.level] || URG.normal)[0]}</span> {r.text}</li>)}</ul>
+      : <div className="small muted" style={{ marginTop: 4 }}>Няма причини за спешност в момента.</div>}
+    {edit && <div className="row" style={{ marginTop: 8, flexWrap: 'wrap' }}>
+      <select value={level} onChange={e => setLevel(e.target.value)}>{Object.entries(URG).map(([k, [l]]) => <option key={k} value={k}>{l}</option>)}</select>
+      <input style={{ flex: 1, minWidth: 220 }} value={reason} onChange={e => setReason(e.target.value)} placeholder="Причина (задължителна)" />
+      <button className="primary sm" disabled={busy || !reason.trim()} onClick={() => save(level)}>Запази</button>
+      <button className="sm ghost" onClick={() => setEdit(false)}>Отказ</button></div>}
+  </Card>;
+}
+
 /** КС: every line as in the offer (picture, description, instruction), its quantities and the materials it needs (т.21, 23). */
 function LinesTab({ d, onSaved }: { d: any; onSaved: () => void }) {
   const can = useCan();
@@ -522,7 +552,13 @@ function LinesTab({ d, onSaved }: { d: any; onSaved: () => void }) {
   return <Card title="Количествено-стойностна сметка (КС) — договорни количества и материали" pad={false} actions={<a onClick={() => navigate(`/projects/${d.id}?tab=schedule`)}>Линеен график →</a>}>
     <Table rows={d.lines} empty={<Empty title="Няма редове" />} cols={[{ key: 'sort', title: '№', width: 40 },
       { key: 'img', title: '', width: 56, render: (r: any) => r.image_version_id ? <a href={`/api/documents/${r.image_version_id}/file`} target="_blank" rel="noreferrer" title="Снимка / спецификация от офертата"><img src={`/api/documents/${r.image_version_id}/file`} alt="" style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 6, display: 'block' }} /></a> : null },
-      { key: 'description', title: 'Ред от офертата', render: (r: any) => <><b>{r.code ? r.code + ' · ' : ''}{r.description}</b>{r.tech_note ? <div className="small muted" style={{ whiteSpace: 'pre-wrap' }}>{r.tech_note}</div> : null}</> },
+      { key: 'description', title: 'Ред от офертата', render: (r: any) => {
+        // т.21: where the line comes from — offer №, version, line №, section; a link to the offer for who may read offers
+        const section = (r.offer_section || '').replace(/^Equipment:\s*/i, '').trim();
+        const origin = r.offer_id ? `Оферта № ${r.offer_code} v${r.offer_version} · ред ${r.offer_line_no}${section && section !== r.description ? ' · ' + section : ''}` : r.amendment_id ? 'Извън договора (анекс)' : null;
+        return <><b>{r.code ? r.code + ' · ' : ''}{r.description}</b>{r.tech_note ? <div className="small muted" style={{ whiteSpace: 'pre-wrap' }}>{r.tech_note}</div> : null}
+          {origin && <div className="small" style={{ marginTop: 2 }}>{r.offer_id && can('offers') ? <a onClick={e => { e.stopPropagation(); navigate(`/offers/${r.offer_id}`); }}>{origin} ↗</a> : <span className="muted">{origin}</span>}</div>}</>;
+      } },
       { key: 'qty', title: 'Договорено', num: true, render: (r: any) => <>{fmtNum(r.qty, 3)} {r.unit}</> },
       { key: 'done_qty', title: 'Изпълнено', num: true, render: (r: any) => <>{fmtNum(r.done_qty, 3)}{r.qty > 0 && r.done_qty > r.qty ? <div><span className="badge bad">над договора +{fmtNum(r.done_qty - r.qty, 3)}</span></div> : null}</> },
       { key: 'pct', title: '%', num: true, render: (r: any) => r.qty ? fmtNum(Math.min(100, r.done_qty / r.qty * 100), 0) + '%' : '—' },

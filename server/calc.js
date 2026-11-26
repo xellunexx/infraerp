@@ -5,10 +5,15 @@ const r2 = n => Math.round((n + Number.EPSILON) * 100) / 100;
 const r3 = n => Math.round((n + Number.EPSILON) * 1000) / 1000;
 
 export function projectLines(db, projectId) {
+  // т.21: every КС line carries where it comes from in the offer (offer, version, line №, section) and its picture —
+  // the line's own, else its section's — so the КС shows the offer line, not a bare text
   return db.prepare(`SELECT l.*, COALESCE((SELECT SUM(qty) FROM progress_entries p WHERE p.project_line_id = l.id AND p.voided = 0), 0) AS done_qty,
-      ol.image_document_id,
-      (SELECT v.id FROM document_versions v WHERE v.document_id = ol.image_document_id ORDER BY v.version DESC LIMIT 1) AS image_version_id
-    FROM project_lines l LEFT JOIN offer_lines ol ON ol.id = l.source_offer_line_id
+      COALESCE(ol.image_document_id, os.image_document_id) AS image_document_id,
+      (SELECT v.id FROM document_versions v WHERE v.document_id = COALESCE(ol.image_document_id, os.image_document_id) ORDER BY v.version DESC LIMIT 1) AS image_version_id,
+      ov.offer_id AS offer_id, o.code AS offer_code, ov.version AS offer_version, os.title AS offer_section,
+      (SELECT COUNT(*) FROM offer_lines x WHERE x.version_id = ol.version_id AND (x.sort < ol.sort OR (x.sort = ol.sort AND x.id <= ol.id))) AS offer_line_no
+    FROM project_lines l LEFT JOIN offer_lines ol ON ol.id = l.source_offer_line_id LEFT JOIN offer_sections os ON os.id = ol.section_id
+      LEFT JOIN offer_versions ov ON ov.id = ol.version_id LEFT JOIN offers o ON o.id = ov.offer_id
     WHERE l.project_id = ? AND l.removed = 0 ORDER BY l.sort, l.id`).all(projectId);
 }
 
