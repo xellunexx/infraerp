@@ -20,6 +20,8 @@ const today = () => new Date().toISOString().slice(0, 10);
 const PROFORMA_KINDS = ['advance', 'interim', 'final', 'other'];
 const TX_STATUSES = ['planned', 'committed', 'paid', 'voided'];
 // §14.1: the workbook's hand-typed „вид" column becomes a fixed vocabulary; category stays free text below it
+// what each kind may be: a cost or transfer goes out, a client document or receipt comes in; card and other go both ways
+const KIND_DIR = { supplier_doc: 'out', fiscal: 'out', no_doc: 'out', labour: 'out', store: 'out', bank_out: 'out', client: 'in', proforma: 'in', bank_in: 'in' };
 const TX_KINDS = ['client', 'supplier_doc', 'bank_in', 'bank_out', 'proforma', 'labour', 'fiscal', 'card', 'no_doc', 'store', 'other'];
 const TX_METHODS = ['bank', 'cash', 'card', 'eurowag'];
 const SO_MANUAL_STATUSES = ['ordered', 'delivered', 'cancelled']; // 'ordered' resets to auto-derived status
@@ -42,7 +44,9 @@ export default function mountAccounting(app, db) {
     LEFT JOIN accountable_persons ap ON ap.id = t.person_id LEFT JOIN cost_centers cc ON cc.id = t.cost_center_id
     LEFT JOIN assets ast ON ast.id = t.asset_id LEFT JOIN transactions d ON d.id = t.document_id`;
   // open balance lives on document rows: what the invoice is still owed after its settlement rows
-  const withOpen = t => t ? { ...t, open_amount: t.document_id != null || t.status === 'voided' || t.status === 'reported' ? null : t.paid_sum ? round2(Math.max(0, t.amount - t.paid_sum)) : t.status === 'paid' ? 0 : t.amount } : t;
+  const viaProforma = t => roleOf(t) === 'income_doc' && t.proforma_id ? db.prepare("SELECT COALESCE(SUM(amount), 0) s FROM transactions WHERE proforma_id = ? AND document_id IS NULL AND id != ? AND direction = 'in' AND status = 'paid'").get(t.proforma_id, t.id).s : 0;
+  const withOpen = t => t ? withOpenRaw({ ...t, paid_sum: (t.paid_sum || 0) + viaProforma(t) }) : t;
+  const withOpenRaw = t => t ? { ...t, open_amount: roleOf(t) === 'stock' || t.document_id != null || t.status === 'voided' || t.status === 'reported' ? null : t.paid_sum ? round2(Math.max(0, t.amount - t.paid_sum)) : t.status === 'paid' ? 0 : t.amount } : t;
   const pfView = f => f ? { ...f, ...proformaState(db, f) } : f;
   const soOut = o => supplierOrderView(o, orderDates(db, o));
   const prView = `SELECT r.*, p.code AS project_code, p.name AS project_name, c.name AS customer_name, u.full_name AS requested_by_name,
@@ -171,7 +175,7 @@ export default function mountAccounting(app, db) {
     const rows = scopeRows(db, req.user, db.prepare(`${txView}${sql} ORDER BY t.tx_date DESC, t.id DESC`).all(...args)).map(withOpen);
     // a document with payments is represented by them; planned and reported rows are not owed yet
     const live = rows.filter(t => !['voided', 'planned', 'reported'].includes(t.status)).map(t => t.document_id == null && t.paid_sum ? { ...t, represented: true } : t);
-    const moved = live.filter(t => t.status === 'paid' && !t.represented);
+    const moved = live.filter(t => t.status === 'paid' && !t.represented && roleOf(t) !== 'stock' && !(t.person_id && t.direction === 'out' && roleOf(t) !== 'advance'));
     const totals = { in: round2(moved.filter(t => t.direction === 'in').reduce((s, t) => s + t.amount, 0)),
       out: round2(moved.filter(t => t.direction === 'out').reduce((s, t) => s + t.amount, 0)),
       open_in: round2(live.filter(t => t.direction === 'in' && t.open_amount > 0).reduce((s, t) => s + t.open_amount, 0)),
@@ -187,7 +191,7 @@ export default function mountAccounting(app, db) {
   // shared field parsing for POST + PATCH (the workbook's money columns as real fields)
   const txFields = (req, b, pid, direction) => {
     const f = {};
-    if (b.tx_kind !== undefined) { if (b.tx_kind != null && !TX_KINDS.includes(b.tx_kind)) throw bad('Невалиден вид операция'); f.tx_kind = b.tx_kind || null; }
+    if (b.tx_kind !== undefined) { if (b.tx_kind != null && !TX_KINDS.includes(b.tx_kind)) throw bad('Невалиден вид операция'); if (b.tx_kind && KIND_DIR[b.tx_kind] && KIND_DIR[b.tx_kind] !== direction) throw bad(direction === 'in' ? 'Този вид е разход или изходящ превод, не приход' : 'Този вид е приход, не разход'); f.tx_kind = b.tx_kind || null; }
     if (b.method !== undefined) { if (b.method != null && !TX_METHODS.includes(b.method)) throw bad('Невалиден начин на плащане'); f.method = b.method || null; }
     if (b.company !== undefined) f.company = b.company || null;
     if (b.counterparty !== undefined) f.counterparty = b.counterparty || null;

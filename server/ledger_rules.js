@@ -2,6 +2,7 @@
 // Гледат крайното състояние на реда; нарушение = грешка в същата транзакция, нищо не се записва.
 import { HttpError, bad } from './core.js';
 import { similarPayments, vatInside, localToday } from './payments.js';
+import { roleOf } from './roles.js';
 
 const r2 = n => Math.round((n + Number.EPSILON) * 100) / 100;
 export function bankDate(v) {
@@ -16,6 +17,10 @@ export function settleRow(db, id, { before = null, separate = false } = {}) {
   const row = x => db.prepare('SELECT * FROM transactions WHERE id = ?').get(x), t = row(id);
   const kids = db.prepare("SELECT * FROM transactions WHERE document_id = ? AND status IN ('paid', 'reported')").all(id);
   if (kids.length) {
+    if (!['cost', 'income_doc', 'legacy'].includes(roleOf(t))) throw bad('Документ с плащания остава документ: видът му не може да е превод, аванс или склад');
+    // a re-linked document takes its payments along to the new proforma or milestone
+    if (before && t.direction === 'in' && (before.proforma_id !== t.proforma_id || before.contract_payment_id !== t.contract_payment_id))
+      db.prepare('UPDATE transactions SET proforma_id = ?, contract_payment_id = ? WHERE document_id = ? AND proforma_id IS ? AND contract_payment_id IS ?').run(t.proforma_id, t.contract_payment_id, t.id, before.proforma_id, before.contract_payment_id);
     const paid = r2(kids.filter(k => k.status === 'paid').reduce((s, k) => s + k.amount, 0));
     if (t.status === 'voided') throw bad('По документа има плащания — първо ги анулирайте');
     if (t.document_id != null) throw bad('Документ с плащания не може да стане плащане');
@@ -58,6 +63,6 @@ export function settleRow(db, id, { before = null, separate = false } = {}) {
     else if (t.has_vat && !(t.vat_amount >= 0 && t.vat_amount < t.amount)) throw bad('ДДС трябва да е по-малко от сумата');
   }
   if (t.status === 'paid' || t.status === 'reported') bankDate(t.tx_date);
-  if (t.status === 'paid' && before?.status !== 'paid' && !separate) { const like = similarPayments(db, t); if (like.length) refuseSimilar(like); }
+  if (t.status === 'paid' && before?.status !== 'paid' && !separate && !kids.length) { const like = similarPayments(db, t); if (like.length) refuseSimilar(like); }
   return row(id);
 }

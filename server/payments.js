@@ -34,7 +34,7 @@ export function paidState(rows, gross, net = null) {
   return { paid: sum, paid_at, over: gross > 0 ? r2(Math.max(0, sum - gross)) : 0 };
 }
 
-const milestoneRows = (db, m, projectId, status) => db.prepare(`SELECT * FROM transactions WHERE direction = 'in' AND status = ? AND project_id = ? AND
+const milestoneRows = (db, m, projectId, status) => db.prepare(`SELECT * FROM transactions t WHERE direction = 'in' AND status = ? AND project_id = ? AND NOT EXISTS (SELECT 1 FROM transactions k WHERE k.document_id = t.id AND k.status = 'paid') AND
   (contract_payment_id = ? OR (contract_payment_id IS NULL AND proforma_id IN (SELECT id FROM proformas WHERE project_id = ? AND kind = ?)))`).all(status, projectId, m.id, projectId, m.kind);
 
 export function milestones(db, contractId) {
@@ -52,11 +52,11 @@ export function milestones(db, contractId) {
 
 export function proformaState(db, pf) {
   const gross = grossOf(pf.amount, pf.vat_pct);
-  const st = paidState(db.prepare("SELECT * FROM transactions WHERE proforma_id = ? AND direction = 'in' AND status = 'paid'").all(pf.id), gross);
+  const st = paidState(db.prepare("SELECT * FROM transactions t WHERE proforma_id = ? AND direction = 'in' AND status = 'paid' AND NOT EXISTS (SELECT 1 FROM transactions k WHERE k.document_id = t.id AND k.status = 'paid')").all(pf.id), gross);
   return { gross, paid: st.paid, paid_at: st.paid_at, status: pf.status === 'cancelled' ? 'cancelled' : st.paid_at ? 'paid' : 'issued' };
 }
 /** SQL condition: the proforma (alias) is issued and its payments have not reached its gross amount. */
-export const proformaOpenSql = a => `${a}.status != 'cancelled' AND (SELECT COALESCE(SUM(t.amount), 0) FROM transactions t WHERE t.proforma_id = ${a}.id AND t.direction = 'in' AND t.status = 'paid') < ROUND(${a}.amount * (1 + ${a}.vat_pct / 100.0), 2) - ${EPS}`;
+export const proformaOpenSql = a => `${a}.status != 'cancelled' AND (SELECT COALESCE(SUM(t.amount), 0) FROM transactions t WHERE t.proforma_id = ${a}.id AND NOT EXISTS (SELECT 1 FROM transactions k WHERE k.document_id = t.id AND k.status = 'paid') AND t.direction = 'in' AND t.status = 'paid') < ROUND(${a}.amount * (1 + ${a}.vat_pct / 100.0), 2) - ${EPS}`;
 
 /** A document with payments is worth what was paid on it; without payments its own status decides. */
 export function documentState(doc, paidChildren) {
@@ -74,9 +74,10 @@ export function projectMoney(db, projectId) {
   for (const d of docs) {
     const role = roleOf(d), paid = kids.all(d.id), { settled, open } = documentState(d, paid), share = netOf(d, vat) / d.amount;
     if (d.direction === 'in') { if (role !== 'return') { m.received += settled; m.received_net += settled * share; } continue; }
-    if (role === 'stock') { m.expense_net += d.amount * share; continue; } // cost of the project, never a bill, never money paid
+    if (role === 'stock') { if (d.status !== 'planned') m.expense_net += d.amount * share; continue; } // cost of the project, never a bill, never money paid
+    if (role === 'advance') continue; // money handed to a person: the project spends it through the costs the person pays
     m.paid_out += settled; m.paid_net += settled * share;
-    if (role === 'payment' || role === 'advance') continue; // money moved, not a cost: the cost is the document it pays
+    if (role === 'payment') continue; // money moved, not a cost: the cost is the document it pays
     if (d.status === 'planned' && !paid.length) { m.planned_out += d.amount; continue; }
     m.payables += open; m.expense_net += Math.max(d.amount, settled) * share;
   }
@@ -86,11 +87,13 @@ export function projectMoney(db, projectId) {
 /** Client documents (with VAT and without) and the proformas no invoice has replaced yet. */
 export function clientDocuments(db, projectId) {
   const vat = vatSetting(db);
-  const docs = db.prepare("SELECT * FROM transactions WHERE project_id = ? AND direction = 'in' AND document_id IS NULL AND status NOT IN ('voided', 'reported')").all(projectId).filter(t => roleOf(t) === 'income_doc');
-  const replaced = new Set(docs.map(d => d.proforma_id).filter(Boolean));
-  const pfs = db.prepare("SELECT * FROM proformas WHERE project_id = ? AND status != 'cancelled'").all(projectId).filter(f => !replaced.has(f.id));
-  return { gross: r2(docs.reduce((s, d) => s + d.amount, 0) + pfs.reduce((s, f) => s + grossOf(f.amount, f.vat_pct), 0)),
-    net: r2(docs.reduce((s, d) => s + netOf(d, vat), 0) + pfs.reduce((s, f) => s + f.amount, 0)) };
+  const docs = db.prepare("SELECT * FROM transactions WHERE project_id = ? AND direction = 'in' AND document_id IS NULL AND status IN ('committed', 'paid')").all(projectId).filter(t => roleOf(t) === 'income_doc');
+  let gross = docs.reduce((s, d) => s + d.amount, 0), net = docs.reduce((s, d) => s + netOf(d, vat), 0);
+  for (const f of db.prepare("SELECT * FROM proformas WHERE project_id = ? AND status != 'cancelled'").all(projectId)) {
+    const g = grossOf(f.amount, f.vat_pct), invoiced = docs.filter(d => d.proforma_id === f.id).reduce((s, d) => s + d.amount, 0), rest = Math.max(0, g - invoiced);
+    gross += rest; net += g ? f.amount * rest / g : 0; // only what the invoices have not yet covered
+  }
+  return { gross: r2(gross), net: r2(net) };
 }
 
 /** The project result block of the company workbook, line by line. */
@@ -101,7 +104,7 @@ export function projectResult(db, projectId) {
   for (const t of rows) {
     if (t.direction !== 'out') continue;
     const role = roleOf(t);
-    if (role === 'cost' && t.tx_kind === 'labour') { labour += t.amount; if (t.labour_days > 0) days += t.labour_days; else unknown++; continue; }
+    if (role === 'cost' && t.tx_kind === 'labour') { labour += netOf(t, vat); if (t.labour_days > 0) days += t.labour_days; else unknown++; continue; }
     if (role === 'cost' || role === 'stock' || (role === 'legacy' && t.status !== 'planned')) materials += netOf(t, vat);
   }
   const income = clientDocuments(db, projectId).net, total = materials + labour, before = income - total, indirect = days * rate;

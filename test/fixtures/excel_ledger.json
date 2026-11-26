@@ -264,7 +264,7 @@
 "kind": "supplier_doc",
 "amount": 16.41,
 "vat": 2.735,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-05",
@@ -272,7 +272,7 @@
 "kind": "supplier_doc",
 "amount": 4.75,
 "vat": 0.7916666666666666,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-05",
@@ -280,7 +280,7 @@
 "kind": "supplier_doc",
 "amount": 114.5,
 "vat": 19.083333333333332,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-05",
@@ -288,7 +288,7 @@
 "kind": "supplier_doc",
 "amount": 184.24,
 "vat": 30.706666666666667,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-05",
@@ -296,7 +296,7 @@
 "kind": "supplier_doc",
 "amount": 226.59,
 "vat": 37.765,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-05",
@@ -304,7 +304,7 @@
 "kind": "supplier_doc",
 "amount": 7.28,
 "vat": 1.2133333333333334,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-05",
@@ -312,7 +312,7 @@
 "kind": "supplier_doc",
 "amount": 5.16,
 "vat": 0.86,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-05",
@@ -320,7 +320,7 @@
 "kind": "supplier_doc",
 "amount": 94.83,
 "vat": 15.805,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-05",
@@ -328,7 +328,7 @@
 "kind": "supplier_doc",
 "amount": 45,
 "vat": 7.5,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-05",
@@ -336,7 +336,7 @@
 "kind": "supplier_doc",
 "amount": 300,
 "vat": 0,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-05",
@@ -344,7 +344,7 @@
 "kind": "supplier_doc",
 "amount": 68.55,
 "vat": 11.424999999999999,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-05",
@@ -352,7 +352,7 @@
 "kind": "no_doc",
 "amount": 3.74,
 "vat": 0,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-05",
@@ -360,7 +360,7 @@
 "kind": "supplier_doc",
 "amount": 8.33,
 "vat": 1.3883333333333334,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-05",
@@ -408,7 +408,7 @@
 "kind": "supplier_doc",
 "amount": 21.94,
 "vat": 3.6566666666666667,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-05",
@@ -416,7 +416,7 @@
 "kind": "supplier_doc",
 "amount": 65.83,
 "vat": 10.971666666666666,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-05",
@@ -424,7 +424,7 @@
 "kind": "supplier_doc",
 "amount": 30.67,
 "vat": 5.111666666666667,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-05",
@@ -432,7 +432,7 @@
 "kind": "supplier_doc",
 "amount": 45,
 "vat": 7.5,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-05",
@@ -440,7 +440,7 @@
 "kind": "supplier_doc",
 "amount": 240,
 "vat": 0,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-05",
@@ -456,7 +456,7 @@
 "kind": "supplier_doc",
 "amount": 6.13,
 "vat": 1.0216666666666667,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-05",
@@ -464,7 +464,7 @@
 "kind": "supplier_doc",
 "amount": 29.6,
 "vat": 4.933333333333334,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-22",
@@ -552,7 +552,7 @@
 "kind": "supplier_doc",
 "amount": 16.8,
 "vat": 2.8000000000000003,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-11-10",
@@ -560,7 +560,7 @@
 "kind": "supplier_doc",
 "amount": 90,
 "vat": 0,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-11-10",
@@ -568,7 +568,7 @@
 "kind": "supplier_doc",
 "amount": 28.67,
 "vat": 4.778333333333333,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-30",
@@ -576,7 +576,7 @@
 "kind": "supplier_doc",
 "amount": 105.2,
 "vat": 17.533333333333335,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-09-24",
@@ -783,7 +783,7 @@
 "kind": "supplier_doc",
 "amount": 278.62,
 "vat": 46.43666666666667,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-22",
@@ -791,7 +791,7 @@
 "kind": "supplier_doc",
 "amount": 264,
 "vat": 0,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-22",
@@ -799,7 +799,7 @@
 "kind": "supplier_doc",
 "amount": 48.14,
 "vat": 8.023333333333333,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-22",
@@ -807,7 +807,7 @@
 "kind": "supplier_doc",
 "amount": 69.25,
 "vat": 11.541666666666666,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-22",
@@ -815,7 +815,7 @@
 "kind": "supplier_doc",
 "amount": 900,
 "vat": 150.0,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-22",
@@ -831,7 +831,7 @@
 "kind": "supplier_doc",
 "amount": 15,
 "vat": 0,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-19",
@@ -839,7 +839,7 @@
 "kind": "no_doc",
 "amount": 5.67,
 "vat": 0,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-19",
@@ -847,7 +847,7 @@
 "kind": "supplier_doc",
 "amount": 88.6,
 "vat": 14.766666666666666,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-08-04",
@@ -872,7 +872,7 @@
 "kind": "no_doc",
 "amount": 14.86,
 "vat": 0,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-09-14",
@@ -1050,7 +1050,7 @@
 "kind": "supplier_doc",
 "amount": 4,
 "vat": 0.6666666666666666,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-09-14",
@@ -1058,7 +1058,7 @@
 "kind": "supplier_doc",
 "amount": 4,
 "vat": 0.6666666666666666,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-09-14",
@@ -1066,7 +1066,7 @@
 "kind": "no_doc",
 "amount": 7.81,
 "vat": 0,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-09-14",
@@ -1074,7 +1074,7 @@
 "kind": "supplier_doc",
 "amount": 13.7,
 "vat": 2.283333333333333,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-09-14",
@@ -1082,7 +1082,7 @@
 "kind": "supplier_doc",
 "amount": 96.52,
 "vat": 16.086666666666666,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-09-14",
@@ -1090,7 +1090,7 @@
 "kind": "supplier_doc",
 "amount": 84.21,
 "vat": 14.034999999999998,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-09-14",
@@ -1098,7 +1098,7 @@
 "kind": "supplier_doc",
 "amount": 3.1,
 "vat": 0,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-09-14",
@@ -1106,7 +1106,7 @@
 "kind": "supplier_doc",
 "amount": 13.95,
 "vat": 2.3249999999999997,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-09-14",
@@ -1114,7 +1114,7 @@
 "kind": "supplier_doc",
 "amount": 24.38,
 "vat": 4.0633333333333335,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-09-14",
@@ -1122,7 +1122,7 @@
 "kind": "supplier_doc",
 "amount": 3.71,
 "vat": 0.6183333333333333,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-09-14",
@@ -1130,7 +1130,7 @@
 "kind": "supplier_doc",
 "amount": 36.55,
 "vat": 6.091666666666666,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-09-14",
@@ -1138,7 +1138,7 @@
 "kind": "supplier_doc",
 "amount": 13.5,
 "vat": 2.25,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-09-14",
@@ -1146,7 +1146,7 @@
 "kind": "no_doc",
 "amount": 51.83,
 "vat": 0,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-09-14",
@@ -1154,7 +1154,7 @@
 "kind": "no_doc",
 "amount": 42.42,
 "vat": 0,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-09-14",
@@ -1162,7 +1162,7 @@
 "kind": "supplier_doc",
 "amount": 18.2,
 "vat": 3.033333333333333,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-09-14",
@@ -1170,7 +1170,7 @@
 "kind": "supplier_doc",
 "amount": 243.25,
 "vat": 40.541666666666664,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-09-14",
@@ -1178,7 +1178,7 @@
 "kind": "supplier_doc",
 "amount": 120,
 "vat": 20.0,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-09-14",
@@ -1186,7 +1186,7 @@
 "kind": "supplier_doc",
 "amount": 25,
 "vat": 4.166666666666667,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-09-14",
@@ -1194,7 +1194,7 @@
 "kind": "no_doc",
 "amount": 10,
 "vat": 0,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-09-14",
@@ -1202,7 +1202,7 @@
 "kind": "supplier_doc",
 "amount": 64.29,
 "vat": 10.715000000000002,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-09-14",
@@ -1210,7 +1210,7 @@
 "kind": "supplier_doc",
 "amount": 79.95,
 "vat": 13.325000000000001,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-09-14",
@@ -1218,7 +1218,7 @@
 "kind": "no_doc",
 "amount": 10.84,
 "vat": 0,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-09-14",
@@ -1226,7 +1226,7 @@
 "kind": "supplier_doc",
 "amount": 105.96,
 "vat": 17.66,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-09-14",
@@ -1242,7 +1242,7 @@
 "kind": "supplier_doc",
 "amount": 22.4,
 "vat": 3.733333333333333,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-09-14",
@@ -1250,7 +1250,7 @@
 "kind": "supplier_doc",
 "amount": 16.33,
 "vat": 2.7216666666666662,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-09-14",
@@ -1258,7 +1258,7 @@
 "kind": "supplier_doc",
 "amount": 19.99,
 "vat": 3.3316666666666666,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-09-14",
@@ -1266,7 +1266,7 @@
 "kind": "supplier_doc",
 "amount": 15.5,
 "vat": 2.5833333333333335,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-09-14",
@@ -1274,7 +1274,7 @@
 "kind": "supplier_doc",
 "amount": 18.24,
 "vat": 3.0399999999999996,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-09-14",
@@ -1390,7 +1390,7 @@
 "kind": "supplier_doc",
 "amount": 35.07,
 "vat": 5.845,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-09",
@@ -1398,7 +1398,7 @@
 "kind": "supplier_doc",
 "amount": 13.81,
 "vat": 2.3016666666666667,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-09",
@@ -1406,7 +1406,7 @@
 "kind": "supplier_doc",
 "amount": 84.1,
 "vat": 14.016666666666666,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-09",
@@ -1414,7 +1414,7 @@
 "kind": "supplier_doc",
 "amount": 56.84,
 "vat": 9.473333333333334,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-09",
@@ -1422,7 +1422,7 @@
 "kind": "supplier_doc",
 "amount": 17.33,
 "vat": 2.888333333333333,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-09",
@@ -1430,7 +1430,7 @@
 "kind": "supplier_doc",
 "amount": 22.01,
 "vat": 3.6683333333333334,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-09",
@@ -1438,7 +1438,7 @@
 "kind": "supplier_doc",
 "amount": 17.4,
 "vat": 2.9,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-09",
@@ -1446,7 +1446,7 @@
 "kind": "supplier_doc",
 "amount": 7.9,
 "vat": 1.3166666666666667,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-09",
@@ -1454,7 +1454,7 @@
 "kind": "supplier_doc",
 "amount": 15.9,
 "vat": 2.65,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-09",
@@ -1462,7 +1462,7 @@
 "kind": "supplier_doc",
 "amount": 120,
 "vat": 20.0,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-09",
@@ -1470,7 +1470,7 @@
 "kind": "no_doc",
 "amount": 170,
 "vat": 0,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-09",
@@ -1478,7 +1478,7 @@
 "kind": "supplier_doc",
 "amount": 68.9,
 "vat": 0,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-09",
@@ -1486,7 +1486,7 @@
 "kind": "supplier_doc",
 "amount": 2.76,
 "vat": 0,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-09",
@@ -1494,7 +1494,7 @@
 "kind": "supplier_doc",
 "amount": 35.75,
 "vat": 5.958333333333333,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-09",
@@ -1502,7 +1502,7 @@
 "kind": "supplier_doc",
 "amount": 58.9,
 "vat": 9.816666666666666,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-09",
@@ -1510,7 +1510,7 @@
 "kind": "supplier_doc",
 "amount": 10.1,
 "vat": 1.6833333333333333,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-09",
@@ -1518,7 +1518,7 @@
 "kind": "supplier_doc",
 "amount": 32.21,
 "vat": 5.368333333333333,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-09",
@@ -1526,7 +1526,7 @@
 "kind": "supplier_doc",
 "amount": 54.57,
 "vat": 9.095,
-"status": "committed"
+"status": "paid"
 },
 {
 "date": "2026-10-09",

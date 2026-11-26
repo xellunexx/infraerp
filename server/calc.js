@@ -116,11 +116,13 @@ export function supplierOrderView(row, dates, today = new Date().toISOString().s
  *  spent   = out rows the person paid from the advance (any out kind that is not an advance)
  *  returned= in rows where the person hands money back to the company */
 export function personCard(db, personId) {
-  const rows = db.prepare(`SELECT * FROM transactions WHERE person_id = ? AND status NOT IN ('voided', 'reported') ORDER BY tx_date, id`).all(personId);
+  // only money that moved; a document with payments is represented by them
+  const rows = db.prepare(`SELECT t.*, EXISTS (SELECT 1 FROM transactions k WHERE k.document_id = t.id AND k.status = 'paid') AS has_payments
+    FROM transactions t WHERE t.person_id = ? AND t.status = 'paid' ORDER BY t.tx_date, t.id`).all(personId);
   // the company workbook: (money given + money the person received) − (labour + documents the person paid); ЕВРОВАГ fuel is not the person's money
   const role = t => roleOf(t), sum = f => rows.filter(f).reduce((s, t) => s + t.amount, 0);
-  const given = sum(t => role(t) === 'advance' || (t.direction === 'in' && role(t) !== 'return'));
-  const spent = sum(t => t.direction === 'out' && ['cost', 'stock', 'legacy'].includes(role(t)) && t.method !== 'eurowag');
+  const given = sum(t => role(t) === 'advance' || (t.direction === 'in' && ['income_payment', 'legacy'].includes(role(t))));
+  const spent = sum(t => t.direction === 'out' && t.method !== 'eurowag' && ((['cost', 'stock', 'legacy'].includes(role(t)) && !t.has_payments) || role(t) === 'payment'));
   const returned = sum(t => role(t) === 'return');
   return { movements: rows, given: r2(given), spent: r2(spent), returned: r2(returned), balance: r2(given - spent - returned) };
 }

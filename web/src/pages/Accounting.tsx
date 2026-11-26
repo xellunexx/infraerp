@@ -61,7 +61,7 @@ export function Accounting() {
 
     <Loader state={port}>
       {totals && <div className="grid g4" style={{ marginBottom: 14 }}>
-        <div className="kpi bad"><div className="label">Вземания с ДДС (неплатени проформи)</div><div className="value">{money(totals.receivables, cur)}</div></div>
+        <div className="kpi bad"><div className="label">Остава да получим с ДДС</div><div className="value">{money(totals.receivables, cur)}</div></div>
         <div className="kpi warn"><div className="label">Задължения към доставчици с ДДС</div><div className="value">{money(totals.payables, cur)}</div></div>
         <div className="kpi"><div className="label">Получени плащания с ДДС</div><div className="value">{money(totals.payments_received, cur)}</div></div>
         <div className="kpi"><div className="label">Резултат до момента без ДДС</div><div className="value">{money(totals.result_to_date, cur)}</div><div className="sub">прогноза: {money(totals.forecast_result, cur)}</div></div>
