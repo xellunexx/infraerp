@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-11-26 — Point 39: whole-ERP audit "after" and the "Slack" design (docs only)
+- `docs/AUDIT-SLACK-AFTER-2026-11-26.md`: measured before (de1857b) and after (35d7e05). 35 of 79 write routes still tell nobody (35 of 75 before). A live run of 14 actions on a throwaway database shows what each one notifies.
+- Seven causes named (B1–B7), with a design D1–D7 that waits for approval and simple questions in Bulgarian. No code changed.
+
 ## 2026-11-26 — Batch 3, second part: the payment schedule screen shows every stage (7)
 - **7 Several interim payments, screen.** The „Разплащателен график" card shows one row per stage from the server (аванс, междинно №1…№n, окончателно) in place of three fixed rows. A kind with no stage yet keeps an empty row, so Accounting can still fill in a plan signed before schedules existed.
 - **Before signing:** „+ Междинно плащане" adds the next interim stage. An interim stage with nothing paid or reported on it has a ✕ to remove it. Interim stages take an optional name; empty keeps the default „Междинно плащане №n".
