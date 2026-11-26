@@ -9,6 +9,7 @@ import { refreshProject, weatherView } from './weather.js';
 import { recordLink } from './links.js';
 import { humanAudit, humanEvent } from './human.js';
 import { lineMaterials } from './materials.js';
+import { amendmentsOf, decideExtraWork } from './amendments.js';
 
 export default function mountProjects(app, db) {
   // Етапи, управлявани изцяло от домейн действия върху договора — никога ръчни отметки.
@@ -326,6 +327,15 @@ export default function mountProjects(app, db) {
     audit(db, req.user, { project_id: id, entity_type: 'project', entity_id: id, action: want ? 'archive' : 'unarchive',
       before: { archived: p.archived, status: p.status }, after: { archived: want ? 1 : 0, status: next }, module: 'projects' });
     return { ok: true, archived: want, status: next };
+  })));
+  // т.26: annexes for work outside the contract — list and decide (rules in amendments.js)
+  app.get('/api/projects/:id/amendments', h(req => { need(req.user, 'projects'); needProject(db, req.user, req.params.id); return amendmentsOf(db, Number(req.params.id)); }));
+  app.post('/api/amendments/:id/:action', h(req => tx(db, () => {
+    const am = db.prepare('SELECT project_id FROM amendments WHERE id = ?').get(Number(req.params.id));
+    if (!am) throw new HttpError(404, 'Няма такъв анекс');
+    needProject(db, req.user, am.project_id);
+    if (!['approve', 'reject'].includes(req.params.action)) throw bad('Непозната операция');
+    return decideExtraWork(db, req.user, Number(req.params.id), req.params.action, req.body?.note);
   })));
   app.get('/api/projects/:id/timeline', h(req => { need(req.user, 'projects'); needProject(db, req.user, req.params.id);
     const mask = canSeeMoney(req.user) ? r => r : redactMoney;

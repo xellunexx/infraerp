@@ -1,6 +1,8 @@
 // Техник: работно място (обекти, задачи, проблеми) и екран на обект — график, прогрес, материали.
 import React, { useState } from 'react';
 import { api, fmtDate, fmtMoney, fmtNum, today } from '../api';
+import { Gantt } from '../Gantt';
+import { MaterialsEditor, cleanMats, type Mat } from './Materials';
 import { Card, LineSelect, Empty, Field, Link, Loader, Modal, Progress, Status, Table, Tabs, navigate, useAction, useCan, useCurrency, useForm, useLoad, useToast, useLinkTab, useFocus } from '../ui';
 
 const SEV: Record<string, [string, string]> = { low: ['Нисък', ''], medium: ['Среден', 'warn'], high: ['Висок', 'bad'], critical: ['Критичен', 'bad'] };
@@ -89,7 +91,9 @@ function ScheduleTab({ pid, sched, onChanged }: { pid: number; sched: ReturnType
   const writable = can('technical', 'write');
   const [edit, setEdit] = useState<any>(null);
   const [add, setAdd] = useState(false);
-  const ef = useForm<any>({ name: '', start_date: '', end_date: '', depends_on: '', crew: '', project_line_id: '' });
+  const ef = useForm<any>({ name: '', start_date: '', end_date: '', depends_on: '', crew: '', project_line_id: '', outside: false, unit: '', qty: '', unit_price: '', note: '' });
+  const [mats, setMats] = useState<Mat[]>([]);
+  const products = useLoad<any[]>(add ? '/products' : null, [add]);
   const items: any[] = sched.data?.items || [];
   const deadline: string | null = sched.data?.deadline || null;
   const dated = items.flatMap(s => [s.baseline_start, s.baseline_end, s.start_date, s.end_date]).filter(Boolean) as string[];
@@ -103,13 +107,14 @@ function ScheduleTab({ pid, sched, onChanged }: { pid: number; sched: ReturnType
   const w = (a: string, b: string) => pos(new Date(Date.parse(b) + DAY).toISOString().slice(0, 10)) - pos(a);
 
   const openEdit = (s: any) => { ef.setV({ name: s.name, start_date: s.start_date || '', end_date: s.end_date || '', depends_on: s.depends_on || '', crew: s.crew || '', project_line_id: s.project_line_id || '' }); setEdit(s); };
-  const openAdd = () => { ef.setV({ name: '', start_date: '', end_date: '', depends_on: '', crew: '', project_line_id: '' }); setAdd(true); };
+  const openAdd = () => { ef.setV({ name: '', start_date: '', end_date: '', depends_on: '', crew: '', project_line_id: '', outside: false, unit: '', qty: '', unit_price: '', note: '' }); setMats([]); setAdd(true); };
   const saveEdit = () => run(async () => {
     await api.patch(`/schedule-items/${edit.id}`, { ...ef.v, depends_on: ef.v.depends_on === '' ? null : Number(ef.v.depends_on), crew: ef.v.crew || null, row_version: edit.row_version });
     setEdit(null); onChanged();
   }, 'Графикът е записан');
   const saveAdd = () => run(async () => {
-    await api.post(`/projects/${pid}/schedule`, { name: ef.v.name, start_date: ef.v.start_date || null, end_date: ef.v.end_date || null, depends_on: ef.v.depends_on === '' ? null : Number(ef.v.depends_on), crew: ef.v.crew || null, project_line_id: ef.v.project_line_id === '' ? null : Number(ef.v.project_line_id) });
+    await api.post(`/projects/${pid}/schedule`, { name: ef.v.name, start_date: ef.v.start_date || null, end_date: ef.v.end_date || null, depends_on: ef.v.depends_on === '' ? null : Number(ef.v.depends_on), crew: ef.v.crew || null,
+      note: ef.v.note || null, materials: cleanMats(mats), ...(ef.v.outside ? { outside_contract: true, unit: ef.v.unit, qty: Number(ef.v.qty), unit_price: Number(ef.v.unit_price) } : { project_line_id: ef.v.project_line_id === '' ? null : Number(ef.v.project_line_id) }) });
     setAdd(false); onChanged();
   }, 'Дейността е добавена');
 
@@ -118,40 +123,21 @@ function ScheduleTab({ pid, sched, onChanged }: { pid: number; sched: ReturnType
       <span className="small muted">пунктирано = първоначален план · <span style={{ color: 'var(--bad)' }}>┆</span> договорен край · <span style={{ color: 'var(--accent)' }}>┆</span> днес</span>
       {writable && <button className="sm" onClick={openAdd}>+ Дейност</button>}
     </>}>
-      {items.length === 0 ? <Empty title="Няма дейности по графика">Графикът се изгражда автоматично при подписване на договора от планираните дни на СМР редовете.</Empty> :
-        <div className="table-wrap"><table className="t"><thead><tr>
-          <th style={{ width: 30 }}>№</th><th>Дейност</th><th>План</th><th>Текущ срок</th><th>Екип</th><th style={{ width: 130 }}>Изпълнение</th><th className="gantt-wrap">Хронология</th>{writable && <th style={{ width: 40 }}></th>}
-        </tr></thead><tbody>
-          {items.map((s, i) => {
-            const cls = s.late_days > 0 ? 'late' : s.behind ? 'behind' : '';
-            return <tr key={s.id}>
-              <td className="muted">{i + 1}</td>
-              <td>{s.name}
-                {s.late_days > 0 && <div className="small"><span className="badge bad">закъснение {s.late_days} дн.</span></div>}
-                {s.late_days === 0 && s.behind && <div className="small"><span className="badge warn">изостава от плана</span></div>}
-                {s.slip_days > 0 && <div className="small muted">изместване +{s.slip_days} дн.</div>}
-              </td>
-              <td className="small nowrap muted">{fmtDate(s.baseline_start)} — {fmtDate(s.baseline_end)}</td>
-              <td className="small nowrap">{fmtDate(s.start_date)} — {fmtDate(s.end_date)}</td>
-              <td className="small">{s.crew || '—'}</td>
-              <td>{s.pct != null ? <div className="row" style={{ flexWrap: 'nowrap' }}><Progress pct={s.pct} tone={cls === 'late' ? 'bad' : cls === 'behind' ? 'warn' : undefined} /><span className="small num" style={{ width: 40 }}>{s.pct}%</span></div> : <span className="muted">—</span>}</td>
-              <td className="gantt-wrap"><div className="gtrack">
-                {s.baseline_start && s.baseline_end && <div className="gbar base" style={{ left: pos(s.baseline_start) + '%', width: w(s.baseline_start, s.baseline_end) + '%' }} />}
-                {s.start_date && s.end_date && <div className={'gbar cur ' + cls} style={{ left: pos(s.start_date) + '%', width: w(s.start_date, s.end_date) + '%' }}><i style={{ width: (s.pct ?? 0) + '%' }} /></div>}
-                {!s.start_date && <span className="faint small">без дати</span>}
-                {deadline && <div className="gmark deadline" style={{ left: pos(deadline) + '%' }} />}
-                <div className="gmark today" style={{ left: pos(t) + '%' }} />
-              </div></td>
-              {writable && <td><button className="ghost sm" onClick={() => openEdit(s)}>✎</button></td>}
-            </tr>;
-          })}
-        </tbody></table></div>}
+      {items.length === 0 ? <Empty title="Няма дейности по графика">Графикът се изгражда автоматично при подписване на договора от планираните дни на СМР редовете.</Empty> : <Gantt items={items} deadline={deadline} onEdit={writable ? openEdit : undefined} />}
     </Card>
     {(edit || add) && <Modal title={edit ? 'Дейност по графика' : 'Нова дейност'} onClose={() => { setEdit(null); setAdd(false); }} footer={
       <><button className="ghost" onClick={() => { setEdit(null); setAdd(false); }}>Отказ</button><button className="primary" onClick={edit ? saveEdit : saveAdd}>Запази</button></>}>
       <div className="form c2">
         <Field label="Дейност" full><input {...ef.bind('name')} required /></Field>
-        {add && <Field label="Ред от КС (по желание)" full><LineSelect lines={sched.data?.lines || []} value={ef.v.project_line_id} onChange={v => ef.set('project_line_id', v)} empty="—" /></Field>}
+        {add && <Field label="Вид" full><label className="row"><input type="checkbox" checked={!!ef.v.outside} onChange={e => ef.set('outside', e.target.checked)} /> Извън договора — иска анекс (до 500 € двама от Оферти/Договори, над 500 € Управител)</label></Field>}
+        {add && !ef.v.outside && <Field label="Ред от КС (по желание)" full><LineSelect lines={sched.data?.lines || []} value={ef.v.project_line_id} onChange={v => ef.set('project_line_id', v)} empty="—" /></Field>}
+        {add && ef.v.outside && <>
+          <Field label="Мярка"><input {...ef.bind('unit')} placeholder="м, м², бр." /></Field>
+          <Field label="Количество"><input type="number" min="0" step="any" {...ef.bind('qty')} /></Field>
+          <Field label="Ед. цена за клиента, € без ДДС"><input type="number" min="0" step="any" {...ef.bind('unit_price')} /></Field>
+          <Field label="Стойност"><input disabled value={Number(ef.v.qty) && Number(ef.v.unit_price) ? (Number(ef.v.qty) * Number(ef.v.unit_price)).toFixed(2) + ' €' : '—'} /></Field></>}
+        {add && <Field label="Бележка" full><textarea rows={2} {...ef.bind('note')} /></Field>}
+        {add && <Field label="Нужни материали" full><MaterialsEditor items={mats} onChange={setMats} products={products.data || []} qty={Number(ef.v.qty) || 0} unit={ef.v.unit || 'ед.'} editable /></Field>}
         <Field label="Начало"><input type="date" {...ef.bind('start_date')} /></Field>
         <Field label="Край"><input type="date" {...ef.bind('end_date')} /></Field>
         <Field label="Зависи от"><select {...ef.bind('depends_on')}><option value="">—</option>{items.filter(x => x.id !== edit?.id).map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select></Field>

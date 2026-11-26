@@ -5,7 +5,8 @@ import { HttpError, bad, need, can, needProject, canSeeProject, audit, updateRow
 import { progressSummary, consumption, scheduleStatus, projectLines } from './calc.js';
 import { h, pick, num, reqStr } from './app.js';
 import { setStage } from './domain.js';
-import { setLineMaterials, lineMaterials } from './materials.js';
+import { setLineMaterials, lineMaterials, cleanMaterials } from './materials.js';
+import { requestExtraWork } from './amendments.js';
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const reqDate = (v, label, { required = true } = {}) => {
@@ -122,8 +123,14 @@ export default function mountTechnical(app, db) {
     if (b.project_line_id != null && !db.prepare('SELECT 1 FROM project_lines WHERE id = ? AND project_id = ? AND removed = 0').get(Number(b.project_line_id), pid)) throw bad('Няма такъв ред от КС');
     if (b.depends_on != null && !db.prepare('SELECT 1 FROM schedule_items WHERE id = ? AND project_id = ?').get(Number(b.depends_on), pid)) throw bad('Няма такава зависима дейност');
     const sort = (db.prepare('SELECT MAX(sort) s FROM schedule_items WHERE project_id = ?').get(pid).s || 0) + 10;
-    const id = Number(db.prepare('INSERT INTO schedule_items(project_id, project_line_id, name, sort, start_date, end_date, depends_on, crew) VALUES (?,?,?,?,?,?,?,?)')
-      .run(pid, b.project_line_id ?? null, name, sort, start, end, b.depends_on ?? null, b.crew || null).lastInsertRowid);
+    // т.26: work outside the contract carries what an annex needs (unit, qty, price for the client, materials) and waits for approval
+    const outside = !!b.outside_contract;
+    const x = outside ? { unit: reqStr(b.unit, 'Мярка'), qty: num(b.qty, 'Количество', { min: 0.000001 }), unit_price: num(b.unit_price, 'Ед. цена за клиента', { min: 0.01 }), note: b.note || null, materials: cleanMaterials(db, b.materials) }
+      : { unit: b.unit || null, qty: b.qty == null || b.qty === '' ? null : num(b.qty, 'Количество', { min: 0 }), note: b.note || null, materials: cleanMaterials(db, b.materials) };
+    if (outside && b.project_line_id != null) throw bad('Дейност извън договора не е ред от КС — КС редът се създава с анекса');
+    const id = Number(db.prepare('INSERT INTO schedule_items(project_id, project_line_id, name, sort, start_date, end_date, depends_on, crew, unit, qty, note, materials, outside_contract) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+      .run(pid, b.project_line_id ?? null, name, sort, start, end, b.depends_on ?? null, b.crew || null, x.unit, x.qty, x.note, JSON.stringify(x.materials), outside ? 1 : 0).lastInsertRowid);
+    if (outside) requestExtraWork(db, req.user, pid, id, { name, ...x });
     audit(db, req.user, { project_id: pid, entity_type: 'schedule_item', entity_id: id, action: 'create', after: { name, start, end }, module: 'technical' });
     emit(db, req.user, { type: 'schedule.changed', origin: 'technical', project_id: pid, entity_type: 'schedule_item', entity_id: id,
       next: { name, start_date: start, end_date: end, added: true }, affected: ['brigadier', 'logistics'] });

@@ -1,7 +1,7 @@
 // Хронология и одит, четими от човек: изречение + списък „поле: старо → ново" на български.
 // Едно място за имената на събития, действия, записи и полета — страниците само показват готовия текст.
 export const EVENT_LABEL = {
-  'offer.confirmed': 'Потвърдена оферта', 'project_line.materials_changed': 'Променени материали по ред от КС', 'contract.submitted': 'Договорът е изпратен за одобрение', 'contract.lines_changed': 'Редовете на договора са променени след изпращането', 'contract.signed': 'Подписан договор',
+  'offer.confirmed': 'Потвърдена оферта', 'amendment.requested': 'Работа извън договора — анекс за одобрение', 'amendment.first_approval': 'Анекс — първи подпис', 'amendment.decided': 'Решение по анекс', 'project_line.materials_changed': 'Променени материали по ред от КС', 'contract.submitted': 'Договорът е изпратен за одобрение', 'contract.lines_changed': 'Редовете на договора са променени след изпращането', 'contract.signed': 'Подписан договор',
   'contract.payment_recorded': 'Плащане по договора', 'payment.rejected': 'Отказано плащане', 'project.assigned': 'Смяна на отговорник',
   'stage.changed': 'Промяна на етап', 'progress.recorded': 'Отчетено изпълнение', 'progress.voided': 'Анулиран отчет', 'schedule.changed': 'Промяна в линейния график',
   'issue.reported': 'Докладван проблем', 'issue.resolved': 'Решен проблем', 'task.assigned': 'Нова задача',
@@ -30,7 +30,7 @@ const ENTITY = {
   proforma: 'проформа', transaction: 'запис в книгата', payment_request: 'заявка за плащане', material_request: 'заявка за материали',
   supplier_order: 'поръчка към доставчик', progress_entry: 'отчет за изпълнение', schedule_item: 'дейност в графика', project_line: 'ред от КС',
   stage: 'етап', asset: 'техника', asset_allocation: 'разпределение на техника', accommodation: 'настаняване', stock_movement: 'складово движение',
-  change_request: 'заявка за промяна', message: 'съобщение', recipe: 'рецепта', product: 'продукт', user: 'потребител', settings: 'настройките',
+  change_request: 'заявка за промяна', amendment: 'анекс', message: 'съобщение', recipe: 'рецепта', product: 'продукт', user: 'потребител', settings: 'настройките',
 };
 const FIELD = {
   status: 'Статус', title: 'Заглавие', name: 'Име', amount: 'Сума', qty: 'Количество', unit: 'Мярка', note: 'Бележка', reason: 'Причина',

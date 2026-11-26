@@ -62,7 +62,7 @@ export function bootstrap(db) {
       }
     }
     const set = db.prepare('INSERT INTO settings(key, value) VALUES (?,?) ON CONFLICT(key) DO NOTHING');
-    for (const [k, v] of [['company_name', ''], ['currency', 'EUR'], ['vat_pct', '20'], ['exceptional_expense_limit', '1000'], ['overconsumption_tolerance_pct', '5'], ['overhead_pct', '3.5'], ['profit_pct', '30'], ['corporate_tax_pct', '10'],
+    for (const [k, v] of [['company_name', ''], ['currency', 'EUR'], ['vat_pct', '20'], ['exceptional_expense_limit', '1000'], ['extra_work_limit', '500'], ['overconsumption_tolerance_pct', '5'], ['overhead_pct', '3.5'], ['profit_pct', '30'], ['corporate_tax_pct', '10'],
       ['weather_rain_mm', '2'], ['weather_wind_ms', '10'], ['weather_min_temp', '5'], ['weather_refresh_hours', '3'], ['indirect_per_manday', '150']]) set.run(k, v);
     // schedules signed before rates were stored on them keep the rate they were agreed under; a later setting change must not move them
     db.prepare(`UPDATE contract_payments SET vat_pct = v.rate, gross = ROUND(amount * (1 + v.rate / 100.0), 2) FROM (SELECT CAST(value AS REAL) AS rate FROM settings WHERE key = 'vat_pct') v

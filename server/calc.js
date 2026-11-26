@@ -76,8 +76,11 @@ export function finance(db, projectId) {
 }
 
 export function scheduleStatus(db, projectId, today = new Date().toISOString().slice(0, 10)) {
-  const items = db.prepare(`SELECT s.*, l.qty AS line_qty, COALESCE((SELECT SUM(qty) FROM progress_entries p WHERE p.project_line_id = s.project_line_id AND p.voided = 0), 0) AS done_qty
-    FROM schedule_items s LEFT JOIN project_lines l ON l.id = s.project_line_id WHERE s.project_id = ? ORDER BY s.sort, s.id`).all(projectId);
+  const items = db.prepare(`SELECT s.*, l.qty AS line_qty, l.unit AS line_unit, l.code AS line_code, ol.labour_days AS labour_per_unit,
+      (SELECT status FROM amendments a WHERE a.id = s.amendment_id) AS amendment_status, (SELECT code FROM amendments a WHERE a.id = s.amendment_id) AS amendment_code,
+      COALESCE((SELECT SUM(qty) FROM progress_entries p WHERE p.project_line_id = s.project_line_id AND p.voided = 0), 0) AS done_qty
+    FROM schedule_items s LEFT JOIN project_lines l ON l.id = s.project_line_id LEFT JOIN offer_lines ol ON ol.id = l.source_offer_line_id
+    WHERE s.project_id = ? ORDER BY s.sort, s.id`).all(projectId);
   const days = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 86400000);
   return items.map(s => {
     const pct = s.line_qty > 0 ? Math.min(100, r2(s.done_qty / s.line_qty * 100)) : null;
@@ -88,7 +91,14 @@ export function scheduleStatus(db, projectId, today = new Date().toISOString().s
       if (pct != null && pct < 100 && today > s.end_date) late_days = days(s.end_date, today);
     }
     const slip = s.baseline_end && s.end_date ? days(s.baseline_end, s.end_date) : 0;
-    return { ...s, pct, planned_pct: planned, late_days, slip_days: slip, behind: pct != null && planned != null && pct + 10 < planned };
+    // the linear schedule as in the company's file: quantity, man-days (qty × labour per unit from the offer), days, people per day
+    const qty = s.line_qty ?? s.qty ?? null, unit = s.line_unit ?? s.unit ?? null;
+    const man_days = qty != null && s.labour_per_unit ? r2(qty * s.labour_per_unit) : null;
+    const duration_days = s.start_date && s.end_date ? days(s.start_date, s.end_date) + 1 : null;
+    const workers = man_days != null && duration_days ? r2(man_days / duration_days) : (duration_days && s.crew && !isNaN(Number(s.crew)) ? Number(s.crew) : null);
+    const qty_per_day = qty != null && duration_days ? r2(qty / duration_days) : null;
+    return { ...s, qty, unit, man_days, duration_days, workers, qty_per_day, materials: s.materials ? JSON.parse(s.materials) : [],
+      pct, planned_pct: planned, late_days, slip_days: slip, behind: pct != null && planned != null && pct + 10 < planned };
   });
 }
 

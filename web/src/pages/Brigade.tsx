@@ -1,5 +1,6 @@
 // Бригадир: терен интерфейс — моите обекти, дневен план, прогрес, присъствие, проблеми, снимки, съобщения.
 import React, { useRef, useState } from 'react';
+import { Gantt } from '../Gantt';
 import { api, fmtDate, fmtDateTime, fmtNum, today } from '../api';
 import { Card, LineSelect, Empty, Field, Link, Loader, Modal, NewVersionButton, Progress, Status, Table, Tabs, useAction, useAuth, useCan, useForm, useLoad, useMessages, usePath, useToast, VersionLinks, useFocus } from '../ui';
 
@@ -86,14 +87,9 @@ function PlanTab({ sched, logi }: { sched: any; logi: any }) {
   const lf: any = logi.data?.logistics_fields || {};
   const notes = [['Достъп', lf.access_notes], ['Разтоварване', lf.unloading_notes], ['Съхранение', lf.storage_notes], ['Паркиране', lf.parking_notes], ['Куриерски офис', lf.courier_office]]
     .filter(([, v]) => v);
-  return <div className="grid c2">
+  return <div className="grid">
     <Loader state={sched}><Card title={`Линеен график${sched.data?.deadline ? ` · краен срок ${fmtDate(sched.data.deadline)}` : ''}`} pad={false}>
-      <Table focus={useFocus()} rows={items} empty={<Empty title="Няма график">Линейният график се поддържа от Техническия модул.</Empty>} cols={[
-        { key: 'name', title: 'Дейност' },
-        { key: 'start', title: 'Период', render: (r: any) => `${fmtDate(r.start_date)} → ${fmtDate(r.end_date)}` },
-        { key: 'pct', title: '%', num: true, render: (r: any) => r.pct != null ? fmtNum(r.pct, 0) + '%' : '—' },
-        { key: 'st', title: 'Статус', render: (r: any) => r.behind ? <span className="badge bad">изостава</span> : r.late_days > 0 ? <span className="badge bad">къснее {r.late_days} дни</span> : <span className="badge ok">ок</span> },
-      ]} /></Card></Loader>
+      {items.length ? <Gantt items={items} deadline={sched.data?.deadline} /> : <Empty title="Няма график">Линейният график се поддържа от Техническия модул.</Empty>}</Card></Loader>
     <div>
       {notes.length ? <Card title="Логистика на обекта" pad={false}><Table rows={notes.map(([k, v]) => ({ k, v }))} cols={[
         { key: 'k', title: '', width: 160 }, { key: 'v', title: 'Бележка' }]} /></Card> : null}
