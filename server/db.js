@@ -215,7 +215,7 @@ CREATE TABLE IF NOT EXISTS supplier_orders (
 CREATE TABLE IF NOT EXISTS documents (
   id INTEGER PRIMARY KEY, project_id INTEGER REFERENCES projects(id), entity_type TEXT, entity_id INTEGER, category TEXT NOT NULL,
   title TEXT NOT NULL, current_version INTEGER NOT NULL DEFAULT 1, created_by INTEGER REFERENCES users(id),
-  created_at TEXT NOT NULL DEFAULT (datetime('now')));
+  created_at TEXT NOT NULL DEFAULT (datetime('now')), shared_with_brigade INTEGER NOT NULL DEFAULT 0, shared_at TEXT, shared_by INTEGER REFERENCES users(id));
 CREATE TABLE IF NOT EXISTS document_versions (
   id INTEGER PRIMARY KEY, document_id INTEGER NOT NULL REFERENCES documents(id), version INTEGER NOT NULL, filename TEXT NOT NULL,
   stored_name TEXT NOT NULL, mime TEXT, size INTEGER NOT NULL, sha256 TEXT NOT NULL, note TEXT, uploaded_by INTEGER REFERENCES users(id),

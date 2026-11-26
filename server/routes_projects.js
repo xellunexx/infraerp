@@ -353,7 +353,7 @@ export default function mountProjects(app, db) {
       WHERE n.user_id = ? OR n.department = ? ORDER BY n.id DESC LIMIT 300`)
       .all(req.user.id, req.user.id, req.user.department)
       .filter(n => !n.project_id || visible(req.user, n.project_id));
-    rows = rows.map(n => ({ ...n, link: recordLink(n.ref_type, n.ref_id, n.project_id) ?? n.link }));
+    rows = rows.map(n => ({ ...n, link: recordLink(n.ref_type, n.ref_id, n.project_id, req.user.department) ?? n.link }));
     if (req.query.unread === '1') rows = rows.filter(n => !n.is_read);
     if (req.query.project_id) rows = rows.filter(n => n.project_id === Number(req.query.project_id));
     return rows;

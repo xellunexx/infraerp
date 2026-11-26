@@ -12,7 +12,7 @@ export const EVENT_LABEL = {
   'delivery.delivered': 'Доставката е пристигнала', 'delivery.cancelled': 'Отменена доставка', 'asset.allocated': 'Разпределена техника',
   'proforma.issued': 'Издадена проформа', 'proforma.paid': 'Платена проформа', 'proforma.cancelled': 'Анулирана проформа',
   'payment_request.created': 'Заявка за плащане', 'payment_request.decided': 'Решение по заявка за плащане', 'transaction.recorded': 'Запис в книгата',
-  'accommodation.recorded': 'Настаняване', 'document.uploaded': 'Качен документ', 'document.versioned': 'Нова версия на документ',
+  'accommodation.recorded': 'Настаняване', 'document.uploaded': 'Качен документ', 'document.shared': 'Документ изпратен на бригадира', 'document.versioned': 'Нова версия на документ',
   'change_request.created': 'Заявка за промяна',
 };
 const ACTION = {

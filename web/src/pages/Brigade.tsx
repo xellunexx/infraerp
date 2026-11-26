@@ -46,14 +46,16 @@ export function Brigade() {
 
 export function BrigadeProject({ id }: { id: number }) {
   const path = usePath();
-  const [tab, setTab] = useState('plan');
+  const tabOf = () => new URLSearchParams(path.split('?')[1] || '').get('tab') || 'plan';
+  const [tab, setTab] = useState(tabOf());
+  React.useEffect(() => { setTab(tabOf()); }, [path]);
   const proj = useLoad<any>(`/projects/${id}`);
   const sched = useLoad<any>(tab === 'plan' ? `/projects/${id}/schedule` : null);
   const logi = useLoad<any>(tab === 'plan' ? `/projects/${id}/logistics` : null);
   const prog = useLoad<any>(tab === 'progress' ? `/projects/${id}/progress` : null);
   const att = useLoad<any>(tab === 'attendance' ? `/projects/${id}/attendance` : null);
   const issues = useLoad<any[]>(tab === 'issues' ? `/issues?project_id=${id}` : null);
-  const docs = useLoad<any[]>(tab === 'photos' ? `/projects/${id}/documents` : null);
+  const docs = useLoad<any[]>(tab === 'photos' || tab === 'docs' ? `/projects/${id}/documents` : null);
   const msgs = useLoad<any[]>(tab === 'messages' ? `/projects/${id}/messages` : null);
   const p = proj.data;
   const reloadAll = () => { proj.reload(); sched.reload(); prog.reload(); att.reload(); issues.reload(); docs.reload(); msgs.reload(); };
@@ -66,7 +68,8 @@ export function BrigadeProject({ id }: { id: number }) {
       <Link className="btn sm ghost" to="/brigade">← Бригадир</Link></div>
     <Loader state={proj}>
       {p && <div className="small muted" style={{ marginBottom: 10 }}>{p.customer?.name} · {p.site_address || '—'}{p.contract?.install_deadline ? ` · монтаж до ${fmtDate(p.contract.install_deadline)}` : ''}</div>}
-      <Tabs value={tab} onChange={setTab} tabs={[['plan', 'План'], ['progress', 'Прогрес'], ['attendance', 'Присъствие'], ['issues', 'Проблеми'], ['photos', 'Снимки'], ['messages', 'Съобщения']]} />
+      <Tabs value={tab} onChange={setTab} tabs={[['plan', 'План'], ['progress', 'Прогрес'], ['attendance', 'Присъствие'], ['issues', 'Проблеми'], ['docs', 'Документи'], ['photos', 'Снимки'], ['messages', 'Съобщения']]} />
+      {tab === 'docs' && <DocsFromOffice docs={docs} />}
       {tab === 'plan' && <PlanTab sched={sched} logi={logi} />}
       {tab === 'progress' && <ProgressTab pid={id} prog={prog} write={write} onChanged={reloadAll} />}
       {tab === 'attendance' && <AttendanceTab pid={id} att={att} write={write} onChanged={reloadAll} />}
@@ -271,4 +274,13 @@ function MessagesTab({ pid, msgs, write, onChanged }: { pid: number; msgs: any; 
     {write && <div className="row"><input {...f.bind('body')} placeholder="Съобщение…" style={{ flex: 1 }} onKeyDown={e => { if (e.key === 'Enter') send(); }} />
       <button className="primary" disabled={!f.v.body.trim()} onClick={send}>Изпрати</button></div>}
   </Card>;
+}
+
+// ---------------------------------------------------------------- Документи (т.40): всичко по обекта, изпратеното от офиса най-отгоре
+function DocsFromOffice({ docs }: { docs: any }) {
+  const rows: any[] = docs.data || [];
+  const latest = (d: any) => d.versions?.[d.versions.length - 1];
+  return <Loader state={docs}><Card title="Документи по обекта" pad={false}><Table rows={rows} empty={<Empty title="Няма документи" />} cols={[
+    { key: 'title', title: 'Документ', render: (r: any) => <>{r.shared_with_brigade ? <span className="badge ok" style={{ marginRight: 6 }}>от офиса</span> : null}<b>{r.title}</b><div className="small muted">{latest(r)?.filename} · v{r.current_version}</div></> },
+    { key: 'x', title: '', width: 90, render: (r: any) => { const v = latest(r); return v ? <a className="btn sm" href={`/api/documents/${v.id}/file`} target="_blank" rel="noreferrer">Отвори</a> : null; } }]} /></Card></Loader>;
 }

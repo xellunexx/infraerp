@@ -193,7 +193,7 @@ export default function mountBrigade(app, db) {
     FROM document_versions v LEFT JOIN users u ON u.id = v.uploaded_by WHERE v.document_id = ? ORDER BY v.version`).all(docId);
   app.get('/api/projects/:pid/documents', h(req => {
     needField(req, Number(req.params.pid), { resource: 'documents' });
-    return db.prepare(`${docView} WHERE d.project_id = ? ORDER BY d.id DESC`).all(Number(req.params.pid))
+    return db.prepare(`${docView} WHERE d.project_id = ? ORDER BY d.shared_with_brigade DESC, d.id DESC`).all(Number(req.params.pid))
       .map(d => { const versions = docVersions(d.id); return { ...d, versions, uploaded_by_name: versions.at(-1)?.uploaded_by_name || d.created_by_name }; });
   }));
   app.post('/api/projects/:pid/documents', upload.single('file'), h(req => {
@@ -256,6 +256,25 @@ export default function mountBrigade(app, db) {
       });
     } catch (e) { try { fs.unlinkSync(path.join(FILES_DIR, stored)); } catch {} throw e; }
   }
+  // т.40: the office marks which project files go to the brigadier; the brigadier is told and sees them first
+  app.post('/api/projects/:pid/documents/brigade', h(req => tx(db, () => {
+    const pid = Number(req.params.pid);
+    needField(req, pid, { resource: 'documents', action: 'write' });
+    if (req.user.department === 'brigadier') throw new HttpError(403, 'Документите за бригадира се избират от офиса');
+    const ids = [...new Set((req.body?.ids || []).map(Number))].filter(Boolean), share = req.body?.share !== false;
+    if (!ids.length) throw bad('Изберете поне един файл');
+    const sent = [];
+    for (const id of ids) {
+      const d = db.prepare('SELECT * FROM documents WHERE id = ? AND project_id = ?').get(id, pid);
+      if (!d) throw bad(`Документ ${id} не е от този обект`);
+      if (!!d.shared_with_brigade === share) continue;
+      db.prepare("UPDATE documents SET shared_with_brigade = ?, shared_at = CASE WHEN ? THEN datetime('now') END, shared_by = CASE WHEN ? THEN ? END WHERE id = ?").run(share ? 1 : 0, share ? 1 : 0, share ? 1 : 0, req.user.id, id);
+      audit(db, req.user, { project_id: pid, entity_type: 'document', entity_id: id, action: share ? 'share_brigade' : 'unshare_brigade', before: { shared_with_brigade: !!d.shared_with_brigade }, after: { shared_with_brigade: share, title: d.title }, module: 'documents' });
+      if (share) { emit(db, req.user, { type: 'document.shared', origin: 'documents', project_id: pid, entity_type: 'document', entity_id: id,
+        dedupe_key: `document.shared:${id}:${Date.now()}`, next: { title: d.title }, affected: ['brigadier'] }); sent.push(id); }
+    }
+    return { ok: true, shared: sent };
+  })));
   app.post('/api/documents/:id/versions', upload.single('file'), h(req => {
     const doc = db.prepare('SELECT * FROM documents WHERE id = ?').get(Number(req.params.id));
     if (!doc) throw new HttpError(404, 'Няма такъв документ');
@@ -295,6 +314,12 @@ on('issue.resolved', 'notify_reporter', (db, ev) => {
   return notify(db, ev, { departments: i.rdept ? [i.rdept] : [], users: i.reported_by ? [i.reported_by] : [],
     title: `Проблем ${i.code} е решен${i.pcode ? ' — ' + i.pcode : ''}`,
     body: ev.next?.resolution || '', link: `/brigade/${ev.project_id}` });
+});
+on('document.shared', 'notify_brigadier', (db, ev) => {
+  const d = db.prepare('SELECT d.title, p.code AS pcode, p.brigadier_id FROM documents d JOIN projects p ON p.id = d.project_id WHERE d.id = ?').get(ev.entity_id);
+  if (!d) return { skipped: true };
+  return notify(db, ev, { users: d.brigadier_id ? [d.brigadier_id] : [], departments: d.brigadier_id ? [] : ['brigadier'],
+    title: `Документ за обекта ${d.pcode || ''}: ${d.title}`, body: 'Изпратен от офиса', link: `/brigade/${ev.project_id}?tab=docs` });
 });
 on('document.uploaded', 'notify_technical', (db, ev) => {
   const d = db.prepare('SELECT d.title, p.code AS pcode FROM documents d JOIN projects p ON p.id = d.project_id WHERE d.id = ?').get(ev.entity_id);

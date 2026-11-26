@@ -495,8 +495,17 @@ function TasksTab({ tasks, pid }: { tasks: any; pid: number }) {
 function DocsTab({ docs, pid, write: docsWrite }: { docs: any; pid: number; write?: boolean }) {
   const rows: any[] = docs.data || [];
   const latest = (d: any) => d.versions?.[d.versions.length - 1];
+  const [sel, setSel] = useState<Record<number, boolean>>({});
+  const { run, busy } = useAction();
+  const ids = Object.keys(sel).filter(k => sel[Number(k)]).map(Number);
+  const send = (share: boolean) => run(async () => { await api.post(`/projects/${pid}/documents/brigade`, { ids, share }); setSel({}); docs.reload(); },
+    share ? 'Файловете са изпратени на бригадира' : 'Файловете вече не са отбелязани за бригадира');
   return <Loader state={docs}>
-    <Card title="Файлове на обекта" pad={false} actions={<Link to={`/brigade/${pid}`}>Качи в Бригадир →</Link>}><Table rows={rows} empty={<Empty title="Няма файлове" />} cols={[
+    <Card title="Файлове на обекта" pad={false} actions={docsWrite ? <span className="row">
+      <button className="primary sm" disabled={busy || !ids.length} onClick={() => send(true)}>Изпрати на бригадира{ids.length ? ` (${ids.length})` : ''}</button>
+      <button className="ghost sm" disabled={busy || !ids.length} onClick={() => send(false)}>Спри за бригадира</button></span> : undefined}><Table rows={rows} empty={<Empty title="Няма файлове" />} cols={[
+      ...(docsWrite ? [{ key: 'sel', title: '', width: 32, render: (r: any) => <input type="checkbox" checked={!!sel[r.id]} onChange={e => setSel(x => ({ ...x, [r.id]: e.target.checked }))} /> }] : []),
+      { key: 'shared_with_brigade', title: 'Бригадир', width: 90, render: (r: any) => r.shared_with_brigade ? <span className="badge ok" title={r.shared_at ? `от ${fmtDateTime(r.shared_at)}` : ''}>изпратен</span> : <span className="muted small">—</span> },
       { key: 'title', title: 'Файл', render: (r: any) => { const v = latest(r); return <>{r.title}<div className="small muted">{v?.filename} · {v ? Math.round(v.size / 1024) + ' KB' : ''} · {fmtDateTime(v?.created_at)}{r.entity_type ? ` · към ${r.entity_type} #${r.entity_id}` : ''}</div></> } },
       { key: 'category', title: 'Вид', render: (r: any) => ({ photo: 'Снимка', document: 'Документ', act: 'Акт', contract: 'Договор', appendix: 'Приложение', other: 'Друго' } as any)[r.category] || r.category },
       { key: 'versions', title: 'Версии', render: (r: any) => <VersionLinks doc={r} /> },
