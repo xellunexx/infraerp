@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-11-26 — Batch 3, second part: the payment schedule screen shows every stage (7)
+- **7 Several interim payments, screen.** The „Разплащателен график" card shows one row per stage from the server (аванс, междинно №1…№n, окончателно) in place of three fixed rows. A kind with no stage yet keeps an empty row, so Accounting can still fill in a plan signed before schedules existed.
+- **Before signing:** „+ Междинно плащане" adds the next interim stage. An interim stage with nothing paid or reported on it has a ✕ to remove it. Interim stages take an optional name; empty keeps the default „Междинно плащане №n".
+- **Падеж** column on every stage: a due date and/or a condition („след полагане на основата").
+- **After signing:** no add or remove, with the note that a new stage needs an annex. Amounts stay as before: Accounting corrects, Contracts reads.
+- **Fix, by cause:** the „Непотвърдена дата" warning named the kind, so two interim stages read the same and shared a key. It now names the stage.
+- **Server:** each stage also returns `custom_label` (the typed name, or null), so the screen can tell a typed name from the default. Before, saving the default name would have stored it as if typed. The audit entry of a save by id now records the stage's kind and number; before, it took the kind from the request and logged none.
+- Tests: `payment_stages` covers removal (advance never; interim only before signing; 404; 403 without contracts write), name and due saved by id, an ISO due date, and the audit entry. `del` added to the test client. Full suite 157/157; web type check and build clean. Hand check in the browser on a throwaway database: add twice, name + due + amount saved, remove; signed contract as admin and as Contracts.
+- **Not tested:** the refusal to remove a stage that has payments. Payments against a stage come only after signing, which is refused first.
+- **Deploy script** (`deploy-to-vm.ps1`, outside the repo), fixed the same day before the batch 3 deploy: the health step now fails when any check fails (before, only the last command counted), compares the contract_payments row count with the snapshot, and waits up to 30 s for the first start.
+
 ## 2026-11-26 — Batch 3, first part: payment stages on the server (7); review status
 - **7 Several interim payments (server only).** `contract_payments` has one row per stage (`seq`, `label`, `due_on`, `due_note`); a contract can carry interim №1, №2… set before signing. After signing an extra stage needs an annex. A payment that names interim №2 is not counted for №1. Existing databases are rebuilt in place on start (`rebuildForNewUnique`), every row and id kept; checked on a copy of the VM database of 26.11 (6 rows unchanged, integrity ok).
 - **Fix, by cause:** the annex rule also refused Accounting filling in the plan of a contract signed before schedules existed. It now applies only when a stage of that kind already exists. The schedule screen saves a stage by its id, so saving the interim row no longer reads as a new stage.

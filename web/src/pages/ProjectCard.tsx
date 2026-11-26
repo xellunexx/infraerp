@@ -172,41 +172,71 @@ function ContractTimeline({ d }: { d: any }) {
   </Card>;
 }
 
-const MS: [string, string][] = [['advance', 'Аванс'], ['interim', 'Междинно плащане'], ['final', 'Окончателно плащане']];
-// Планът (%, сума без ДДС) се редактира тук; полученото и датата се четат от книгата.
+const KIND_ORDER: Record<string, number> = { advance: 1, interim: 2, final: 3 };
+const byStage = (a: any, b: any) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || (a.seq ?? 1) - (b.seq ?? 1);
+// т.7: one row per stage of the contract (аванс, междинно №1…№n, окончателно); a kind with no stage yet keeps an empty row,
+// so a plan can still be filled in (also on a contract signed before schedules existed — Accounting)
+const stageRows = (payments: any[]) => {
+  const rows = [...payments];
+  for (const k of Object.keys(KIND_ORDER)) if (!rows.some(p => p.kind === k)) rows.push({ kind: k, label: MILESTONE[k], pct: null, amount: null, gross: null, paid: 0, paid_at: null, reported: 0, note: null });
+  return rows.sort(byStage);
+};
+// Планът (%, сума без ДДС, падеж) се редактира тук; полученото и датата се четат от книгата.
 function PaymentsCard({ pid, d, cur, write, busy, onSaved }: { pid: number; d: any; cur: string; write: boolean; busy: boolean; onSaved: () => Promise<void> }) {
-  const { run } = useAction();
+  const { run, busy: saving } = useAction();
   const can = useCan();
   const [pay, setPay] = useState(false);
-  const direct = can('finance', 'write'), choices = milestoneChoices(d.payments || []);
-  const rows = MS.map(([k, label]) => ({ k, label, p: (d.payments || []).find((x: any) => x.kind === k) || { kind: k, pct: null, amount: null, gross: null, paid: 0, paid_at: null, reported: 0, note: null } }));
-  const save = (k: string, f: any, id?: number) => run(async () => { await api.put(`/projects/${pid}/contract/payments`, { id, kind: k, pct: f.pct === '' ? null : Number(f.pct), amount: f.amount === '' ? null : Number(f.amount), note: f.note || null }); await onSaved(); }, 'Планът е записан');
+  const direct = can('finance', 'write'), choices = milestoneChoices(d.payments || []), signed = d.status === 'signed';
+  const rows = stageRows(d.payments || []), interims = rows.filter(p => p.kind === 'interim' && p.id).length, off = busy || saving;
+  const url = `/projects/${pid}/contract/payments`, num = (v: any) => v === '' ? null : Number(v);
+  const save = (p: any, f: any) => run(async () => {
+    await api.put(url, { id: p.id, kind: p.kind, pct: num(f.pct), amount: num(f.amount), note: f.note || null, due_on: f.due_on || null, due_note: f.due_note.trim() || null,
+      ...(p.kind === 'interim' ? { label: f.label.trim() || null } : {}) });
+    await onSaved();
+  }, 'Планът е записан');
+  const add = () => run(async () => { await api.put(url, { kind: 'interim' }); await onSaved(); }, 'Добавен е междинен етап');
+  const remove = (p: any) => { if (window.confirm(`Етапът „${p.label}“ ще бъде махнат от графика. Да продължа?`)) run(async () => { await api.del(`/contract-payments/${p.id}`); await onSaved(); }, 'Етапът е махнат'); };
   return <Card title="Разплащателен график" actions={<>
     {(direct || write) && choices.length > 0 && <button className="primary sm" onClick={() => setPay(true)}>{direct ? 'Запиши плащане' : 'Докладвай плащане'}</button>}
     {d.final_deadline ? <span className="badge warn">Краен срок по договора: {fmtDate(d.final_deadline)}</span> : <span className="muted small">крайният срок се изчислява след платен аванс + срокове</span>}</>}>
-    {(d.unmatched_paid_at || []).map((u: any) => <div key={u.kind} className="alert warn">Непотвърдена дата: {MILESTONE[u.kind] || u.kind} — {fmtDate(u.date)}. Няма записано плащане, затова срокът не тече. Счетоводство записва плащането или изчиства датата.</div>)}
+    {(d.unmatched_paid_at || []).map((u: any) => <div key={`${u.label || u.kind}|${u.date}`} className="alert warn">Непотвърдена дата: {u.label || MILESTONE[u.kind] || u.kind} — {fmtDate(u.date)}. Няма записано плащане, затова срокът не тече. Счетоводство записва плащането или изчиства датата.</div>)}
     {d.schedule_gap ? <div className="alert warn">Графикът се различава от договорната стойност с {fmtMoney(d.schedule_gap, cur)} без ДДС.</div> : null}
     <div className="table-wrap"><table className="t"><thead><tr>
-      <th>Плащане</th><th className="num">%</th><th className="num">Без ДДС, {cur}</th><th className="num">С ДДС, {cur}</th><th className="num">Получено с ДДС</th><th>Дата</th><th>Състояние</th><th>Бележка</th>{(write || direct) && <th style={{ width: 60 }} />}</tr></thead>
-      <tbody>{rows.map(({ k, label, p }) => <MilestoneRow key={`${k}|${p.pct}|${p.amount}|${p.note}`} kind={k} label={label} p={p} disabled={!(write || direct) || busy} locked={d.status === 'signed' && !direct} onSave={save} />)}</tbody></table></div>
+      <th>Плащане</th><th className="num">%</th><th className="num">Без ДДС, {cur}</th><th className="num">С ДДС, {cur}</th><th>Падеж</th><th className="num">Получено с ДДС</th><th>Дата</th><th>Състояние</th><th>Бележка</th>{(write || direct) && <th style={{ width: 90 }} />}</tr></thead>
+      <tbody>{rows.map(p => <MilestoneRow key={[p.id ?? `new-${p.kind}`, p.pct, p.amount, p.note, p.custom_label, p.due_on, p.due_note].join('|')} p={p} interims={interims}
+        view={!(write || direct)} disabled={!(write || direct) || off} locked={signed && !direct}
+        removable={write && !signed && p.kind === 'interim' && p.id && !(p.paid > 0) && !(p.reported > 0)} onSave={save} onRemove={remove} />)}</tbody></table></div>
+    {write && !signed && <div className="row" style={{ marginTop: 8 }}><button className="sm" disabled={off} onClick={add}>+ Междинно плащане</button>
+      <span className="muted small">Окончателното плащане е остатъкът до договорната стойност.</span></div>}
+    {signed && (write || direct) && <div className="muted small" style={{ marginTop: 8 }}>Нов етап на плащане след подписване се добавя само с анекс.</div>}
     {d.deadline_start && <div className="muted small" style={{ marginTop: 8 }}>{d.advance_paid_at ? `Аванс платен ${fmtDate(d.advance_paid_at)}` : `Без аванс — от подписването ${fmtDate(d.deadline_start)}`}{d.prod_delivery_days != null ? ` + ${d.prod_delivery_days} дн. производство/доставка` : ''}{d.install_days != null ? ` + ${d.install_days} дн. монтаж` : ''}{d.final_deadline ? ` → ${fmtDate(d.final_deadline)}` : ' — въведете двата срока за изчисление'}</div>}
     {pay && <PaymentForm title={direct ? 'Ново плащане от клиента' : 'Докладване на плащане'} url={`/projects/${pid}/payments`} report={!direct} choices={choices} onClose={() => setPay(false)} onDone={onSaved} />}
   </Card>;
 }
-function MilestoneRow({ kind, label, p, disabled, locked, onSave }: any) {
-  const f = useForm({ pct: p.pct ?? '', amount: p.amount ?? '', note: p.note || '' });
-  const dirty = String(f.v.pct) !== String(p.pct ?? '') || String(f.v.amount) !== String(p.amount ?? '') || f.v.note !== (p.note || '');
-  return <tr><td><b>{label}</b></td>
+function MilestoneRow({ p, interims, view, disabled, locked, removable, onSave, onRemove }: any) {
+  const init = { pct: p.pct ?? '', amount: p.amount ?? '', note: p.note || '', label: p.custom_label || '', due_on: p.due_on || '', due_note: p.due_note || '' };
+  const f = useForm(init);
+  const dirty = (Object.keys(init) as (keyof typeof init)[]).some(k => String(f.v[k]) !== String(init[k]));
+  // the name the stage has when none is typed (same rule as the server's stageLabel)
+  const plain = p.kind === 'interim' ? `Междинно плащане${interims > 1 || (p.seq ?? 1) > 1 ? ` №${p.seq ?? 1}` : ''}` : p.label;
+  return <tr><td style={{ minWidth: 170 }}>{p.kind === 'interim' && !view
+      ? <input style={{ width: '100%', fontWeight: 600 }} {...f.bind('label')} placeholder={plain} disabled={disabled} title="Име на етапа — празно оставя името по подразбиране" />
+      : <b>{p.label}</b>}</td>
     <td className="num"><input type="number" min="0" max="100" style={{ width: 64, textAlign: 'right' }} {...f.bind('pct')} disabled={disabled || locked} /></td>
     <td className="num"><input type="number" min="0" step="any" style={{ width: 110, textAlign: 'right' }} {...f.bind('amount')} disabled={disabled || locked} /></td>
     <td className="num">{fmtMoney(p.gross)}</td>
+    <td style={{ minWidth: 150 }}>{view
+      ? <>{p.due_on ? fmtDate(p.due_on) : null}{p.due_note ? <div className="small">{p.due_note}</div> : null}{!p.due_on && !p.due_note ? <span className="muted">—</span> : null}</>
+      : <><input type="date" style={{ width: '100%' }} {...f.bind('due_on')} disabled={disabled} />
+        <input style={{ width: '100%', marginTop: 4 }} {...f.bind('due_note')} disabled={disabled} placeholder="или условие, напр. след основата" /></>}</td>
     <td className="num">{fmtMoney(p.paid)}{p.over > 0 ? <div className="small muted">надплатено {fmtMoney(p.over)}</div> : null}</td>
     <td>{fmtDate(p.paid_at)}</td>
     <td>{p.gross === 0 ? <span className="badge">няма</span> : p.paid_at ? <span className="badge ok">платено</span> : p.paid > 0 ? <span className="badge warn">частично</span> : <span className="badge">неплатено</span>}
       {p.reported > 0 ? <div className="small muted">докладвано {fmtMoney(p.reported)} — чака потвърждение</div> : null}</td>
     <td style={{ minWidth: 220 }}><textarea className="grow" rows={1} style={{ width: '100%', fieldSizing: 'content', minHeight: 30, resize: 'vertical' } as any} {...f.bind('note')} disabled={disabled} placeholder="Бележка към етапа" />
       {(p.payment_notes || []).map((n: any, i: number) => <div key={i} className="small" style={{ marginTop: 4, whiteSpace: 'pre-wrap' }}><span className="muted">{fmtDate(n.date)} · {fmtMoney(n.amount)}:</span> {n.note}</div>)}</td>
-    {!disabled && <td>{dirty && <button className="primary sm" onClick={() => onSave(kind, f.v, p.id)}>Запис</button>}</td>}</tr>;
+    {!disabled && <td><span className="row" style={{ flexWrap: 'nowrap' }}>{dirty && <button className="primary sm" onClick={() => onSave(p, f.v)}>Запис</button>}
+      {removable && <button className="sm ghost" title="Махни етапа" aria-label={`Махни ${p.label}`} onClick={() => onRemove(p)}>✕</button>}</span></td>}</tr>;
 }
 
 export function ProjectCard({ id }: { id: number }) {

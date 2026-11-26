@@ -155,7 +155,7 @@ export default function mountProjects(app, db) {
       db.prepare('INSERT INTO contract_payments(contract_id, kind, seq, pct, amount, vat_pct, gross, note, label, due_on, due_note) VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(c.id, kind, seq, ...vals);
     }
     audit(db, req.user, { project_id: pid, entity_type: 'contract', entity_id: c.id, action: 'payment_plan', before: before ? pick(before, ['kind', 'pct', 'amount']) : null,
-      after: { kind: b.kind, pct: keep('pct', num(b.pct)), amount }, module: 'contracts' });
+      after: { kind, seq: before?.seq ?? null, pct: keep('pct', num(b.pct)), amount }, module: 'contracts' });
     return contractView(pid);
   })));
 

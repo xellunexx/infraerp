@@ -22,7 +22,7 @@ export async function start() {
       const data = await res.json().catch(() => null);
       return { status: res.status, data };
     };
-    return { get: u => call('GET', u), post: (u, b, hd) => call('POST', u, b ?? {}, hd), put: (u, b) => call('PUT', u, b), patch: (u, b) => call('PATCH', u, b),
+    return { get: u => call('GET', u), post: (u, b, hd) => call('POST', u, b ?? {}, hd), put: (u, b) => call('PUT', u, b), del: u => call('DELETE', u), patch: (u, b) => call('PATCH', u, b),
       login: (username, password = 'password123') => call('POST', '/api/auth/login', { username, password }) };
   };
   const admin = client();

@@ -46,3 +46,38 @@ test('existing databases keep their payment plans when the table learns about st
   db.prepare("INSERT INTO contract_payments(contract_id, kind, seq, amount) VALUES (7, 'interim', 2, 30)").run();
   db.close(); fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test('an interim stage is removed only before signing, only when nothing was paid on it; advance/final never', async () => {
+  const t = await start();
+  try {
+    const a = t.admin, s = await seedOffer(t); await a.post(`/api/offers/${s.offer.id}/confirm`); t.sync();
+    const pid = t.db.prepare('SELECT MAX(id) i FROM projects').get().i;
+    const put = b => a.put(`/api/projects/${pid}/contract/payments`, b), stages = async () => (await a.get(`/api/projects/${pid}/contract`)).data.payments;
+    await put({ kind: 'advance', amount: 1860 });
+    await put({ kind: 'interim', amount: 1500 });
+    const added = await put({ kind: 'interim' });                     // the screen's "+" adds an empty stage №2
+    assert.equal(added.status, 200, JSON.stringify(added.data));
+    let ps = await stages();
+    const i2 = ps.find(p => p.kind === 'interim' && p.seq === 2);
+    assert.ok(i2 && i2.amount == null, 'empty stage №2 exists');
+    assert.equal((await put({ id: i2.id, label: 'След монтажа', due_on: '2026-12-20', due_note: 'след монтажа' })).status, 200, 'name and due are saved by id');
+    ps = await stages();
+    assert.deepEqual(['label', 'custom_label', 'due_on', 'due_note'].map(k => ps.find(p => p.id === i2.id)[k]), ['След монтажа', 'След монтажа', '2026-12-20', 'след монтажа']);
+    const i1d = ps.find(p => p.kind === 'interim' && p.seq === 1);
+    assert.deepEqual([i1d.label, i1d.custom_label], ['Междинно плащане №1', null], 'the screen tells a typed name from the default one');
+    const last = JSON.parse(t.db.prepare("SELECT after FROM audit_log WHERE action = 'payment_plan' ORDER BY id DESC").get().after);
+    assert.deepEqual([last.kind, last.seq], ['interim', 2], 'a save by id is audited with its stage');
+    assert.equal((await put({ id: i2.id, due_on: '20.12.2026' })).status, 400, 'a due date is ISO');
+    const adv = ps.find(p => p.kind === 'advance');
+    assert.equal((await a.del(`/api/contract-payments/${adv.id}`)).status, 400, 'advance is never removed');
+    assert.equal((await a.del(`/api/contract-payments/${i2.id}`)).status, 200, 'an unsigned, unpaid interim is removed');
+    assert.equal((await stages()).filter(p => p.kind === 'interim').length, 1);
+    assert.equal((await a.del('/api/contract-payments/999999')).status, 404);
+    for (const x of ['submit', 'approve']) await a.post(`/api/projects/${pid}/contract/${x}`, { advance_pct: 30 });
+    assert.equal((await a.post(`/api/projects/${pid}/contract/sign`, { signed_on: '2026-10-01', install_start: '2026-12-01', install_deadline: '2026-12-20' })).status, 200); t.sync();
+    const i1 = (await stages()).find(p => p.kind === 'interim');
+    assert.equal((await a.del(`/api/contract-payments/${i1.id}`)).status, 400, 'after signing a stage goes only with an annex');
+    const viewer = await t.mkUser('logi1', 'logistics');
+    const r = await viewer.del(`/api/contract-payments/${i1.id}`); assert.equal(r.status, 403, 'needs contracts write: ' + JSON.stringify(r.data));
+  } finally { await t.stop(); }
+});
