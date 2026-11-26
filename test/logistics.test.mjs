@@ -73,6 +73,9 @@ test('deliveries: create with items, status flow, 409 guard, project bundle, not
 
     const bundle = (await lg.get(`/api/projects/${p.id}/logistics`)).data;
     assert.equal(bundle.deliveries.length, 1);
+    // the project card lists the same record with the same fields as the Logistics module (pallets, kind, note, items one per line)
+    for (const k of ['kind', 'pallets', 'note', 'items_summary', 'vehicle_name']) assert.ok(k in bundle.deliveries[0], `project view has ${k}`);
+    for (const k of Object.keys(list[0])) assert.ok(k in bundle.deliveries[0], `one view of a delivery everywhere: ${k}`);
     assert.equal(bundle.deliveries[0].items.length, 1, 'project bundle carries items');
     assert.equal(bundle.logistics_fields.site_address, undefined, 'only logistics fields exposed');
 

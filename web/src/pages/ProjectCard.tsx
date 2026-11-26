@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { api, fmtDate, fmtDateTime, fmtMoney, fmtNum } from '../api';
 import { WeatherCard } from './Weather';
 import { MILESTONE, PaymentForm, milestoneChoices } from './PaymentForm';
+import { deliveryCols } from './Logistics';
 import { Card, DeptBadge, Empty, Field, Kpi, Link, Loader, Modal, NewVersionButton, Progress, Status, Table, Tabs, navigate, useAction, useCan, useCurrency, useForm, useLoad, useMessages, usePath, VersionLinks } from '../ui';
 
 const EVENT_LABEL: Record<string, string> = { 'offer.confirmed': 'Потвърдена оферта', 'contract.submitted': 'Договор изпратен за одобрение', 'contract.signed': 'Подписан договор',
@@ -209,7 +210,8 @@ function MilestoneRow({ kind, label, p, disabled, locked, onSave }: any) {
     <td>{fmtDate(p.paid_at)}</td>
     <td>{p.gross === 0 ? <span className="badge">няма</span> : p.paid_at ? <span className="badge ok">платено</span> : p.paid > 0 ? <span className="badge warn">частично</span> : <span className="badge">неплатено</span>}
       {p.reported > 0 ? <div className="small muted">докладвано {fmtMoney(p.reported)} — чака потвърждение</div> : null}</td>
-    <td><input style={{ width: '100%' }} {...f.bind('note')} disabled={disabled} /></td>
+    <td style={{ minWidth: 220 }}><textarea className="grow" rows={1} style={{ width: '100%', fieldSizing: 'content', minHeight: 30, resize: 'vertical' } as any} {...f.bind('note')} disabled={disabled} placeholder="Бележка към етапа" />
+      {(p.payment_notes || []).map((n: any, i: number) => <div key={i} className="small" style={{ marginTop: 4, whiteSpace: 'pre-wrap' }}><span className="muted">{fmtDate(n.date)} · {fmtMoney(n.amount)}:</span> {n.note}</div>)}</td>
     {!disabled && <td>{dirty && <button className="primary sm" onClick={() => onSave(kind, f.v)}>Запис</button>}</td>}</tr>;
 }
 
@@ -220,6 +222,7 @@ export function ProjectCard({ id }: { id: number }) {
   const path = usePath();
   const users = useLoad<any[]>('/users');
   const [tab, setTab] = useState(new URLSearchParams(path.split('?')[1] || '').get('tab') || 'overview');
+  useEffect(() => { const t = new URLSearchParams(path.split('?')[1] || '').get('tab'); if (t) setTab(t); }, [path]);
   const timeline = useLoad<any[]>(tab === 'timeline' || tab === 'overview' ? `/projects/${id}/timeline` : null, [p.data?.row_version]);
   const audit = useLoad<any[]>(tab === 'audit' ? `/projects/${id}/audit` : null);
   const sched = useLoad<any>(tab === 'schedule' ? `/projects/${id}/schedule` : null);
@@ -475,11 +478,7 @@ function LogisticsTab({ logi, pid }: { logi: any; pid: number }) {
   const notes = [['Достъп', lf.access_notes], ['Разтоварване', lf.unloading_notes], ['Съхранение', lf.storage_notes], ['Паркиране', lf.parking_notes], ['Куриерски офис', lf.courier_office]].filter(([, v]) => v);
   return <Loader state={logi}>
     {notes.length ? <Card title="Логистика на обекта" pad={false}><Table rows={notes.map(([k, v]) => ({ k, v }))} cols={[{ key: 'k', title: '', width: 170 }, { key: 'v', title: 'Бележка' }]} /></Card> : null}
-    <Card title="Доставки" pad={false} actions={<Link to={`/logistics?pid=${pid}`}>Управлявай в Логистика →</Link>}><Table rows={d?.deliveries || []} empty={<Empty title="Няма доставки" />} cols={[
-      { key: 'code', title: '№' }, { key: 'planned_date', title: 'Планирана', render: (r: any) => fmtDate(r.planned_date) },
-      { key: 'status', title: 'Статус', render: (r: any) => <Status value={r.status} /> },
-      { key: 'carrier', title: 'Превозвач' }, { key: 'items_summary', title: 'Съдържание' },
-    ]} /></Card>
+    <Card title="Доставки" pad={false} actions={<Link to={`/logistics?pid=${pid}`}>Управлявай в Логистика →</Link>}><Table rows={d?.deliveries || []} empty={<Empty title="Няма доставки" />} cols={deliveryCols(false)} /></Card>
     <Card title="Механизация на обекта" pad={false}><Table rows={d?.allocations || []} empty={<Empty title="Няма разпределена техника" />} cols={[
       { key: 'asset', title: 'Техника', render: (r: any) => `${r.asset_code} — ${r.asset_name}${r.asset_plate ? ' (' + r.asset_plate + ')' : ''}` },
       { key: 'period', title: 'Период', render: (r: any) => `${fmtDate(r.date_from)} → ${fmtDate(r.date_to)}` },

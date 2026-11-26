@@ -1,5 +1,5 @@
 // Счетоводство: портфолио от финансови показатели, проформи, приходи/разходи, заявки за плащане с одобрение, настаняване.
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { api, fmtDate, fmtMoney, today } from '../api';
 import { ConfirmTab, PaymentForm, orderChoices, useQueue } from './PaymentForm';
 import { Card, Empty, Field, Loader, Modal, Status, Table, Tabs, useAction, useCan, useCurrency, useForm, useLoad, usePath } from '../ui';
@@ -15,6 +15,9 @@ export function Accounting() {
   const path = usePath();
   const [pid, setPid] = useState(new URLSearchParams(path.split('?')[1] || '').get('pid') || '');
   const [tab, setTab] = useState(new URLSearchParams(path.split('?')[1] || '').get('tab') || 'proformas');
+  // a link (e.g. from a notification) names the tab and the record; follow it also when the page is already open
+  const linkQ = new URLSearchParams(path.split('?')[1] || ''), focus = linkQ.get('focus');
+  useEffect(() => { const t = linkQ.get('tab'); if (t) setTab(t); }, [path]);
   const queue = useQueue(true);
   const unalloc = useLoad<any[]>(`/payments/unallocated${pid ? `?project_id=${pid}` : ''}`);
   const waiting = (queue.data?.reported?.length || 0) + (queue.data?.unmatched?.length || 0);
@@ -111,7 +114,7 @@ export function Accounting() {
 
     {tab === 'proformas' && <>
       {write && <div className="row" style={{ marginBottom: 10 }}><button className="primary sm" onClick={() => setModal({ kind: 'proforma' })}>+ Нова проформа</button></div>}
-      <Card pad={false}><Loader state={proformas}><Table rows={proformas.data || []} empty={<Empty title="Няма проформи">Проформите се издават за обект с договор.</Empty>} cols={[
+      <Card pad={false}><Loader state={proformas}><Table focus={tab === 'proformas' ? focus : null} rows={proformas.data || []} empty={<Empty title="Няма проформи">Проформите се издават за обект с договор.</Empty>} cols={[
         { key: 'code', title: '№', width: 90 },
         { key: 'pj', title: 'Обект', render: (r: any) => <>{r.project_code} — {r.project_name}<div className="small muted">{r.customer_name}</div></> },
         { key: 'kind', title: 'Вид', render: (r: any) => KIND[r.kind] || r.kind },
@@ -145,7 +148,7 @@ export function Accounting() {
 
     {tab === 'requests' && <>
       {write && <div className="row" style={{ marginBottom: 10 }}><button className="primary sm" onClick={() => setModal({ kind: 'request' })}>+ Нова заявка</button></div>}
-      <Card pad={false}><Loader state={requests}><Table rows={requests.data || []} empty={<Empty title="Няма заявки">Заявките за плащане отиват при Управител за одобрение.</Empty>} cols={[
+      <Card pad={false}><Loader state={requests}><Table focus={tab === 'requests' ? focus : null} rows={requests.data || []} empty={<Empty title="Няма заявки">Заявките за плащане отиват при Управител за одобрение.</Empty>} cols={[
         { key: 'code', title: '№', width: 90 },
         { key: 'pj', title: 'Обект', render: (r: any) => r.project_code ? <>{r.project_code} — {r.project_name}</> : <span className="muted">Без обект</span> },
         { key: 'category', title: 'Категория' },

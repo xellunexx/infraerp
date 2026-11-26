@@ -31,7 +31,7 @@ export default function mountLogistics(app, db) {
   const delivView = `SELECT d.*, p.code AS project_code, p.name AS project_name, c.name AS customer_name,
       v.code AS vehicle_code, v.name AS vehicle_name, v.plate AS vehicle_plate, u.full_name AS created_by_name,
       (SELECT COUNT(*) FROM delivery_items i WHERE i.delivery_id = d.id) AS items_count,
-      (SELECT GROUP_CONCAT(pr.name || ' ×' || i.qty, ', ') FROM delivery_items i JOIN products pr ON pr.id = i.product_id WHERE i.delivery_id = d.id) AS items_summary
+      (SELECT GROUP_CONCAT(pr.name || ' ×' || i.qty, char(10)) FROM delivery_items i JOIN products pr ON pr.id = i.product_id WHERE i.delivery_id = d.id) AS items_summary
     FROM deliveries d JOIN projects p ON p.id = d.project_id JOIN customers c ON c.id = p.customer_id
     LEFT JOIN assets v ON v.id = d.vehicle_asset_id LEFT JOIN users u ON u.id = d.created_by`;
   const allocView = `SELECT a.*, s.code AS asset_code, s.name AS asset_name, s.kind AS asset_kind, s.plate AS asset_plate,

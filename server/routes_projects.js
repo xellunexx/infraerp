@@ -6,6 +6,7 @@ import { signContract, advancePct, newContractVersion, setStage, deriveProjectSt
 import { progressSummary, finance } from './calc.js';
 import { h, pick } from './app.js';
 import { refreshProject, weatherView } from './weather.js';
+import { recordLink } from './links.js';
 
 export default function mountProjects(app, db) {
   // Етапи, управлявани изцяло от домейн действия върху договора — никога ръчни отметки.
@@ -345,6 +346,7 @@ export default function mountProjects(app, db) {
       WHERE n.user_id = ? OR n.department = ? ORDER BY n.id DESC LIMIT 300`)
       .all(req.user.id, req.user.id, req.user.department)
       .filter(n => !n.project_id || visible(req.user, n.project_id));
+    rows = rows.map(n => ({ ...n, link: recordLink(n.ref_type, n.ref_id, n.project_id) ?? n.link }));
     if (req.query.unread === '1') rows = rows.filter(n => !n.is_read);
     if (req.query.project_id) rows = rows.filter(n => n.project_id === Number(req.query.project_id));
     return rows;

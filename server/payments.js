@@ -44,8 +44,11 @@ export function milestones(db, contractId) {
     const vat = m.vat_pct ?? vatSetting(db);
     const gross = m.gross ?? (m.amount == null ? null : grossOf(m.amount, vat));
     const rows = milestoneRows(db, m, c.project_id, 'paid'), st = paidState(rows, gross ?? 0, m.amount);
-    const reported = r2(milestoneRows(db, m, c.project_id, 'reported').reduce((s, t) => s + t.amount, 0));
-    return { id: m.id, kind: m.kind, pct: m.pct, amount: m.amount, net: m.amount, gross, vat_pct: vat, note: m.note, paid: st.paid, paid_at: st.paid_at,
+    const repRows = milestoneRows(db, m, c.project_id, 'reported'), reported = r2(repRows.reduce((s, t) => s + t.amount, 0));
+    // notes written with each payment, read from the ledger rows themselves: one note per payment, shown on its milestone
+    const payment_notes = [...rows, ...repRows].filter(t => t.note && String(t.note).trim()).sort((x, y) => String(x.tx_date).localeCompare(String(y.tx_date)))
+      .map(t => ({ date: t.tx_date, amount: t.amount, note: t.note }));
+    return { id: m.id, kind: m.kind, pct: m.pct, amount: m.amount, net: m.amount, gross, vat_pct: vat, note: m.note, payment_notes, paid: st.paid, paid_at: st.paid_at,
       over: gross > 0 ? r2(Math.max(0, st.paid - gross)) : 0, reported, unmatched_date: m.paid_at && !rows.length ? m.paid_at : null };
   });
 }

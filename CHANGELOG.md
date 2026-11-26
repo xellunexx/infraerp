@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-11-26 — Review fixes, by cause (to-do points 16, 9, 6, 36+35, 18, 8)
+- **16 Notifications open the record itself.** `server/links.js` is one map of where each kind of record lives (payment request → Счетоводство / Заявки за плащане, proforma, order, accommodation, document, contract, message). It is applied when notifications and the management queue are read, so old notifications open the right place too. Accounting and the project card follow `?tab=` even when already open; `Table focus` marks the row.
+- **9 A file uploaded again is never a second document.** Identical bytes in the same place (project + contract/appendix link) are refused with the title and version they already have. A changed file with the same name becomes the next version. The version route refuses bytes the document already has.
+- **6 Payment notes show on their milestone.** `payment_notes` is read from the milestone's own ledger rows (nothing copied). The milestone note field grows with its text.
+- **36 + 35 A delivery looks the same everywhere.** One column set (`deliveryCols`) is used in Logistics and in the project card: kind, pallets, vehicle, note, courier office, access. Each item is on its own line.
+- **18 Addresses are searched in Bulgaria only**, from the full text down to the settlement. „гр.Бургас ж-к Славейков до бл.51" is now found; short or mistyped addresses are no longer placed in France or Russia.
+- **8 Old mangled file names:** `tools/repair_filenames.mjs` (dry run by default, `--apply` writes an audit row per name). It was run once on the VM.
+- Not changed: projects 2 and 4 keep the foreign coordinates found earlier from the addresses „12" and „гг". Correct the address and clear the coordinates to search again.
+- Tests: `notification_links`, `doc_versions`, `milestone_note`, `geocode`, `repair_filenames`, plus extended `logistics`. Full suite 138/138.
+
 ## 2026-11-26 — Offer files from the company template (part B, tasks 1–2)
 - `tools/build_offer_template.mjs` trims the company workbook to `server/assets/offer_template.xlsx` (sheets КСС + Труд, logo, page footer). It drops the other sheets, comments, external links, printer settings and calcChain. Template errors are fixed by class: one-row totals (U22) take the row's common range; error cells become `IFERROR(…,0)` (Труд G15:G17, F31). The style map `offer_template.map.json` is read from the template cells.
 - `server/offer_xlsx.js` `offerXlsx(db, id, version, {internal})` fills the template: header fields, a section title row, line rows (B:D description), section totals and grand totals with the discount line. Alternatives are marked „не се сумира". Clauses follow. Every formula carries the app's value. Pictures are converted from webp to png, each stored once. The customer file has columns A–H only and no Труд sheet.
