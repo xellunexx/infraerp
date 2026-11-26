@@ -8,6 +8,11 @@ test('record links: each kind of record opens on its own tab', () => {
   assert.equal(recordLink('payment_request', 7, 3), '/accounting?tab=requests&focus=7');
   assert.equal(recordLink('proforma', 2, 3), '/accounting?tab=proformas&focus=2');
   assert.equal(recordLink('document', 5, 3), '/projects/3?tab=docs');
+  assert.equal(recordLink('document', 5, 3, 'brigadier'), '/brigade/3?tab=docs&focus=5');
+  assert.equal(recordLink('material_request', 9, 3), '/warehouse?tab=requests&focus=9');
+  assert.equal(recordLink('delivery', 4, 3), '/logistics?tab=deliveries&pid=3&focus=4');
+  assert.equal(recordLink('issue', 2, 3, 'brigadier'), '/brigade/3?tab=issues&focus=2');
+  assert.equal(recordLink('schedule_item', 6, 3), '/technical/3?tab=schedule&focus=6');
   assert.equal(recordLink('contract', 1, 3), '/projects/3?tab=contract');
   assert.equal(recordLink('document', 5, null), null, 'no project, no project tab');
   assert.equal(recordLink('something_else', 1, 3), null, 'unknown kinds keep the link the handler gave');

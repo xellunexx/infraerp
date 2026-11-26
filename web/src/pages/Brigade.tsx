@@ -1,7 +1,7 @@
 // Бригадир: терен интерфейс — моите обекти, дневен план, прогрес, присъствие, проблеми, снимки, съобщения.
 import React, { useRef, useState } from 'react';
 import { api, fmtDate, fmtDateTime, fmtNum, today } from '../api';
-import { Card, LineSelect, Empty, Field, Link, Loader, Modal, NewVersionButton, Progress, Status, Table, Tabs, useAction, useAuth, useCan, useForm, useLoad, useMessages, usePath, useToast, VersionLinks } from '../ui';
+import { Card, LineSelect, Empty, Field, Link, Loader, Modal, NewVersionButton, Progress, Status, Table, Tabs, useAction, useAuth, useCan, useForm, useLoad, useMessages, usePath, useToast, VersionLinks, useFocus } from '../ui';
 
 const KIND: Record<string, string> = { problem: 'Проблем', delay: 'Закъснение', material_shortage: 'Липса на материал', damage: 'Повреда', additional_work: 'Допълнителна работа', other: 'Друго' };
 const SEV: Record<string, string> = { low: 'Нисък', medium: 'Среден', high: 'Висок', critical: 'Критичен' };
@@ -88,7 +88,7 @@ function PlanTab({ sched, logi }: { sched: any; logi: any }) {
     .filter(([, v]) => v);
   return <div className="grid c2">
     <Loader state={sched}><Card title={`Линеен график${sched.data?.deadline ? ` · краен срок ${fmtDate(sched.data.deadline)}` : ''}`} pad={false}>
-      <Table rows={items} empty={<Empty title="Няма график">Линейният график се поддържа от Техническия модул.</Empty>} cols={[
+      <Table focus={useFocus()} rows={items} empty={<Empty title="Няма график">Линейният график се поддържа от Техническия модул.</Empty>} cols={[
         { key: 'name', title: 'Дейност' },
         { key: 'start', title: 'Период', render: (r: any) => `${fmtDate(r.start_date)} → ${fmtDate(r.end_date)}` },
         { key: 'pct', title: '%', num: true, render: (r: any) => r.pct != null ? fmtNum(r.pct, 0) + '%' : '—' },
@@ -136,7 +136,7 @@ function ProgressTab({ pid, prog, write, onChanged }: { pid: number; prog: any; 
       { key: 'pct', title: '%', width: 130, render: (r: any) => r.pct != null ? <div className="row" style={{ flexWrap: 'nowrap' }}><Progress pct={r.pct} /><span className="small num" style={{ width: 40 }}>{r.pct}%</span></div> : '—' },
       { key: 'spec', title: '', width: 70, render: (r: any) => r.spec_url ? <a className="sm" href={r.spec_url} target="_blank" rel="noreferrer" title="Техническа спецификация">Спец ↗</a> : null },
     ]} /></Card>
-    <Card title="Дневни отчети" pad={false}><Table rows={entries} empty={<Empty title="Няма записани отчети" />} cols={[
+    <Card title="Дневни отчети" pad={false}><Table focus={useFocus()} rows={entries} empty={<Empty title="Няма записани отчети" />} cols={[
       { key: 'work_date', title: 'Дата', render: (r: any) => fmtDate(r.work_date) }, { key: 'line_description', title: 'Ред' },
       { key: 'qty', title: 'Кол-во', num: true, render: (r: any) => <span className={r.voided ? 'muted' : ''} style={r.voided ? { textDecoration: 'line-through' } : {}}>{fmtNum(r.qty)} {r.unit}</span> },
       { key: 'note', title: 'Бележка' }, { key: 'reported_by_name', title: 'От' },
@@ -194,7 +194,7 @@ function IssuesTab({ pid, issues, write, onChanged }: { pid: number; issues: any
   }, 'Проблемът е докладван');
   return <>
     {write && <div className="row" style={{ marginBottom: 10 }}><button className="primary sm" onClick={() => setModal(true)}>+ Докладвай проблем</button></div>}
-    <Card pad={false}><Loader state={issues}><Table rows={rows} empty={<Empty title="Няма проблеми">Докладвайте закъснения, липси и повреди.</Empty>} cols={[
+    <Card pad={false}><Loader state={issues}><Table focus={useFocus()} rows={rows} empty={<Empty title="Няма проблеми">Докладвайте закъснения, липси и повреди.</Empty>} cols={[
       { key: 'code', title: '№', width: 80 },
       { key: 'title', title: 'Проблем', render: (r: any) => <>{r.title}<div className="small muted">{KIND[r.kind] || r.kind}{r.product_name ? ' · ' + r.product_name : ''}{r.line_description ? ' · ' + r.line_description : ''}</div>{r.description ? <div className="small">{r.description}</div> : null}</> },
       { key: 'severity', title: 'Приоритет', render: (r: any) => <span className={'badge ' + (r.severity === 'critical' || r.severity === 'high' ? 'bad' : 'warn')}>{SEV[r.severity] || r.severity}</span> },
@@ -280,7 +280,7 @@ function MessagesTab({ pid, msgs, write, onChanged }: { pid: number; msgs: any; 
 function DocsFromOffice({ docs }: { docs: any }) {
   const rows: any[] = docs.data || [];
   const latest = (d: any) => d.versions?.[d.versions.length - 1];
-  return <Loader state={docs}><Card title="Документи по обекта" pad={false}><Table rows={rows} empty={<Empty title="Няма документи" />} cols={[
+  return <Loader state={docs}><Card title="Документи по обекта" pad={false}><Table focus={useFocus()} rows={rows} empty={<Empty title="Няма документи" />} cols={[
     { key: 'title', title: 'Документ', render: (r: any) => <>{r.shared_with_brigade ? <span className="badge ok" style={{ marginRight: 6 }}>от офиса</span> : null}<b>{r.title}</b><div className="small muted">{latest(r)?.filename} · v{r.current_version}</div></> },
     { key: 'x', title: '', width: 90, render: (r: any) => { const v = latest(r); return v ? <a className="btn sm" href={`/api/documents/${v.id}/file`} target="_blank" rel="noreferrer">Отвори</a> : null; } }]} /></Card></Loader>;
 }

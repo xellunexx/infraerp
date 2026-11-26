@@ -23,7 +23,7 @@ test('office marks files for the brigadier, who is told and sees them first', as
     assert.deepEqual(docs.map(d => [d.id, d.shared_with_brigade]), [[d2.id, 1], [d1.id, 0]], 'shared first, all visible');
     const n = (await brig.get('/api/notifications')).data.find(x => x.ref_type === 'document' && x.ref_id === d2.id);
     assert.ok(n, 'brigadier is notified');
-    assert.equal(n.link, `/brigade/${pid}?tab=docs`);
+    assert.equal(n.link, `/brigade/${pid}?tab=docs&focus=${d2.id}`);
     assert.ok(t.db.prepare("SELECT 1 FROM audit_log WHERE entity_type = 'document' AND entity_id = ? AND action = 'share_brigade'").get(d2.id), 'audited');
     await a.post(`/api/projects/${pid}/documents/brigade`, { ids: [d2.id], share: false });
     assert.equal((await brig.get(`/api/projects/${pid}/documents`)).data.find(d => d.id === d2.id).shared_with_brigade, 0);

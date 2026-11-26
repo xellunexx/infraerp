@@ -1,6 +1,7 @@
 // Логистика: доставки до обект с артикели, техника (активи) и разпределението й по обекти, портфолио и обеден изглед.
 import { tx, nextCode } from './db.js';
 import { HttpError, bad, need, canSeeProject, hideForeignProject, audit, updateRow, emit, notify, on } from './core.js';
+import { withLinks } from './links.js';
 import { h, pick, num, reqStr } from './app.js';
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -98,10 +99,10 @@ export default function mountLogistics(app, db) {
   app.get('/api/projects/:pid/logistics', h(req => {
     needLog(req, Number(req.params.pid));
     const pid = Number(req.params.pid);
-    const deliveries = db.prepare(`${delivView} WHERE d.project_id = ? ORDER BY d.id DESC`).all(pid)
-      .map(d => ({ ...d, items: deliveryItems(d.id) }));
+    const deliveries = withLinks(db.prepare(`${delivView} WHERE d.project_id = ? ORDER BY d.id DESC`).all(pid)
+      .map(d => ({ ...d, items: deliveryItems(d.id) })), 'delivery', req.user.department);
     return { deliveries,
-      allocations: db.prepare(`${allocView} WHERE a.project_id = ? ORDER BY a.id DESC`).all(pid),
+      allocations: withLinks(db.prepare(`${allocView} WHERE a.project_id = ? ORDER BY a.id DESC`).all(pid), 'asset_allocation', req.user.department),
       logistics_fields: pick(project(pid), ['access_notes', 'unloading_notes', 'storage_notes', 'parking_notes', 'courier_office', 'courier_pallets']) };
   }));
 

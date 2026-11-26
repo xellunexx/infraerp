@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { api, fmtDateTime } from '../api';
-import { Card, Empty, Field, Loader, Modal, Status, Table, Tabs, useAction, useAuth, useLoad } from '../ui';
+import { Card, Empty, Field, Loader, Modal, Status, Table, Tabs, useAction, useAuth, useLoad, useLinkTab, useFocus } from '../ui';
 
 const KIND_LABEL: Record<string, string> = { edit: 'промяна', delete: 'изтриване' };
 const DATE_RE = /(^|_)(date|on|from|to|start|end|deadline)$/;
@@ -107,7 +107,8 @@ function RequestForm({ onDone }: { onDone: () => void }) {
 }
 
 function CRTable({ rows, onRow }: { rows: any[]; onRow: (r: any) => void }) {
-  return <Table rows={rows} onRow={onRow} empty={<Empty title="Няма заявки" />} cols={[
+  const focus = useFocus();
+  return <Table focus={focus} rows={rows} onRow={onRow} empty={<Empty title="Няма заявки" />} cols={[
     { key: 'code', title: '№', width: 90 }, { key: 'entity_label', title: 'Запис', render: r => <span>{r.entity_label}{r.entity_gone ? ' ' : ''}{r.entity_gone && <span className="badge bad">липсва</span>}</span> },
     { key: 'kind', title: 'Вид', width: 100, render: r => <span className={'badge ' + (r.kind === 'delete' ? 'bad' : 'info')}>{KIND_LABEL[r.kind]}</span> },
     { key: 'reason', title: 'Причина', render: r => <span className="muted">{String(r.reason || '').slice(0, 90)}</span> },
@@ -119,7 +120,7 @@ function CRTable({ rows, onRow }: { rows: any[]; onRow: (r: any) => void }) {
 export function ChangeRequests() {
   const { state } = useAuth();
   const isAdmin = state.user?.role === 'admin';
-  const [tab, setTab] = useState('new');
+  const [tab, setTab, focus] = useLinkTab('new');
   const [open, setOpen] = useState<number | null>(null);
   const mine = useLoad<any[]>('/change-requests?scope=mine');
   const queue = useLoad<any[]>(isAdmin ? '/change-requests?scope=queue' : null);

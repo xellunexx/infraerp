@@ -59,6 +59,17 @@ export function newContractVersion(db, projectId, reason, { amendment_id = null,
   writeAppendices(db, c.id, projectId, version);
   return { version, total: snap.total };
 }
+/** The contract's lines changed before signing (change request): the draft appendices are rewritten from the lines,
+ *  so the contract never shows a second, stale copy; if it was already sent or approved, Contracts and the Manager are told. */
+export function linesChanged(db, user, projectId) {
+  const c = db.prepare('SELECT * FROM contracts WHERE project_id = ?').get(projectId);
+  if (!c || c.status === 'signed') return null;
+  writeAppendices(db, c.id, projectId, 0);
+  if (c.status !== 'draft') emit(db, user, { type: 'contract.lines_changed', origin: 'contracts', project_id: projectId, entity_type: 'contract', entity_id: c.id,
+    dedupe_key: `contract.lines_changed:${c.id}:${Date.now()}`, next: { status: c.status, total: round2(db.prepare('SELECT COALESCE(SUM(qty * unit_price), 0) t FROM project_lines WHERE project_id = ? AND removed = 0').get(projectId).t) },
+    affected: ['contracts', 'management'] });
+  return c.id;
+}
 function writeAppendices(db, contractId, projectId, version) {
   const lines = db.prepare('SELECT * FROM project_lines WHERE project_id = ? AND removed = 0 ORDER BY sort, id').all(projectId);
   const c = db.prepare('SELECT * FROM contracts WHERE id = ?').get(contractId);

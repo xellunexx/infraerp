@@ -2,11 +2,12 @@
 import React, { useState } from 'react';
 import { api, fmtDate, today } from '../api';
 import { PaymentForm, orderChoices } from './PaymentForm';
-import { Card, Empty, Field, Loader, Modal, Status, Table, Tabs, useAction, useCan, useForm, useLoad, usePath } from '../ui';
+import { OrderForm } from './Accounting';
+import { Card, Empty, Field, Loader, Modal, Status, Table, Tabs, useAction, useCan, useForm, useLoad, usePath, useLinkTab } from '../ui';
 
 const KIND: Record<string, string> = { to_site: 'До обект', return: 'Връщане', other: 'Друго' };
 const NEXT: Record<string, [string, string]> = { planned: ['in_transit', 'На път'], in_transit: ['delivered', 'Доставена'] };
-const ASSET_KIND: Record<string, string> = { vehicle: 'Превозно средство', crane: 'Кран', manlift: 'Повдигач', generator: 'Генератор', other: 'Друго' };
+export const ASSET_KIND: Record<string, string> = { vehicle: 'Превозно средство', crane: 'Кран', manlift: 'Повдигач', generator: 'Генератор', other: 'Друго' };
 
 /** The columns of a delivery, the same wherever deliveries are listed (here and in the project card). One item per line. */
 export function deliveryCols(withProject: boolean): any[] {
@@ -26,7 +27,8 @@ export function deliveryCols(withProject: boolean): any[] {
 export function Logistics() {
   const path = usePath();
   const [pid, setPid] = useState(new URLSearchParams(path.split('?')[1] || '').get('pid') || '');
-  const [tab, setTab] = useState('deliveries');
+  const [tab, setTab, focus] = useLinkTab('deliveries');
+  React.useEffect(() => { const p = new URLSearchParams(path.split('?')[1] || '').get('pid'); if (p) setPid(p); }, [path]);
   const port = useLoad<any>('/logistics');
   const q = pid ? `?project_id=${pid}` : '';
   const deliveries = useLoad<any[]>(`/deliveries${q}`);
@@ -81,7 +83,7 @@ export function Logistics() {
 
     {tab === 'deliveries' && <>
       {write && <div className="row" style={{ marginBottom: 10 }}><button className="primary sm" onClick={() => setModal({ kind: 'delivery' })}>+ Нова доставка</button></div>}
-      <Card pad={false}><Loader state={deliveries}><Table rows={deliveries.data || []} empty={<Empty title="Няма доставки">Планирайте доставка на материали до обект.</Empty>} cols={[
+      <Card pad={false}><Loader state={deliveries}><Table focus={tab === 'deliveries' ? focus : null} rows={deliveries.data || []} empty={<Empty title="Няма доставки">Планирайте доставка на материали до обект.</Empty>} cols={[
         ...deliveryCols(true),
         { key: 'x', title: '', width: 210, render: (r: any) => write && !['delivered', 'cancelled'].includes(r.status) ? <span className="row" style={{ flexWrap: 'nowrap' }}>
           {NEXT[r.status] && <button className="sm primary" disabled={busy} onClick={() => deliveryAction(r, NEXT[r.status][0], NEXT[r.status][1])}>{NEXT[r.status][1]}</button>}
@@ -92,7 +94,7 @@ export function Logistics() {
 
     {tab === 'orders' && <>
       {write && <div className="row" style={{ marginBottom: 10 }}><button className="primary sm" onClick={() => setModal({ kind: 'order' })}>+ Нова поръчка</button></div>}
-      <Card pad={false}><Loader state={orders}><Table rows={orders.data || []} empty={<Empty title="Няма поръчки">Поръчките към доставчици следят плащания, производство и доставка.</Empty>} cols={[
+      <Card pad={false}><Loader state={orders}><Table focus={tab === 'orders' ? focus : null} rows={orders.data || []} empty={<Empty title="Няма поръчки">Поръчките към доставчици следят плащания, производство и доставка.</Empty>} cols={[
         { key: 'code', title: '№', width: 90 },
         { key: 'pj', title: 'Обект', render: (r: any) => <>{r.project_code} — {r.project_name}<div className="small muted">{r.line_description || ''}</div></> },
         { key: 'supplier', title: 'Доставчик' },
@@ -134,7 +136,7 @@ export function Logistics() {
         { key: 'allocated_project', title: 'Разпределена за', render: (r: any) => r.allocated_project || <span className="muted">свободна</span> },
         { key: 'x', title: '', width: 40, render: (r: any) => write ? <button className="ghost sm" onClick={() => setModal({ kind: 'asset', row: r })}>✎</button> : null },
       ]} /></Loader></Card>
-      <Card title="Разпределение по обекти" pad={false}><Loader state={allocations}><Table rows={allocations.data || []} empty={<Empty title="Няма разпределения">Техниката се разпределя към обекти за период.</Empty>} cols={[
+      <Card title="Разпределение по обекти" pad={false}><Loader state={allocations}><Table focus={tab === 'assets' ? focus : null} rows={allocations.data || []} empty={<Empty title="Няма разпределения">Техниката се разпределя към обекти за период.</Empty>} cols={[
         { key: 'pj', title: 'Обект', render: (r: any) => <>{r.project_code} — {r.project_name}</> },
         { key: 'asset', title: 'Техника', render: (r: any) => `${r.asset_name}${r.asset_plate ? ' (' + r.asset_plate + ')' : ''}` },
         { key: 'date_from', title: 'От', render: (r: any) => fmtDate(r.date_from) },
@@ -149,7 +151,7 @@ export function Logistics() {
     </>}
 
     {modal?.kind === 'pay_order' && <PaymentForm title={`Плащане по ${modal.row.code} — ${modal.row.supplier}`} url={`/supplier-orders/${modal.row.id}/payments`} report={!can('finance', 'write')} choices={orderChoices(modal.row)} vat={{ last: modal.row.last_vat_pct ?? null }} onClose={() => setModal(null)} onDone={reloadAll} />}
-    {modal?.kind === 'order' && <OrderForm projects={projects} row={modal.row} onClose={close} onDone={reloadAll} />}
+    {modal?.kind === 'order' && <OrderForm projects={projects} pid={pid} row={modal.row} onClose={close} onDone={reloadAll} />}
     {modal?.kind === 'delivery' && <DeliveryForm projects={projects} assets={assets.data || []} pid={pid} row={modal.row} onClose={close} onDone={reloadAll} />}
     {modal?.kind === 'asset' && <AssetForm row={modal.row} onClose={close} onDone={reloadAll} />}
     {modal?.kind === 'allocation' && <AllocationForm projects={projects} assets={assets.data || []} pid={pid} onClose={close} onDone={reloadAll} />}
@@ -157,36 +159,6 @@ export function Logistics() {
 }
 
 // ---------------------------------------------------------------- форми
-function OrderForm({ projects, row, onClose, onDone }: { projects: any[]; row?: any; onClose: () => void; onDone: () => void }) {
-  const { run, busy } = useAction();
-  const edit = !!row;
-  const f = useForm({ project_id: row ? String(row.project_id) : '', supplier: row?.supplier || '', order_doc_no: row?.order_doc_no || '',
-    total_eur: row?.total_eur != null ? String(row.total_eur) : '', advance_eur: row?.advance_eur != null ? String(row.advance_eur) : '',
-    prod_days: row?.prod_days != null ? String(row.prod_days) : '', transport_days: row?.transport_days != null ? String(row.transport_days) : '',
-    status: row?.status || 'ordered', note: row?.note || '' });
-  const save = () => run(async () => {
-    const body: any = { supplier: f.v.supplier, order_doc_no: f.v.order_doc_no || undefined, note: f.v.note || undefined,
-      total_eur: f.v.total_eur === '' ? undefined : Number(f.v.total_eur), advance_eur: f.v.advance_eur === '' ? undefined : Number(f.v.advance_eur),
-      prod_days: f.v.prod_days === '' ? undefined : Number(f.v.prod_days), transport_days: f.v.transport_days === '' ? undefined : Number(f.v.transport_days) };
-    if (edit) await api.patch(`/supplier-orders/${row.id}`, { ...body, status: f.v.status, row_version: row.row_version });
-    else await api.post('/supplier-orders', { ...body, project_id: Number(f.v.project_id) });
-    onDone(); onClose();
-  }, edit ? 'Поръчката е обновена' : 'Поръчката е създадена');
-  return <Modal title={edit ? `Поръчка ${row.code}` : 'Нова поръчка към доставчик'} onClose={onClose} wide footer={<><button className="ghost" onClick={onClose}>Отказ</button>
-    <button className="primary" disabled={busy || !f.v.supplier || (!edit && !f.v.project_id)} onClick={save}>Запази</button></>}>
-    <div className="form c2">
-      <ProjSelect projects={projects} value={f.v.project_id} onChange={v => f.set('project_id', v)} />
-      <Field label="Доставчик"><input {...f.bind('supplier')} required /></Field>
-      <Field label="№ на поръчка"><input {...f.bind('order_doc_no')} /></Field>
-      <Field label="Статус"><select {...f.bind('status')}><option value="ordered">Поръчана (автоматично)</option><option value="delivered">Доставена</option><option value="cancelled">Отменена</option></select></Field>
-      <Field label="Обща стойност €"><input type="number" min="0" step="any" {...f.bind('total_eur')} /></Field>
-      <Field label="Аванс €"><input type="number" min="0" step="any" {...f.bind('advance_eur')} /></Field>
-      <Field label="Дни производство"><input type="number" min="0" step="1" {...f.bind('prod_days')} /></Field>
-      <Field label="Дни транспорт"><input type="number" min="0" step="1" {...f.bind('transport_days')} /></Field>
-      <Field label="Бележка" full><input {...f.bind('note')} /></Field>
-    </div>
-  </Modal>;
-}
 
 function ProjSelect({ projects, value, onChange }: { projects: any[]; value: string; onChange: (v: string) => void }) {
   return <Field label="Обект"><select value={value} onChange={e => onChange(e.target.value)} required>

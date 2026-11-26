@@ -1,7 +1,7 @@
 // Техник: работно място (обекти, задачи, проблеми) и екран на обект — график, прогрес, материали.
 import React, { useState } from 'react';
 import { api, fmtDate, fmtMoney, fmtNum, today } from '../api';
-import { Card, LineSelect, Empty, Field, Link, Loader, Modal, Progress, Status, Table, Tabs, navigate, useAction, useCan, useCurrency, useForm, useLoad, useToast } from '../ui';
+import { Card, LineSelect, Empty, Field, Link, Loader, Modal, Progress, Status, Table, Tabs, navigate, useAction, useCan, useCurrency, useForm, useLoad, useToast, useLinkTab, useFocus } from '../ui';
 
 const SEV: Record<string, [string, string]> = { low: ['Нисък', ''], medium: ['Среден', 'warn'], high: ['Висок', 'bad'], critical: ['Критичен', 'bad'] };
 const ISSUE_KIND: Record<string, string> = { overconsumption: 'Наднормен разход', schedule_delay: 'Изоставане', shortage: 'Липса', quality: 'Качество', other: 'Друго' };
@@ -66,7 +66,7 @@ export function TechnicalProject({ id }: { id: number }) {
   const sched = useLoad<any>(`/projects/${id}/schedule`);
   const prog = useLoad<any>(`/projects/${id}/progress`);
   const cons = useLoad<any>(`/projects/${id}/consumption`);
-  const [tab, setTab] = useState('schedule');
+  const [tab, setTab, focus] = useLinkTab('schedule');
   const reloadAll = () => { sched.reload(); prog.reload(); cons.reload(); };
   return <>
     <div className="page-head">
@@ -195,7 +195,7 @@ function ProgressTab({ pid, prog, onChanged }: { pid: number; prog: ReturnType<t
       { key: 'qty', title: 'Договорено', num: true, render: (r: any) => fmtNum(r.qty) }, { key: 'done_qty', title: 'Извършено', num: true, render: (r: any) => <>{fmtNum(r.done_qty)}{r.qty > 0 && r.done_qty > r.qty ? <div><span className="badge bad">над договора +{fmtNum(r.done_qty - r.qty, 3)}</span></div> : null}</> },
       { key: 'pct', title: '%', width: 130, render: (r: any) => r.pct != null ? <div className="row" style={{ flexWrap: 'nowrap' }}><Progress pct={r.pct} /><span className="small num" style={{ width: 40 }}>{r.pct}%</span></div> : '—' },
     ]} /></Card>
-    <Card title="Дневни отчети" pad={false}><Table rows={entries} empty={<Empty title="Няма записани отчети" />} cols={[
+    <Card title="Дневни отчети" pad={false}><Table focus={useFocus()} rows={entries} empty={<Empty title="Няма записани отчети" />} cols={[
       { key: 'work_date', title: 'Дата', render: (r: any) => fmtDate(r.work_date) }, { key: 'line_description', title: 'Ред' },
       { key: 'qty', title: 'Кол-во', num: true, render: (r: any) => <span className={r.voided ? 'muted' : ''} style={r.voided ? { textDecoration: 'line-through' } : {}}>{fmtNum(r.qty)} {r.unit}</span> },
       { key: 'note', title: 'Бележка' }, { key: 'reported_by_name', title: 'От' },

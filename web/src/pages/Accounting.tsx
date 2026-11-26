@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { api, fmtDate, fmtMoney, today } from '../api';
 import { ConfirmTab, PaymentForm, orderChoices, useQueue } from './PaymentForm';
-import { Card, LineSelect, Empty, Field, Loader, Modal, Status, Table, Tabs, useAction, useCan, useCurrency, useForm, useLoad, usePath } from '../ui';
+import { Card, LineSelect, Empty, Field, Loader, Modal, Status, Table, Tabs, useAction, useCan, useCurrency, useForm, useLoad, usePath, useFocus } from '../ui';
 
 const KIND: Record<string, string> = { advance: 'Аванс', interim: 'Междинна', final: 'Окончателна', other: 'Друга' };
 const DIR: Record<string, [string, string]> = { in: ['Приход', 'ok'], out: ['Разход', ''] };
@@ -132,7 +132,7 @@ export function Accounting() {
 
     {tab === 'transactions' && <>
       {write && <div className="row" style={{ marginBottom: 10 }}><button className="primary sm" onClick={() => setModal({ kind: 'transaction' })}>+ Нова транзакция</button></div>}
-      <Card pad={false}><Loader state={transactions}><Table rows={transactions.data || []} empty={<Empty title="Няма транзакции">Запишете приход или разход по обект.</Empty>} cols={[
+      <Card pad={false}><Loader state={transactions}><Table focus={tab === 'transactions' ? focus : null} rows={transactions.data || []} empty={<Empty title="Няма транзакции">Запишете приход или разход по обект.</Empty>} cols={[
         { key: 'code', title: '№', width: 90 },
         { key: 'tx_date', title: 'Дата', render: (r: any) => fmtDate(r.tx_date) },
         { key: 'pj', title: 'Обект', render: (r: any) => r.project_code ? <>{r.project_code} — {r.project_name}</> : <span className="muted">Без обект</span> },
@@ -164,7 +164,7 @@ export function Accounting() {
 
     {tab === 'accommodations' && <>
       {write && <div className="row" style={{ marginBottom: 10 }}><button className="primary sm" onClick={() => setModal({ kind: 'accommodation' })}>+ Нов запис</button></div>}
-      <Card pad={false}><Loader state={accommodations}><Table rows={accommodations.data || []} empty={<Empty title="Няма записи">Настаняването на работниците се води по обект.</Empty>} cols={[
+      <Card pad={false}><Loader state={accommodations}><Table focus={tab === 'accommodations' ? focus : null} rows={accommodations.data || []} empty={<Empty title="Няма записи">Настаняването на работниците се води по обект.</Empty>} cols={[
         { key: 'pj', title: 'Обект', render: (r: any) => <>{r.project_code} — {r.project_name}</> },
         { key: 'place', title: 'Място' }, { key: 'address', title: 'Адрес' },
         { key: 'date_from', title: 'От', render: (r: any) => fmtDate(r.date_from) }, { key: 'date_to', title: 'До', render: (r: any) => fmtDate(r.date_to) },
@@ -336,6 +336,7 @@ function AccommodationForm({ projects, pid, row, onClose, onDone }: { projects: 
 
 // ---------------------------------------------------------------- Книга: единният регистър, филтриран в изгледи (§14.1)
 function LedgerTab({ ledger, persons, centers, lf, setLf, cur }: any) {
+  const focus = useFocus();
   const d = ledger.data;
   const set = (k: string, v: string) => setLf((x: Record<string, string>) => ({ ...x, [k]: v }));
   const sel = (k: string, opts: [string, string][], label: string) => (
@@ -365,7 +366,7 @@ function LedgerTab({ ledger, persons, centers, lf, setLf, cur }: any) {
       {Object.keys(d.by_company || {}).length > 1 && <div className="row" style={{ marginBottom: 12 }}>
         {Object.entries(d.by_company).map(([c, t]: any) => <span key={c} className="badge">{c}: <b>{money(t.in, cur)}</b> вх / <b>{money(t.out, cur)}</b> изх</span>)}
       </div>}
-      <Card pad={false}><Table rows={d.rows} empty={<Empty title="Няма записи по филтъра" />} cols={[
+      <Card pad={false}><Table focus={focus} rows={d.rows} empty={<Empty title="Няма записи по филтъра" />} cols={[
         { key: 'tx_date', title: 'Дата', render: (r: any) => fmtDate(r.tx_date) },
         { key: 'tx_kind', title: 'Вид', render: (r: any) => <>{TX_KIND[r.tx_kind] || r.tx_kind || '—'}{r.document_code ? <div className="small muted">към {r.document_code}</div> : null}</> },
         { key: 'dir', title: '', width: 80, render: (r: any) => <span className={'badge ' + DIR[r.direction][1]}>{DIR[r.direction][0]}</span> },
@@ -417,9 +418,10 @@ function PersonsTab({ persons, write, cur, onNew }: any) {
 
 // ---------------------------------------------------------------- Поръчки към доставчици: обратното броене върви от реални банкови дати (§14.4)
 function OrdersTab({ orders, write, cur, onNew, onEdit, onPay }: any) {
+  const focus = useFocus();
   return <>
     {write && <div className="row" style={{ marginBottom: 10 }}><button className="primary sm" onClick={onNew}>+ Нова поръчка</button></div>}
-    <Card pad={false}><Loader state={orders}><Table rows={orders.data || []}
+    <Card pad={false}><Loader state={orders}><Table focus={focus} rows={orders.data || []}
       empty={<Empty title="Няма поръчки">Поръчките към доставчици следят производството и доставката по реални дати на плащане.</Empty>} cols={[
         { key: 'code', title: '№', width: 90 },
         { key: 'supplier', title: 'Доставчик', render: (r: any) => <>{r.supplier}<div className="small muted">{r.order_doc_no || ''}</div></> },
@@ -468,7 +470,8 @@ function CenterForm({ onClose, onDone }: { onClose: () => void; onDone: () => vo
   </Modal>;
 }
 
-function OrderForm({ projects, pid, row, onClose, onDone }: { projects: any[]; pid: string; row?: any; onClose: () => void; onDone: () => void }) {
+/** The one supplier-order form (Accounting and Logistics). */
+export function OrderForm({ projects, pid, row, onClose, onDone }: { projects: any[]; pid: string; row?: any; onClose: () => void; onDone: () => void }) {
   const { run, busy } = useAction();
   const edit = !!row;
   const f = useForm({ project_id: row ? String(row.project_id) : pid, project_line_id: row?.project_line_id ? String(row.project_line_id) : '', supplier: row?.supplier || '', order_doc_no: row?.order_doc_no || '',

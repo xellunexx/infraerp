@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { api, fmtDate, fmtDateTime, fmtNum } from '../api';
-import { Card, Empty, Field, Loader, Modal, Status, Table, Tabs, useAction, useLoad } from '../ui';
+import { ASSET_KIND } from './Logistics';
+import { Card, Empty, Field, Loader, Modal, Status, Table, Tabs, useAction, useLoad, useLinkTab } from '../ui';
 
 const KIND_LABEL: Record<string, string> = { receipt: 'Приемане', issue: 'Изписване към обект', return: 'Връщане', adjust: 'Корекция', transfer_out: 'Пренос към друг обект', transfer_in: 'Пренос от друг обект' };
 const FORM_KINDS = ['receipt', 'issue', 'return', 'adjust', 'transfer_out'];
@@ -89,7 +90,7 @@ function RequestDetail({ id, onClose, onDone }: { id: number; onClose: () => voi
 }
 
 export function Warehouse() {
-  const [tab, setTab] = useState('stock');
+  const [tab, setTab, focus] = useLinkTab('stock');
   const [moveOpen, setMoveOpen] = useState(false);
   const [reqOpen, setReqOpen] = useState(false);
   const [detail, setDetail] = useState<number | null>(null);
@@ -117,7 +118,7 @@ export function Warehouse() {
         { key: 'low', title: '', render: r => r.low ? <span className="badge bad">нисък</span> : null }]} />
     </Loader></Card>}
     {tab === 'requests' && <Card pad={false}><Loader state={requests}>
-      <Table rows={requests.data || []} onRow={r => setDetail(r.id)} empty={<Empty title="Няма заявки" />} cols={[
+      <Table focus={tab === 'requests' ? focus : null} rows={requests.data || []} onRow={r => setDetail(r.id)} empty={<Empty title="Няма заявки" />} cols={[
         { key: 'code', title: '№' }, { key: 'project_code', title: 'Обект' }, { key: 'origin', title: 'От', render: r => r.origin === 'technical' ? 'Технически' : r.origin === 'contracts' ? 'Договори' : 'Склад' },
         { key: 'status', title: 'Статус', render: r => <Status value={MR_STATUS[r.status]} /> },
         { key: 'needed_by', title: 'Нужни до', render: r => fmtDate(r.needed_by) }, { key: 'requester_name', title: 'Заявил' },
@@ -140,7 +141,7 @@ export function Warehouse() {
     </Loader></Card>}
     {tab === 'fleet' && <Card pad={false}><Loader state={fleet}>
       <Table rows={fleet.data || []} empty={<Empty title="Няма регистрирани машини и инструменти" />} cols={[
-        { key: 'code', title: 'Код' }, { key: 'name', title: 'Наименование' }, { key: 'kind', title: 'Вид' },
+        { key: 'code', title: 'Код' }, { key: 'name', title: 'Наименование' }, { key: 'kind', title: 'Вид', render: r => ASSET_KIND[r.kind] || r.kind },
         { key: 'plate', title: 'Рег. №', render: r => r.plate || '—' }, { key: 'location', title: 'Локация', render: r => r.location || '—' },
         { key: 'status', title: 'Статус', render: r => <Status value={r.status} /> },
         { key: 'allocated_project', title: 'На обект', render: r => r.allocated_project || <span className="muted">— свободен —</span> }]} />

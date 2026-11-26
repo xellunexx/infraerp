@@ -1,7 +1,7 @@
 // Хронология и одит, четими от човек: изречение + списък „поле: старо → ново" на български.
 // Едно място за имената на събития, действия, записи и полета — страниците само показват готовия текст.
 export const EVENT_LABEL = {
-  'offer.confirmed': 'Потвърдена оферта', 'contract.submitted': 'Договорът е изпратен за одобрение', 'contract.signed': 'Подписан договор',
+  'offer.confirmed': 'Потвърдена оферта', 'contract.submitted': 'Договорът е изпратен за одобрение', 'contract.lines_changed': 'Редовете на договора са променени след изпращането', 'contract.signed': 'Подписан договор',
   'contract.payment_recorded': 'Плащане по договора', 'payment.rejected': 'Отказано плащане', 'project.assigned': 'Смяна на отговорник',
   'stage.changed': 'Промяна на етап', 'progress.recorded': 'Отчетено изпълнение', 'progress.voided': 'Анулиран отчет', 'schedule.changed': 'Промяна в линейния график',
   'issue.reported': 'Докладван проблем', 'issue.resolved': 'Решен проблем', 'task.assigned': 'Нова задача',

@@ -116,7 +116,7 @@ export type Col<T> = { key: string; title: string; num?: boolean; render?: (row:
 export function Table<T extends Record<string, any>>({ cols, rows, onRow, empty, foot, focus }: { cols: Col<T>[]; rows: T[]; onRow?: (r: T) => void; empty?: React.ReactNode; foot?: React.ReactNode; focus?: string | number | null }) {
   if (!rows.length) return <>{empty ?? <Empty title="Няма записи" />}</>;
   return <div className="table-wrap"><table className="t"><thead><tr>{cols.map(c => <th key={c.key} className={c.num ? 'num' : ''} style={{ width: c.width }}>{c.title}</th>)}</tr></thead>
-    <tbody>{rows.map((r, i) => <tr key={r.id ?? i} className={[onRow ? 'click' : '', focus != null && String(r.id) === String(focus) ? 'focus' : ''].join(' ').trim()} ref={focus != null && String(r.id) === String(focus) ? (el => el?.scrollIntoView({ block: 'center' })) : undefined} onClick={onRow ? () => onRow(r) : undefined}>
+    <tbody>{rows.map((r, i) => <tr key={r.id ?? i} title={!onRow && r.link ? 'Отвори там, където се управлява' : undefined} className={[onRow || r.link ? 'click' : '', focus != null && String(r.id) === String(focus) ? 'focus' : ''].join(' ').trim()} ref={focus != null && String(r.id) === String(focus) ? (el => el?.scrollIntoView({ block: 'center' })) : undefined} onClick={onRow ? () => onRow(r) : r.link ? () => navigate(r.link) : undefined}>
       {cols.map(c => <td key={c.key} className={c.num ? 'num' : ''}>{c.render ? c.render(r) : r[c.key] ?? '—'}</td>)}</tr>)}</tbody>{foot && <tfoot>{foot}</tfoot>}</table></div>;
 }
 export function Tabs({ tabs, value, onChange }: { tabs: [string, string][]; value: string; onChange: (v: string) => void }) {
@@ -188,3 +188,15 @@ export function LineSelect({ lines, value, onChange, empty = '— избери �
     </div>}
   </div>;
 }
+
+/** The tab and the record a link points at (?tab=…&focus=…). Follows the URL also when the page is already open,
+ *  so a notification or a "Отвори" link always lands on the record. */
+export function useLinkTab(fallback: string): [string, (t: string) => void, string | null] {
+  const path = usePath();
+  const q = () => new URLSearchParams(path.split('?')[1] || '');
+  const [tab, setTab] = useState(q().get('tab') || fallback);
+  useEffect(() => { const t = q().get('tab'); if (t) setTab(t); }, [path]);
+  return [tab, setTab, q().get('focus')];
+}
+/** The record a link points at (?focus=…), for tables inside sub-components. */
+export function useFocus(): string | null { const path = usePath(); return new URLSearchParams(path.split('?')[1] || '').get('focus'); }

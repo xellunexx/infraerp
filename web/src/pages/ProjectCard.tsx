@@ -4,7 +4,7 @@ import { api, fmtDate, fmtDateTime, fmtMoney, fmtNum } from '../api';
 import { WeatherCard } from './Weather';
 import { MILESTONE, PaymentForm, milestoneChoices } from './PaymentForm';
 import { deliveryCols } from './Logistics';
-import { Card, DeptBadge, Empty, Field, Kpi, Link, Loader, Modal, NewVersionButton, Progress, Status, Table, Tabs, navigate, useAction, useCan, useCurrency, useForm, useLoad, useMessages, usePath, VersionLinks } from '../ui';
+import { Card, DeptBadge, Empty, Field, Kpi, Link, Loader, Modal, NewVersionButton, Progress, Status, Table, Tabs, navigate, useAction, useCan, useCurrency, useForm, useLoad, useMessages, usePath, VersionLinks, useFocus } from '../ui';
 
 const PLANNED = ['Технически спецификации', 'Склад'];
 
@@ -476,7 +476,7 @@ function LogisticsTab({ logi, pid }: { logi: any; pid: number }) {
 function TasksTab({ tasks, pid }: { tasks: any; pid: number }) {
   const d = tasks.data;
   return <Loader state={tasks}>
-    <Card title="Задачи" pad={false} actions={<Link to={`/technical/${pid}`}>В Технически →</Link>}><Table rows={d?.tasks || []} empty={<Empty title="Няма задачи" />} cols={[
+    <Card title="Задачи" pad={false} actions={<Link to={`/technical/${pid}`}>В Технически →</Link>}><Table focus={useFocus()} rows={d?.tasks || []} empty={<Empty title="Няма задачи" />} cols={[
       { key: 'code', title: '№', width: 90 }, { key: 'title', title: 'Задача' },
       { key: 'assignee_name', title: 'Отговорник', render: (r: any) => r.assignee_name || r.assignee_dept || '—' },
       { key: 'due_date', title: 'Срок', render: (r: any) => fmtDate(r.due_date) },
