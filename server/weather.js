@@ -21,14 +21,32 @@ async function getJson(fetchFn, url) {
 }
 
 // ---------------------------------------------------------------- geocoding
+const MARKER = /^(ж\.к\.|кв\.|ул\.|бул\.|бл\.|вх\.|ет\.|ап\.|№|до|срещу|зад|при|до\.)$/i;
+/** The site address as the company writes it ("гр.Бургас ж-к Славейков до бл.51"), from the full text down to the settlement. */
+export function addressCandidates(address) {
+  const norm = String(address || '').replace(/^\s*(гр\.|град|с\.|село)\s*/i, '').replace(/(^|\s)ж\.?\s*-?\s*к\.?(?=\s)/gi, '$1ж.к.')
+    .replace(/\s+(до|срещу|зад|при)\s+/gi, ' ').replace(/\s+/g, ' ').trim();
+  const out = [];
+  let words = norm.split(' ');
+  while (words.length) {
+    const c = words.join(' ').replace(/[\s,;]+$/, '');
+    if (c && !MARKER.test(words.at(-1).replace(/,$/, '')) && !out.includes(c)) out.push(c);
+    words = words.slice(0, -1);
+  }
+  return out.slice(0, 5);
+}
+
+/** Bulgaria only: a site is never placed abroad because the address was short or mistyped. */
 export async function geocode(address, fetchFn = fetch) {
   const q = String(address || '').trim();
   if (!q) throw new Error('Няма въведен адрес на обекта');
-  const nom = await getJson(fetchFn, `https://nominatim.openstreetmap.org/search?format=json&limit=1&accept-language=bg&q=${encodeURIComponent(q)}`).catch(() => []);
-  if (nom[0]) return { latitude: Number(nom[0].lat), longitude: Number(nom[0].lon), label: nom[0].display_name, source: 'nominatim' };
-  // fall back to the settlement name (text before the first comma, without "гр."/"с." prefixes)
-  const place = q.split(',')[0].replace(/^(гр\.|град|с\.|село)\s*/i, '').trim();
-  const om = await getJson(fetchFn, `https://geocoding-api.open-meteo.com/v1/search?count=1&language=bg&name=${encodeURIComponent(place)}`).catch(() => ({}));
+  const cands = addressCandidates(q);
+  for (const c of cands) {
+    const nom = await getJson(fetchFn, `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=bg&accept-language=bg&q=${encodeURIComponent(c)}`).catch(() => []);
+    if (nom[0]) return { latitude: Number(nom[0].lat), longitude: Number(nom[0].lon), label: nom[0].display_name, source: 'nominatim' };
+  }
+  const place = cands.at(-1) || q;
+  const om = await getJson(fetchFn, `https://geocoding-api.open-meteo.com/v1/search?count=1&language=bg&countryCode=BG&name=${encodeURIComponent(place)}`).catch(() => ({}));
   const r = om.results?.[0];
   if (r) return { latitude: r.latitude, longitude: r.longitude, label: [r.name, r.admin1, r.country].filter(Boolean).join(', '), source: 'open-meteo-geocoding' };
   throw new Error('Адресът не е намерен на картата. Въведете координати ръчно.');
