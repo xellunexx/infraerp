@@ -38,6 +38,7 @@ test('small extra work: two different people from Offers/Contracts; then КС li
     assert.ok(v && v.version === 2, 'annex = new contract version');
     const pf = t.db.prepare('SELECT * FROM proformas WHERE amendment_id = ?').get(am.id);
     assert.equal(pf.amount, 400);
+    assert.equal((await t.admin.get(`/api/projects/${pid}/contract`)).data.schedule_gap, 0, 'annex work, billed by its own proforma, is not a gap in the payment plan');
   } finally { await t.stop(); }
 });
 

@@ -1,6 +1,6 @@
 // Логистика: портфолио по обекти, доставки с артикели и статуси, техника и разпределението й.
 import React, { useState } from 'react';
-import { api, fmtDate, today } from '../api';
+import { api, fmtDate, fmtNum, today } from '../api';
 import { PaymentForm, orderChoices } from './PaymentForm';
 import { OrderForm } from './Accounting';
 import { Card, Empty, Field, Loader, Modal, Status, Table, Tabs, useAction, useCan, useForm, useLoad, usePath, useLinkTab } from '../ui';
@@ -119,7 +119,7 @@ export function Logistics() {
         { key: 'expected', title: 'По рецепта (извършено)', num: true },
         { key: 'issued', title: 'Заредено на обект', num: true },
         { key: 'consumed', title: 'Вградено', num: true, render: (r: any) => <>{r.consumed}{r.basis === 'norm' && r.consumed ? <div className="small muted">по норма</div> : null}</> },
-        { key: 'on_site', title: 'На обект (ост.)', num: true },
+        { key: 'on_site', title: 'На обект (ост.)', num: true, render: (r: any) => r.on_site < 0 ? <span className="badge warn" title="Отчетено е вложено повече, отколкото е заредено на обекта">не е заредено {fmtNum(-r.on_site)}</span> : fmtNum(r.on_site) },
         { key: 'variance', title: 'Отклонение', num: true, render: (r: any) => r.over ? <span className="badge bad">{r.variance}</span> : r.variance },
       ]} /></Loader></Card>}
     </>}

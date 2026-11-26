@@ -570,13 +570,14 @@ function AmendmentsCard({ pid, onChange }: { pid: number; onChange: () => void }
   const list = useLoad<any[]>(`/projects/${pid}/amendments`);
   const can = useCan(), cur = useCurrency();
   const { run, busy } = useAction();
+  const focus = useFocus();
   const mayDecide = can('approvals', 'approve') || can('contracts', 'write') || can('offers', 'write');
   const act = (a: any, action: string) => { const note = action === 'reject' ? window.prompt('Причина за отказа:') : null; if (action === 'reject' && note == null) return;
     run(async () => { const r = await api.post(`/amendments/${a.id}/${action}`, { note }); await list.reload(); onChange(); return r; },
       action === 'reject' ? 'Анексът е отказан' : 'Подписът е записан'); };
   const rows = list.data || [];
   if (!rows.length) return null;
-  return <Card title="Анекси — работа извън договора" pad={false}><Table focus={useFocus()} rows={rows} cols={[
+  return <Card title="Анекси — работа извън договора" pad={false}><Table focus={focus} rows={rows} cols={[
     { key: 'code', title: '№', width: 90 },
     { key: 'title', title: 'Дейност', render: (a: any) => <><b>{a.title}</b><div className="small muted">{fmtNum(a.changes.qty, 3)} {a.changes.unit} × {fmtMoney(a.unit_price)} · заявил {a.created_by_name}</div>{a.description ? <div className="small">{a.description}</div> : null}</> },
     { key: 'amount', title: `Стойност, ${cur}`, num: true, render: (a: any) => fmtMoney(a.amount) },

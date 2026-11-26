@@ -207,7 +207,7 @@ function MaterialsTab({ pid, cons }: { pid: number; cons: ReturnType<typeof useL
         { key: 'required', title: 'По договор', num: true, render: (r: any) => fmtNum(r.required) },
         { key: 'expected', title: 'По извършено', num: true, render: (r: any) => fmtNum(r.expected) },
         { key: 'consumed', title: 'Вградено', num: true, render: (r: any) => <>{fmtNum(r.consumed)}{r.basis === 'norm' && r.consumed ? <div className="small muted">по норма от отчетите</div> : null}</> },
-        { key: 'on_site', title: 'На обекта', num: true, render: (r: any) => fmtNum(r.on_site) },
+        { key: 'on_site', title: 'На обекта', num: true, render: (r: any) => r.on_site < 0 ? <span className="badge warn" title="Отчетено е вложено повече, отколкото е заредено на обекта">не е заредено {fmtNum(-r.on_site)}</span> : fmtNum(r.on_site) },
         { key: 'variance', title: 'Отклонение', num: true, render: (r: any) => <span className={r.variance > 0 ? 'badge bad' : ''}>{fmtNum(r.variance)}</span> },
         { key: 'flag', title: '', render: (r: any) => r.over ? <span className="badge bad">Наднормен</span> : r.unplanned ? <span className="badge warn">Непланиран</span> : null },
       ]} />
@@ -226,7 +226,8 @@ function TechRequestModal({ pid, rows, onClose, onDone }: { pid: number; rows: a
   const pendingQty: Record<number, number> = {};
   for (const m of (pending.data || [])) if (['submitted', 'approved'].includes(m.status))
     for (const i of (m.items || [])) pendingQty[i.product_id] = (pendingQty[i.product_id] || 0) + i.qty;
-  const deficit = (r: any) => Math.max(0, (r.required || 0) - (r.on_site || 0) - (pendingQty[r.product_id] || 0));
+  // what is still to be brought: contract quantity − already issued to the site − pending requests (built-in material was issued too, so it is not subtracted twice)
+  const deficit = (r: any) => Math.max(0, (r.required || 0) - (r.issued || 0) - (pendingQty[r.product_id] || 0));
   const [qty, setQty] = useState<Record<number, string> | null>(null);
   const effQty = qty ?? Object.fromEntries(rows.map(r => [r.product_id, deficit(r) || '']));
   const [sel, setSel] = useState<Record<number, boolean>>({});
@@ -249,11 +250,11 @@ function TechRequestModal({ pid, rows, onClose, onDone }: { pid: number; rows: a
       <Field label="Нужни до"><input type="date" value={neededBy} onChange={e => setNeededBy(e.target.value)} /></Field>
       <Field label="Бележка" full><input value={note} onChange={e => setNote(e.target.value)} /></Field>
     </div>
-    <table className="t"><thead><tr><th></th><th>Материал</th><th>По договор</th><th>На обекта</th><th>Вече заявено</th><th>Заявено</th></tr></thead><tbody>
+    <table className="t"><thead><tr><th></th><th>Материал</th><th>По договор</th><th>Заредено</th><th>Вече заявено</th><th>Заявено</th></tr></thead><tbody>
       {rows.map(r => <tr key={r.product_id} style={{ opacity: sel[r.product_id] === false ? 0.45 : 1 }}>
         <td><input type="checkbox" checked={sel[r.product_id] !== false} onChange={e => setSel(s => ({ ...s, [r.product_id]: e.target.checked }))} /></td>
         <td>{r.code} — {r.name} ({r.unit})</td>
-        <td className="num">{fmtNum(r.required)}</td><td className="num">{fmtNum(r.on_site)}</td>
+        <td className="num">{fmtNum(r.required)}</td><td className="num">{fmtNum(r.issued)}</td>
         <td className="num">{pendingQty[r.product_id] ? fmtNum(pendingQty[r.product_id]) : '—'}</td>
         <td><input type="number" step="any" style={{ width: 100 }} value={effQty[r.product_id] ?? ''} onChange={e => setQty(q => ({ ...(q ?? effQty), [r.product_id]: e.target.value }))} /></td></tr>)}
       {!rows.length && <tr><td colSpan={6} className="muted">Няма материали по КС на този обект — задайте ги в КС (✎ материали) или добавете извън КС по-долу.</td></tr>}

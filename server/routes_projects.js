@@ -38,7 +38,10 @@ export default function mountProjects(app, db) {
       : c.delivery_deadline;
     c.delivery_due_real = !!(c.deadline_start && c.prod_delivery_days != null);
     c.total = progressSummary(db, projectId).contract_value;
-    const agreed = c.versions.find(v => v.version === c.active_version)?.total_value;
+    // annex work is billed with its own proforma, so the payment plan is measured against the contract without it
+    const annexed = db.prepare("SELECT COALESCE(SUM(l.qty * l.unit_price), 0) v FROM project_lines l WHERE l.project_id = ? AND l.removed = 0 AND l.amendment_id IS NOT NULL AND EXISTS (SELECT 1 FROM proformas f WHERE f.amendment_id = l.amendment_id AND f.status != 'cancelled')").get(projectId).v;
+    const agreedAll = c.versions.find(v => v.version === c.active_version)?.total_value;
+    const agreed = agreedAll == null ? null : agreedAll - annexed;
     c.schedule_gap = c.status === 'signed' && agreed != null && c.payments.length && c.payments.every(p => p.net != null) ? Math.round((c.payments.reduce((s, p) => s + p.net, 0) - agreed) * 100) / 100 : null;
     return c;
   };
