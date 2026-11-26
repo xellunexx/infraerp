@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-26 — Offer files from the company template (part B, tasks 1–2)
+- `tools/build_offer_template.mjs` trims the company workbook to `server/assets/offer_template.xlsx` (sheets КСС + Труд, logo, page footer). It drops the other sheets, comments, external links, printer settings and calcChain. Template errors are fixed by class: one-row totals (U22) take the row's common range; error cells become `IFERROR(…,0)` (Труд G15:G17, F31). The style map `offer_template.map.json` is read from the template cells.
+- `server/offer_xlsx.js` `offerXlsx(db, id, version, {internal})` fills the template: header fields, a section title row, line rows (B:D description), section totals and grand totals with the discount line. Alternatives are marked „не се сумира". Clauses follow. Every formula carries the app's value. Pictures are converted from webp to png, each stored once. The customer file has columns A–H only and no Труд sheet.
+- **Not wired yet:** the download button still uses the old ExcelJS export. Tasks 3–6 remain: the internal Труд sheet, the routes and buttons, the replica tab, and the proof renders.
+- Open question for the operator: in the Труд sheet, row 13, man-days E and work days G sum rows 6–12 only, leaving out mobilisation and demobilisation. This was left unchanged.
+- Tests: `offer_template_file`, `offer_xlsx`; full suite 130/130.
+
 ## 2026-11-26 — Счетоводството смята като „Таблица ексел“
 
 - Болестта: системата смяташе всеки платен изходящ ред за разход, затова превод без фактура
