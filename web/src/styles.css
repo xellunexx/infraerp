@@ -248,3 +248,25 @@ table.t tr.focus > td { background: var(--accent-soft); box-shadow: inset 3px 0 
 .line-card { display: flex; gap: 10px; margin-top: 6px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); }
 .line-card img { width: 52px; height: 52px; object-fit: cover; border-radius: 4px; flex: none; }
 ul.changes { margin: 4px 0 0; padding-left: 18px; color: var(--muted); }
+.mats-t td, .mats-t th { padding: 4px 6px; } .mats-t select { max-width: 340px; }
+.mat-line { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; background: var(--panel); }
+/* linear schedule (Gantt) — the company's layout */
+.gantt-x { overflow-x: auto; max-width: 100%; }
+table.gx { border-collapse: collapse; font-size: 12px; }
+table.gx th, table.gx td { border: 1px solid var(--border); padding: 3px 5px; vertical-align: middle; }
+table.gx thead th { background: var(--panel); position: sticky; top: 0; font-weight: 600; }
+table.gx .c-name { min-width: 240px; max-width: 360px; position: sticky; left: 0; background: var(--panel); z-index: 1; }
+table.gx .c-no { width: 28px; }
+table.gx .c-day { width: 18px; min-width: 18px; padding: 2px 0; text-align: center; font-weight: 400; font-size: 10px; }
+table.gx .c-day.we { color: var(--muted); }
+table.gx .c-month { text-align: left; font-size: 11px; }
+table.gx td.c-cell { width: 18px; min-width: 18px; padding: 0; text-align: center; font-size: 10px; }
+table.gx td.c-cell.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+table.gx td.c-cell.on.behind { background: var(--warn-soft, #fff4d6); }
+table.gx td.c-cell.on.late { background: var(--bad-soft, #fde2e2); color: var(--bad); }
+table.gx td.c-cell.base { background: repeating-linear-gradient(45deg, transparent 0 3px, var(--border) 3px 4px); }
+table.gx tr.outside td.c-cell.on { background: #ffe8cc; color: #b45309; }
+table.gx .today { box-shadow: inset 2px 0 0 var(--accent); }
+table.gx .deadline { box-shadow: inset -2px 0 0 var(--bad); }
+.gx-key { display: inline-block; width: 12px; height: 10px; vertical-align: middle; border-radius: 2px; }
+.gx-key.late { background: var(--bad-soft, #fde2e2); } .gx-key.outside { background: #ffe8cc; }

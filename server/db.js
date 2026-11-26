@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS offer_lines (
   unit_cost REAL NOT NULL DEFAULT 0, tech_note TEXT, planned_days INTEGER,
   section_id INTEGER REFERENCES offer_sections(id) ON DELETE SET NULL, material_cost REAL NOT NULL DEFAULT 0, delivery_cost REAL NOT NULL DEFAULT 0,
   labour_days REAL NOT NULL DEFAULT 0, day_rate REAL NOT NULL DEFAULT 0, install_cost REAL, overhead_pct REAL NOT NULL DEFAULT 3.5,
-  profit_pct REAL NOT NULL DEFAULT 30, tax_pct REAL NOT NULL DEFAULT 10, manual_price REAL, image_document_id INTEGER REFERENCES documents(id));
+  profit_pct REAL NOT NULL DEFAULT 30, tax_pct REAL NOT NULL DEFAULT 10, manual_price REAL, image_document_id INTEGER REFERENCES documents(id), materials TEXT);
 CREATE TABLE IF NOT EXISTS offer_sections (
   id INTEGER PRIMARY KEY, version_id INTEGER NOT NULL REFERENCES offer_versions(id) ON DELETE CASCADE, sort INTEGER NOT NULL DEFAULT 0,
   title TEXT NOT NULL, description TEXT, footer TEXT, alternative INTEGER NOT NULL DEFAULT 0, selected INTEGER NOT NULL DEFAULT 0, image_document_id INTEGER REFERENCES documents(id));
@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS project_lines (
   id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL REFERENCES projects(id), sort INTEGER NOT NULL DEFAULT 0,
   source_offer_line_id INTEGER REFERENCES offer_lines(id), smr_type_id INTEGER REFERENCES smr_types(id), product_id INTEGER REFERENCES products(id),
   code TEXT, description TEXT NOT NULL, unit TEXT NOT NULL, qty REAL NOT NULL, unit_price REAL NOT NULL, unit_cost REAL NOT NULL DEFAULT 0,
-  tech_note TEXT, added_by_version INTEGER NOT NULL DEFAULT 1, removed INTEGER NOT NULL DEFAULT 0, row_version INTEGER NOT NULL DEFAULT 1);
+  tech_note TEXT, added_by_version INTEGER NOT NULL DEFAULT 1, removed INTEGER NOT NULL DEFAULT 0, row_version INTEGER NOT NULL DEFAULT 1, outside_contract INTEGER NOT NULL DEFAULT 0, amendment_id INTEGER);
 CREATE TABLE IF NOT EXISTS project_line_recipe (
   id INTEGER PRIMARY KEY, project_line_id INTEGER NOT NULL REFERENCES project_lines(id) ON DELETE CASCADE,
   product_id INTEGER NOT NULL REFERENCES products(id), norm_per_unit REAL NOT NULL, waste_pct REAL NOT NULL DEFAULT 0,
@@ -118,12 +118,14 @@ CREATE TABLE IF NOT EXISTS amendments (
   id INTEGER PRIMARY KEY, code TEXT NOT NULL UNIQUE, project_id INTEGER NOT NULL REFERENCES projects(id), kind TEXT NOT NULL,
   title TEXT NOT NULL, description TEXT, changes TEXT NOT NULL DEFAULT '{}', schedule_shift_days INTEGER NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'pending', approval_id INTEGER, created_by INTEGER REFERENCES users(id),
-  created_at TEXT NOT NULL DEFAULT (datetime('now')), decided_at TEXT);
+  created_at TEXT NOT NULL DEFAULT (datetime('now')), decided_at TEXT,
+  amount REAL, unit_price REAL, schedule_item_id INTEGER, first_approved_by INTEGER REFERENCES users(id), decided_by INTEGER REFERENCES users(id), decision_note TEXT);
 
 CREATE TABLE IF NOT EXISTS schedule_items (
   id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL REFERENCES projects(id), project_line_id INTEGER REFERENCES project_lines(id),
   name TEXT NOT NULL, sort INTEGER NOT NULL DEFAULT 0, baseline_start TEXT, baseline_end TEXT, start_date TEXT, end_date TEXT,
-  depends_on INTEGER REFERENCES schedule_items(id), crew TEXT, row_version INTEGER NOT NULL DEFAULT 1);
+  depends_on INTEGER REFERENCES schedule_items(id), crew TEXT, row_version INTEGER NOT NULL DEFAULT 1,
+  unit TEXT, qty REAL, note TEXT, materials TEXT, outside_contract INTEGER NOT NULL DEFAULT 0, amendment_id INTEGER);
 CREATE TABLE IF NOT EXISTS progress_entries (
   id INTEGER PRIMARY KEY, uid TEXT NOT NULL UNIQUE, project_id INTEGER NOT NULL REFERENCES projects(id),
   project_line_id INTEGER NOT NULL REFERENCES project_lines(id), work_date TEXT NOT NULL, qty REAL NOT NULL, note TEXT,
@@ -151,7 +153,7 @@ CREATE TABLE IF NOT EXISTS material_requests (
 CREATE TABLE IF NOT EXISTS request_items (
   id INTEGER PRIMARY KEY, request_id INTEGER NOT NULL REFERENCES material_requests(id) ON DELETE CASCADE,
   product_id INTEGER NOT NULL REFERENCES products(id), qty REAL NOT NULL, reserved_qty REAL NOT NULL DEFAULT 0,
-  to_purchase_qty REAL NOT NULL DEFAULT 0, project_line_id INTEGER REFERENCES project_lines(id));
+  to_purchase_qty REAL NOT NULL DEFAULT 0, project_line_id INTEGER REFERENCES project_lines(id), outside_contract INTEGER NOT NULL DEFAULT 0, reason TEXT);
 CREATE TABLE IF NOT EXISTS stock_movements (
   id INTEGER PRIMARY KEY, uid TEXT NOT NULL UNIQUE, product_id INTEGER NOT NULL REFERENCES products(id), kind TEXT NOT NULL,
   qty REAL NOT NULL, project_id INTEGER REFERENCES projects(id), to_project_id INTEGER REFERENCES projects(id),
@@ -173,7 +175,7 @@ CREATE TABLE IF NOT EXISTS delivery_items (id INTEGER PRIMARY KEY, delivery_id I
 CREATE TABLE IF NOT EXISTS proformas (
   id INTEGER PRIMARY KEY, code TEXT NOT NULL UNIQUE, project_id INTEGER NOT NULL REFERENCES projects(id), kind TEXT NOT NULL DEFAULT 'advance',
   amount REAL NOT NULL, vat_pct REAL NOT NULL, issued_on TEXT NOT NULL, due_on TEXT, status TEXT NOT NULL DEFAULT 'issued', note TEXT,
-  created_by INTEGER REFERENCES users(id), row_version INTEGER NOT NULL DEFAULT 1);
+  created_by INTEGER REFERENCES users(id), row_version INTEGER NOT NULL DEFAULT 1, amendment_id INTEGER);
 CREATE TABLE IF NOT EXISTS transactions (
   id INTEGER PRIMARY KEY, code TEXT NOT NULL UNIQUE, uid TEXT NOT NULL UNIQUE, project_id INTEGER REFERENCES projects(id),
   direction TEXT NOT NULL CHECK (direction IN ('in','out')), category TEXT NOT NULL, amount REAL NOT NULL CHECK (amount > 0),

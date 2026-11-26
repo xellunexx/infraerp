@@ -8,6 +8,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { api, fmtDate, fmtMoney, fmtNum } from '../api';
 import { Card, Field, Link, Loader, Modal, Status, Tabs, navigate, useAction, useAuth, useCan, useCurrency, useLoad } from '../ui';
 import { LabourTab } from './LabourTab';
+import { MaterialsEditor, cleanMats } from './Materials';
 import { labourCalc, DEFAULT_LABOUR } from '../../../server/labour.js';
 
 type Line = Record<string, any>;
@@ -373,7 +374,7 @@ export function OfferEditor({ id }: { id: number }) {
     .filter((a: any) => a.per_unit != null && labourRes?.day_rate != null && a.unit)
     .map((a: any) => ({ a, n: lines.filter(l => l.unit === a.unit && !filled(l.install_cost) && !filled(l.labour_days)).length }))
     .filter((x: any) => x.n > 0);
-  const payload = () => ({ ...head, labour_calc: labour, row_version: o.row_version, sections, lines: lines.map(l => ({ ...l, section: l.section || null })) });
+  const payload = () => ({ ...head, labour_calc: labour, row_version: o.row_version, sections, lines: lines.map(l => ({ ...l, section: l.section || null, materials: cleanMats(l.materials || []) })) });
   const save = () => run(async () => { const d = await api.put(`/offers/${id}`, payload()); offer.setData(d); setDirty(false); }, 'Офертата е записана');
   const act = (name: string, body: any = {}, ok?: string) => run(async () => { if (dirty && editable) await api.put(`/offers/${id}`, payload()); await api.post(`/offers/${id}/${name}`, body); await offer.reload(); setViewVersion(null); }, ok);
   const issues = lines.map((l, i) => ({ i, sec: sections.find(s => s.key === l.section)?.title || '', issues: lineIssues(l, calcLine(l)) })).filter(x => x.issues.length);
@@ -400,8 +401,16 @@ export function OfferEditor({ id }: { id: number }) {
     {o.status === 'confirmed' && <div className="alert ok">Офертата е потвърдена (версия {o.confirmed_version}) и е търговската база на обект {o.project_code || '(създава се…)'}. Промени се правят с анекс към договора.</div>}
     {viewVersion != null && viewVersion !== o.current_version && <div className="alert">Преглеждате стара версия v{viewVersion}. <a onClick={() => setViewVersion(null)}>Към текущата</a></div>}
 
-    <Tabs tabs={[['lines', 'Оферта'], ['replica', 'Excel реплика'], ['labour', 'Труд'], ['head', 'Бележки и логика'], ['versions', `Версии (${o.versions.length})`]]} value={tab} onChange={setTab} />
+    <Tabs tabs={[['lines', 'Оферта'], ['replica', 'Excel реплика'], ['materials', `Материали (${lines.filter(l => (l.materials || []).length).length}/${lines.length})`], ['labour', 'Труд'], ['head', 'Бележки и логика'], ['versions', `Версии (${o.versions.length})`]]} value={tab} onChange={setTab} />
 
+    {tab === 'materials' && <Card title="Материали и консумативи по редове" actions={<span className="muted small">Стават рецепта на реда в КС при потвърждаване · складът, заявките и бригадирът четат оттук</span>}>
+      {lines.length === 0 ? <div className="empty">Няма редове в офертата.</div> : groups.map(g => {
+        const rows = lines.map((l, i) => ({ l, i })).filter(x => (x.l.section || '') === g.key);
+        if (!rows.length) return null;
+        return <div key={g.key || 'loose'}>{g.section ? <h3 style={{ margin: '12px 0 6px' }}>{g.section.title}</h3> : null}
+          {rows.map(({ l, i }) => <div key={i} className="mat-line"><div style={{ marginBottom: 6 }}><b>{i + 1}. {l.description || '—'}</b> <span className="muted small">{fmtNum(l.qty)} {l.unit}</span></div>
+            <MaterialsEditor items={l.materials || []} onChange={m => setL(i, 'materials', m)} products={products.data || []} qty={Number(l.qty) || 0} unit={l.unit} editable={editable} smrTypeId={l.smr_type_id} /></div>)}</div>;
+      })}</Card>}
     {tab === 'labour' && (editable ? <LabourTab labour={labour} setLabour={l => { setLabour(l); touch(); }} onApply={applyLabour} />
       : <Card title="Труд">{version.labour_calc ? <LabourTab labour={version.labour_calc} setLabour={() => {}} onApply={() => {}} /> : <div className="empty">Няма калкулация за труд.</div>}</Card>)}
 

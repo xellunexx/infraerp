@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-11-26 — Batch 4: materials and the linear schedule (20, 21, 23, 24, 25, 26, 29, 30, 31, 38)
+- **24 Materials per offer line.** The offer has a new „Материали" tab: product from the catalogue, norm per unit, waste %, note, or taken from the СМР recipe. On confirmation the materials become the КС line's recipe (`project_line_recipe`). That is the one place the quantity statement, material requests, warehouse and brigadier read from.
+- **21, 23 КС tab.** Each line is shown as in the offer (picture, instruction), with quantities and the needed materials. Technical or Contracts can adjust a line's materials with a reason (audited; warehouse, logistics and brigadier are told). The brigadier's plan lists instructions and materials. The 4 existing projects get their materials this way („✎ материали").
+- **29, 30 Material requests.**
+  - The server marks items outside the project's КС; they need a reason and the Manager's approval.
+  - Nobody approves their own request.
+  - The request dialog adds catalogue items outside the КС.
+  - The suggested quantity is contract − issued − pending.
+- **Delivery = one fact:** a delivered delivery linked to an approved request issues it to the site.
+- **38 Built-in quantity** = daily reports × norm (no extra writes; a voided report takes it back) unless an actual consumption is recorded. Material built in but never issued reads „не е заредено N".
+- **31 Warehouse:** project filter for requests, reservations and movements.
+- **20 Linear schedule** in the company's layout: № | activity | unit | qty | man-days (qty × offer labour per unit) | days | start | end | people per day, plus a day grid with people per day. Shown in Technical, the project card and the brigadier's plan; the КС tab links to it.
+- **26 Work outside the contract:**
+  - „+ дейност извън договора" asks for unit, qty, price for the client, note and materials, and opens an annex.
+  - Approval: up to 500 € two different people from Offers/Contracts sign; above that, the Manager.
+  - Approved: a new КС line marked „извън договора", a new contract version and a proforma to Accounting. Its value is left out of the payment-plan gap.
+  - Rejected: the activity leaves the schedule.
+  - The contract tab has an „Анекси" card.
+- Checked in a browser on a local copy: offer materials tab, КС with materials, Gantt, annex approval (contract v2), request dialog. Two defects found there were fixed (false gap in the payment plan; overshooting request quantity).
+- Tests: `offer_materials`, `materials_flow`, `extra_work`; the `scope` fixture now gives a reason for a material outside the КС. Full suite 154/154.
+
 ## 2026-11-26 — Batch 2: the "Slack" core (28, 33, 39)
 - **No silent events.** An event with no handler of its own notifies the departments it names as affected, with a sentence and a link to the record (`core.notifyAffected`). This covers 12 event kinds that reached nobody before: contract sent, stage, document version, proformas, supplier orders, ledger rows, stock moves, accommodation, change requests and others.
 - **Reassignment.** A change of technician or brigadier tells the new person and the one replaced.

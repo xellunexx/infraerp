@@ -1,6 +1,8 @@
 // Техник: работно място (обекти, задачи, проблеми) и екран на обект — график, прогрес, материали.
 import React, { useState } from 'react';
 import { api, fmtDate, fmtMoney, fmtNum, today } from '../api';
+import { Gantt } from '../Gantt';
+import { MaterialsEditor, cleanMats, type Mat } from './Materials';
 import { Card, LineSelect, Empty, Field, Link, Loader, Modal, Progress, Status, Table, Tabs, navigate, useAction, useCan, useCurrency, useForm, useLoad, useToast, useLinkTab, useFocus } from '../ui';
 
 const SEV: Record<string, [string, string]> = { low: ['Нисък', ''], medium: ['Среден', 'warn'], high: ['Висок', 'bad'], critical: ['Критичен', 'bad'] };
@@ -89,7 +91,9 @@ function ScheduleTab({ pid, sched, onChanged }: { pid: number; sched: ReturnType
   const writable = can('technical', 'write');
   const [edit, setEdit] = useState<any>(null);
   const [add, setAdd] = useState(false);
-  const ef = useForm<any>({ name: '', start_date: '', end_date: '', depends_on: '', crew: '', project_line_id: '' });
+  const ef = useForm<any>({ name: '', start_date: '', end_date: '', depends_on: '', crew: '', project_line_id: '', outside: false, unit: '', qty: '', unit_price: '', note: '' });
+  const [mats, setMats] = useState<Mat[]>([]);
+  const products = useLoad<any[]>(add ? '/products' : null, [add]);
   const items: any[] = sched.data?.items || [];
   const deadline: string | null = sched.data?.deadline || null;
   const dated = items.flatMap(s => [s.baseline_start, s.baseline_end, s.start_date, s.end_date]).filter(Boolean) as string[];
@@ -103,13 +107,14 @@ function ScheduleTab({ pid, sched, onChanged }: { pid: number; sched: ReturnType
   const w = (a: string, b: string) => pos(new Date(Date.parse(b) + DAY).toISOString().slice(0, 10)) - pos(a);
 
   const openEdit = (s: any) => { ef.setV({ name: s.name, start_date: s.start_date || '', end_date: s.end_date || '', depends_on: s.depends_on || '', crew: s.crew || '', project_line_id: s.project_line_id || '' }); setEdit(s); };
-  const openAdd = () => { ef.setV({ name: '', start_date: '', end_date: '', depends_on: '', crew: '', project_line_id: '' }); setAdd(true); };
+  const openAdd = () => { ef.setV({ name: '', start_date: '', end_date: '', depends_on: '', crew: '', project_line_id: '', outside: false, unit: '', qty: '', unit_price: '', note: '' }); setMats([]); setAdd(true); };
   const saveEdit = () => run(async () => {
     await api.patch(`/schedule-items/${edit.id}`, { ...ef.v, depends_on: ef.v.depends_on === '' ? null : Number(ef.v.depends_on), crew: ef.v.crew || null, row_version: edit.row_version });
     setEdit(null); onChanged();
   }, 'Графикът е записан');
   const saveAdd = () => run(async () => {
-    await api.post(`/projects/${pid}/schedule`, { name: ef.v.name, start_date: ef.v.start_date || null, end_date: ef.v.end_date || null, depends_on: ef.v.depends_on === '' ? null : Number(ef.v.depends_on), crew: ef.v.crew || null, project_line_id: ef.v.project_line_id === '' ? null : Number(ef.v.project_line_id) });
+    await api.post(`/projects/${pid}/schedule`, { name: ef.v.name, start_date: ef.v.start_date || null, end_date: ef.v.end_date || null, depends_on: ef.v.depends_on === '' ? null : Number(ef.v.depends_on), crew: ef.v.crew || null,
+      note: ef.v.note || null, materials: cleanMats(mats), ...(ef.v.outside ? { outside_contract: true, unit: ef.v.unit, qty: Number(ef.v.qty), unit_price: Number(ef.v.unit_price) } : { project_line_id: ef.v.project_line_id === '' ? null : Number(ef.v.project_line_id) }) });
     setAdd(false); onChanged();
   }, 'Дейността е добавена');
 
@@ -118,40 +123,21 @@ function ScheduleTab({ pid, sched, onChanged }: { pid: number; sched: ReturnType
       <span className="small muted">пунктирано = първоначален план · <span style={{ color: 'var(--bad)' }}>┆</span> договорен край · <span style={{ color: 'var(--accent)' }}>┆</span> днес</span>
       {writable && <button className="sm" onClick={openAdd}>+ Дейност</button>}
     </>}>
-      {items.length === 0 ? <Empty title="Няма дейности по графика">Графикът се изгражда автоматично при подписване на договора от планираните дни на СМР редовете.</Empty> :
-        <div className="table-wrap"><table className="t"><thead><tr>
-          <th style={{ width: 30 }}>№</th><th>Дейност</th><th>План</th><th>Текущ срок</th><th>Екип</th><th style={{ width: 130 }}>Изпълнение</th><th className="gantt-wrap">Хронология</th>{writable && <th style={{ width: 40 }}></th>}
-        </tr></thead><tbody>
-          {items.map((s, i) => {
-            const cls = s.late_days > 0 ? 'late' : s.behind ? 'behind' : '';
-            return <tr key={s.id}>
-              <td className="muted">{i + 1}</td>
-              <td>{s.name}
-                {s.late_days > 0 && <div className="small"><span className="badge bad">закъснение {s.late_days} дн.</span></div>}
-                {s.late_days === 0 && s.behind && <div className="small"><span className="badge warn">изостава от плана</span></div>}
-                {s.slip_days > 0 && <div className="small muted">изместване +{s.slip_days} дн.</div>}
-              </td>
-              <td className="small nowrap muted">{fmtDate(s.baseline_start)} — {fmtDate(s.baseline_end)}</td>
-              <td className="small nowrap">{fmtDate(s.start_date)} — {fmtDate(s.end_date)}</td>
-              <td className="small">{s.crew || '—'}</td>
-              <td>{s.pct != null ? <div className="row" style={{ flexWrap: 'nowrap' }}><Progress pct={s.pct} tone={cls === 'late' ? 'bad' : cls === 'behind' ? 'warn' : undefined} /><span className="small num" style={{ width: 40 }}>{s.pct}%</span></div> : <span className="muted">—</span>}</td>
-              <td className="gantt-wrap"><div className="gtrack">
-                {s.baseline_start && s.baseline_end && <div className="gbar base" style={{ left: pos(s.baseline_start) + '%', width: w(s.baseline_start, s.baseline_end) + '%' }} />}
-                {s.start_date && s.end_date && <div className={'gbar cur ' + cls} style={{ left: pos(s.start_date) + '%', width: w(s.start_date, s.end_date) + '%' }}><i style={{ width: (s.pct ?? 0) + '%' }} /></div>}
-                {!s.start_date && <span className="faint small">без дати</span>}
-                {deadline && <div className="gmark deadline" style={{ left: pos(deadline) + '%' }} />}
-                <div className="gmark today" style={{ left: pos(t) + '%' }} />
-              </div></td>
-              {writable && <td><button className="ghost sm" onClick={() => openEdit(s)}>✎</button></td>}
-            </tr>;
-          })}
-        </tbody></table></div>}
+      {items.length === 0 ? <Empty title="Няма дейности по графика">Графикът се изгражда автоматично при подписване на договора от планираните дни на СМР редовете.</Empty> : <Gantt items={items} deadline={deadline} onEdit={writable ? openEdit : undefined} />}
     </Card>
     {(edit || add) && <Modal title={edit ? 'Дейност по графика' : 'Нова дейност'} onClose={() => { setEdit(null); setAdd(false); }} footer={
       <><button className="ghost" onClick={() => { setEdit(null); setAdd(false); }}>Отказ</button><button className="primary" onClick={edit ? saveEdit : saveAdd}>Запази</button></>}>
       <div className="form c2">
         <Field label="Дейност" full><input {...ef.bind('name')} required /></Field>
-        {add && <Field label="Ред от КС (по желание)" full><LineSelect lines={sched.data?.lines || []} value={ef.v.project_line_id} onChange={v => ef.set('project_line_id', v)} empty="—" /></Field>}
+        {add && <Field label="Вид" full><label className="row"><input type="checkbox" checked={!!ef.v.outside} onChange={e => ef.set('outside', e.target.checked)} /> Извън договора — иска анекс (до 500 € двама от Оферти/Договори, над 500 € Управител)</label></Field>}
+        {add && !ef.v.outside && <Field label="Ред от КС (по желание)" full><LineSelect lines={sched.data?.lines || []} value={ef.v.project_line_id} onChange={v => ef.set('project_line_id', v)} empty="—" /></Field>}
+        {add && ef.v.outside && <>
+          <Field label="Мярка"><input {...ef.bind('unit')} placeholder="м, м², бр." /></Field>
+          <Field label="Количество"><input type="number" min="0" step="any" {...ef.bind('qty')} /></Field>
+          <Field label="Ед. цена за клиента, € без ДДС"><input type="number" min="0" step="any" {...ef.bind('unit_price')} /></Field>
+          <Field label="Стойност"><input disabled value={Number(ef.v.qty) && Number(ef.v.unit_price) ? (Number(ef.v.qty) * Number(ef.v.unit_price)).toFixed(2) + ' €' : '—'} /></Field></>}
+        {add && <Field label="Бележка" full><textarea rows={2} {...ef.bind('note')} /></Field>}
+        {add && <Field label="Нужни материали" full><MaterialsEditor items={mats} onChange={setMats} products={products.data || []} qty={Number(ef.v.qty) || 0} unit={ef.v.unit || 'ед.'} editable /></Field>}
         <Field label="Начало"><input type="date" {...ef.bind('start_date')} /></Field>
         <Field label="Край"><input type="date" {...ef.bind('end_date')} /></Field>
         <Field label="Зависи от"><select {...ef.bind('depends_on')}><option value="">—</option>{items.filter(x => x.id !== edit?.id).map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select></Field>
@@ -220,8 +206,8 @@ function MaterialsTab({ pid, cons }: { pid: number; cons: ReturnType<typeof useL
         { key: 'code', title: 'Код', width: 90 }, { key: 'name', title: 'Материал' }, { key: 'unit', title: 'Мярка', width: 60 },
         { key: 'required', title: 'По договор', num: true, render: (r: any) => fmtNum(r.required) },
         { key: 'expected', title: 'По извършено', num: true, render: (r: any) => fmtNum(r.expected) },
-        { key: 'consumed', title: 'Изразходено', num: true, render: (r: any) => fmtNum(r.consumed) },
-        { key: 'on_site', title: 'На обекта', num: true, render: (r: any) => fmtNum(r.on_site) },
+        { key: 'consumed', title: 'Вградено', num: true, render: (r: any) => <>{fmtNum(r.consumed)}{r.basis === 'norm' && r.consumed ? <div className="small muted">по норма от отчетите</div> : null}</> },
+        { key: 'on_site', title: 'На обекта', num: true, render: (r: any) => r.on_site < 0 ? <span className="badge warn" title="Отчетено е вложено повече, отколкото е заредено на обекта">не е заредено {fmtNum(-r.on_site)}</span> : fmtNum(r.on_site) },
         { key: 'variance', title: 'Отклонение', num: true, render: (r: any) => <span className={r.variance > 0 ? 'badge bad' : ''}>{fmtNum(r.variance)}</span> },
         { key: 'flag', title: '', render: (r: any) => r.over ? <span className="badge bad">Наднормен</span> : r.unplanned ? <span className="badge warn">Непланиран</span> : null },
       ]} />
@@ -240,16 +226,22 @@ function TechRequestModal({ pid, rows, onClose, onDone }: { pid: number; rows: a
   const pendingQty: Record<number, number> = {};
   for (const m of (pending.data || [])) if (['submitted', 'approved'].includes(m.status))
     for (const i of (m.items || [])) pendingQty[i.product_id] = (pendingQty[i.product_id] || 0) + i.qty;
-  const deficit = (r: any) => Math.max(0, (r.required || 0) - (r.on_site || 0) - (pendingQty[r.product_id] || 0));
+  // what is still to be brought: contract quantity − already issued to the site − pending requests (built-in material was issued too, so it is not subtracted twice)
+  const deficit = (r: any) => Math.max(0, (r.required || 0) - (r.issued || 0) - (pendingQty[r.product_id] || 0));
   const [qty, setQty] = useState<Record<number, string> | null>(null);
   const effQty = qty ?? Object.fromEntries(rows.map(r => [r.product_id, deficit(r) || '']));
   const [sel, setSel] = useState<Record<number, boolean>>({});
   const [neededBy, setNeededBy] = useState('');
   const [note, setNote] = useState('');
-  const items = rows.filter(r => sel[r.product_id] !== false && Number(effQty[r.product_id]) > 0)
-    .map(r => ({ product_id: r.product_id, qty: Number(effQty[r.product_id]) }));
+  // materials not in the КС of this project: chosen from the catalogue, each with a reason; the Manager approves them
+  const products = useLoad<any[]>('/products');
+  const [extra, setExtra] = useState<{ product_id: string; qty: string; reason: string }[]>([]);
+  const items = [...rows.filter(r => sel[r.product_id] !== false && Number(effQty[r.product_id]) > 0)
+    .map(r => ({ product_id: r.product_id, qty: Number(effQty[r.product_id]), ...(r.required ? {} : { reason: note || 'по заявка от обекта' }) })),
+    ...extra.filter(x => x.product_id && Number(x.qty) > 0).map(x => ({ product_id: Number(x.product_id), qty: Number(x.qty), reason: x.reason }))];
+  const extraMissingReason = extra.some(x => x.product_id && Number(x.qty) > 0 && !x.reason.trim());
   return <Modal wide title="Заявка за материали към склад" onClose={onClose}
-    footer={<><button onClick={onClose}>Отказ</button><button className="primary" disabled={busy || !items.length}
+    footer={<><button onClick={onClose}>Отказ</button><button className="primary" disabled={busy || !items.length || extraMissingReason}
       onClick={() => run(async () => {
         await api.post(`/projects/${pid}/material-requests`, { items, needed_by: neededBy || null, note: note || null });
         onDone();
@@ -258,15 +250,24 @@ function TechRequestModal({ pid, rows, onClose, onDone }: { pid: number; rows: a
       <Field label="Нужни до"><input type="date" value={neededBy} onChange={e => setNeededBy(e.target.value)} /></Field>
       <Field label="Бележка" full><input value={note} onChange={e => setNote(e.target.value)} /></Field>
     </div>
-    <table className="t"><thead><tr><th></th><th>Материал</th><th>По договор</th><th>На обекта</th><th>Вече заявено</th><th>Заявено</th></tr></thead><tbody>
+    <table className="t"><thead><tr><th></th><th>Материал</th><th>По договор</th><th>Заредено</th><th>Вече заявено</th><th>Заявено</th></tr></thead><tbody>
       {rows.map(r => <tr key={r.product_id} style={{ opacity: sel[r.product_id] === false ? 0.45 : 1 }}>
         <td><input type="checkbox" checked={sel[r.product_id] !== false} onChange={e => setSel(s => ({ ...s, [r.product_id]: e.target.checked }))} /></td>
         <td>{r.code} — {r.name} ({r.unit})</td>
-        <td className="num">{fmtNum(r.required)}</td><td className="num">{fmtNum(r.on_site)}</td>
+        <td className="num">{fmtNum(r.required)}</td><td className="num">{fmtNum(r.issued)}</td>
         <td className="num">{pendingQty[r.product_id] ? fmtNum(pendingQty[r.product_id]) : '—'}</td>
         <td><input type="number" step="any" style={{ width: 100 }} value={effQty[r.product_id] ?? ''} onChange={e => setQty(q => ({ ...(q ?? effQty), [r.product_id]: e.target.value }))} /></td></tr>)}
-      {!rows.length && <tr><td colSpan={6} className="muted">Няма материали по този обект.</td></tr>}
+      {!rows.length && <tr><td colSpan={6} className="muted">Няма материали по КС на този обект — задайте ги в КС (✎ материали) или добавете извън КС по-долу.</td></tr>}
     </tbody></table>
+    <h4 style={{ margin: '12px 0 4px' }}>Допълнителни материали (извън КС)</h4>
+    <div className="muted small" style={{ marginBottom: 6 }}>Всеки ред иска причина. Заявка с материали извън КС се одобрява от Управител.</div>
+    {extra.map((x, i) => <div key={i} className="row" style={{ marginBottom: 6, flexWrap: 'nowrap' }}>
+      <select value={x.product_id} onChange={e => setExtra(a => a.map((y, j) => j === i ? { ...y, product_id: e.target.value } : y))} style={{ flex: 2 }}><option value="">— материал от номенклатурата —</option>
+        {(products.data || []).filter(p => p.active !== 0).map(p => <option key={p.id} value={p.id}>{p.code ? p.code + ' · ' : ''}{p.name} ({p.unit})</option>)}</select>
+      <input type="number" min="0" step="any" placeholder="кол." style={{ width: 90 }} value={x.qty} onChange={e => setExtra(a => a.map((y, j) => j === i ? { ...y, qty: e.target.value } : y))} />
+      <input placeholder="причина (задължително)" style={{ flex: 2 }} value={x.reason} onChange={e => setExtra(a => a.map((y, j) => j === i ? { ...y, reason: e.target.value } : y))} />
+      <button className="ghost sm danger" onClick={() => setExtra(a => a.filter((_, j) => j !== i))}>✕</button></div>)}
+    <button className="sm" onClick={() => setExtra(a => [...a, { product_id: '', qty: '', reason: '' }])}>+ материал извън КС</button>
     <div className="muted small" style={{ marginTop: 6 }}>„Вече заявено“ е сумата по висящи заявки за този обект — приспада се от предложеното количество. Заявката отива в опашката на склада с белег „от техническия отдел“.</div>
   </Modal>;
 }

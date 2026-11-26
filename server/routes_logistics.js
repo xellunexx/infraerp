@@ -2,6 +2,7 @@
 import { tx, nextCode } from './db.js';
 import { HttpError, bad, need, canSeeProject, hideForeignProject, audit, updateRow, emit, notify, on } from './core.js';
 import { withLinks } from './links.js';
+import { fulfilRequest } from './routes_warehouse.js';
 import { h, pick, num, reqStr } from './app.js';
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -166,6 +167,11 @@ export default function mountLogistics(app, db) {
     updateRow(db, 'deliveries', d.id, f, b.row_version);
     audit(db, req.user, { project_id: d.project_id, entity_type: 'delivery', entity_id: d.id, action: f.status ? 'status' : 'update',
       before: pick(d, Object.keys(f).filter(k => k !== 'status')), after: f, module: 'logistics' });
+    // the delivery is the physical move: an approved request linked to it is issued to the site now (one fact, not two)
+    if (f.status === 'delivered' && d.request_id) {
+      const m = db.prepare('SELECT status FROM material_requests WHERE id = ?').get(d.request_id);
+      if (m?.status === 'approved') fulfilRequest(db, req.user, d.request_id);
+    }
     if (f.status === 'delivered')
       emit(db, req.user, { type: 'delivery.delivered', origin: 'logistics', project_id: d.project_id, entity_type: 'delivery', entity_id: d.id,
         dedupe_key: `delivery.delivered:${d.id}`, prev: { status: d.status }, next: { status: 'delivered' }, affected: ['brigadier', 'technical', 'logistics'] });

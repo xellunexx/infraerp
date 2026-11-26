@@ -4,6 +4,8 @@ import { api, fmtDate, fmtDateTime, fmtMoney, fmtNum } from '../api';
 import { WeatherCard } from './Weather';
 import { MILESTONE, PaymentForm, milestoneChoices } from './PaymentForm';
 import { deliveryCols } from './Logistics';
+import { Gantt } from '../Gantt';
+import { MaterialsEditor, cleanMats, type Mat } from './Materials';
 import { Card, DeptBadge, Empty, Field, Kpi, Link, Loader, Modal, NewVersionButton, Progress, Status, Table, Tabs, navigate, useAction, useCan, useCurrency, useForm, useLoad, useMessages, usePath, VersionLinks, useFocus } from '../ui';
 
 const PLANNED = ['Технически спецификации', 'Склад'];
@@ -69,6 +71,7 @@ function ContractTab({ pid, onChange }: { pid: number; onChange: () => void }) {
     <ContractTimeline d={d} />
     <PaymentsCard pid={pid} d={d} cur={cur} write={write} busy={busy} onSaved={async () => { await c.reload(); onChange(); }} />
     <ContractFiles pid={pid} contract={d} docs={docs} write={write} />
+    <AmendmentsCard pid={pid} onChange={() => { c.reload(); onChange(); }} />
     <Card title={`Приложения${d.active_version ? ` към версия ${d.active_version}` : ' (проект)'}`} actions={d.versions?.length ? <span className="row small">История: {d.versions.map((r: any) =>
       <button key={r.id} className="ghost sm" title={`${r.reason || ''} · ${fmtDateTime(r.created_at)}`} onClick={async () => setVer(await api.get(`/contract-versions/${r.id}`))}>v{r.version}</button>)}</span> : undefined}>
       {d.appendices.map((a: any) => <details key={a.id} style={{ marginBottom: 8 }} open={a.number === 3}><summary><b>{a.title}</b></summary><div className="pre mono" style={{ padding: '8px 0 0 14px' }}>{a.body}</div></details>)}
@@ -297,13 +300,7 @@ export function ProjectCard({ id }: { id: number }) {
 
     {tab === 'finance' && <FinanceTab pid={id} />}
 
-    {tab === 'lines' && <Card title="Количествено-стойностна сметка (КС) — договорни количества" pad={false}>
-      <Table rows={d.lines} empty={<Empty title="Няма редове" />} cols={[{ key: 'sort', title: '№', width: 40 },
-        { key: 'img', title: '', width: 56, render: (r: any) => r.image_version_id ? <a href={`/api/documents/${r.image_version_id}/file`} target="_blank" rel="noreferrer" title="Техническа спецификация / снимка"><img src={`/api/documents/${r.image_version_id}/file`} alt="" style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 6, display: 'block' }} /></a> : null },
-        { key: 'description', title: 'Описание на СМР' }, { key: 'unit', title: 'Мярка' },
-        { key: 'qty', title: 'Договорено', num: true, render: (r: any) => fmtNum(r.qty, 3) }, { key: 'done_qty', title: 'Изпълнено', num: true, render: (r: any) => <>{fmtNum(r.done_qty, 3)}{r.qty > 0 && r.done_qty > r.qty ? <div><span className="badge bad">над договора +{fmtNum(r.done_qty - r.qty, 3)}</span></div> : null}</> },
-        { key: 'pct', title: '%', num: true, render: (r: any) => r.qty ? fmtNum(Math.min(100, r.done_qty / r.qty * 100), 0) + '%' : '—' },
-]} /></Card>}
+    {tab === 'lines' && <LinesTab d={d} onSaved={() => p.reload()} />}
 
     {tab === 'timeline' && <Card title="Хронология на обекта"><Loader state={timeline}>{(timeline.data || []).length === 0 ? <Empty title="Няма събития" /> : <ul className="timeline">{(timeline.data || []).map(e => <li key={e.id}>
       <div className="muted small">{fmtDateTime(e.ts)}</div>
@@ -434,12 +431,8 @@ function ScheduleTab({ sched, pid }: { sched: any; pid: number }) {
   const items: any[] = sched.data?.items || [];
   return <Loader state={sched}>
     <Card title={`Линеен график${sched.data?.deadline ? ` · краен срок ${fmtDate(sched.data.deadline)}` : ''}`} pad={false} actions={<Link to={`/technical/${pid}`}>Редактирай в Технически →</Link>}>
-      <Table rows={items} empty={<Empty title="Няма график">Линейният график се поддържа в Техническия модул.</Empty>} cols={[
-        { key: 'name', title: 'Дейност' },
-        { key: 'period', title: 'Период', render: (r: any) => r.start_date ? `${fmtDate(r.start_date)} → ${fmtDate(r.end_date)}` : '—' },
-        { key: 'pct', title: 'Изпълнение', width: 110, render: (r: any) => r.pct != null ? <div className="row" style={{ flexWrap: 'nowrap' }}><Progress pct={r.pct} /><span className="small num" style={{ width: 38 }}>{r.pct}%</span></div> : '—' },
-        { key: 'st', title: 'Статус', render: (r: any) => r.behind ? <span className="badge bad">изостава</span> : (r.late_days || 0) > 0 ? <span className="badge bad">къснее {r.late_days} дн.</span> : r.pct === 100 ? <span className="badge ok">готово</span> : <span className="badge">в срок</span> },
-      ]} /></Card></Loader>;
+      {items.length ? <Gantt items={items} deadline={sched.data?.deadline} /> : <Empty title="Няма график">Линейният график се поддържа в Техническия модул.</Empty>}
+    </Card></Loader>;
 }
 
 function ProgressTab({ prog, pid }: { prog: any; pid: number }) {
@@ -537,4 +530,61 @@ function MessagesTab({ msgs, pid, write, onSent }: { msgs: any; pid: number; wri
       {write && <div className="row"><input {...f.bind('body')} placeholder="Съобщение…" style={{ flex: 1 }} onKeyDown={e => { if (e.key === 'Enter') send(); }} />
         <button className="primary" disabled={!f.v.body.trim()} onClick={send}>Изпрати</button></div>}
     </Card></Loader>;
+}
+
+/** КС: every line as in the offer (picture, description, instruction), its quantities and the materials it needs (т.21, 23). */
+function LinesTab({ d, onSaved }: { d: any; onSaved: () => void }) {
+  const can = useCan();
+  const write = can('technical', 'write') || can('contracts', 'write');
+  const [edit, setEdit] = useState<any>(null);
+  return <Card title="Количествено-стойностна сметка (КС) — договорни количества и материали" pad={false} actions={<a onClick={() => navigate(`/projects/${d.id}?tab=schedule`)}>Линеен график →</a>}>
+    <Table rows={d.lines} empty={<Empty title="Няма редове" />} cols={[{ key: 'sort', title: '№', width: 40 },
+      { key: 'img', title: '', width: 56, render: (r: any) => r.image_version_id ? <a href={`/api/documents/${r.image_version_id}/file`} target="_blank" rel="noreferrer" title="Снимка / спецификация от офертата"><img src={`/api/documents/${r.image_version_id}/file`} alt="" style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 6, display: 'block' }} /></a> : null },
+      { key: 'description', title: 'Ред от офертата', render: (r: any) => <><b>{r.code ? r.code + ' · ' : ''}{r.description}</b>{r.tech_note ? <div className="small muted" style={{ whiteSpace: 'pre-wrap' }}>{r.tech_note}</div> : null}</> },
+      { key: 'qty', title: 'Договорено', num: true, render: (r: any) => <>{fmtNum(r.qty, 3)} {r.unit}</> },
+      { key: 'done_qty', title: 'Изпълнено', num: true, render: (r: any) => <>{fmtNum(r.done_qty, 3)}{r.qty > 0 && r.done_qty > r.qty ? <div><span className="badge bad">над договора +{fmtNum(r.done_qty - r.qty, 3)}</span></div> : null}</> },
+      { key: 'pct', title: '%', num: true, render: (r: any) => r.qty ? fmtNum(Math.min(100, r.done_qty / r.qty * 100), 0) + '%' : '—' },
+      { key: 'materials', title: 'Нужни материали и консумативи', render: (r: any) => <>{(r.materials || []).length ? <ul className="small" style={{ margin: 0, paddingLeft: 16 }}>{r.materials.map((m: any) =>
+        <li key={m.product_id}>{m.name}: <b>{fmtNum(r.qty * m.norm_per_unit * (1 + (m.waste_pct || 0) / 100), 3)} {m.unit}</b> <span className="muted">({fmtNum(m.norm_per_unit, 3)}/{r.unit}{m.waste_pct ? ` + ${fmtNum(m.waste_pct)}%` : ''}{m.note ? ` · ${m.note}` : ''})</span></li>)}</ul>
+        : <span className="muted small">не са зададени</span>}
+        {write && <div><button className="ghost sm" onClick={() => setEdit(r)}>✎ материали</button></div>}</> },
+    ]} />
+    {edit && <LineMaterialsModal line={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); onSaved(); }} />}
+  </Card>;
+}
+function LineMaterialsModal({ line, onClose, onSaved }: { line: any; onClose: () => void; onSaved: () => void }) {
+  const products = useLoad<any[]>('/products');
+  const [items, setItems] = useState<Mat[]>(line.materials || []);
+  const [reason, setReason] = useState('');
+  const { run, busy } = useAction();
+  return <Modal wide title={`Материали — ${line.description}`} onClose={onClose} footer={<><button onClick={onClose}>Отказ</button>
+    <button className="primary" disabled={busy || !reason.trim()} onClick={() => run(async () => { await api.put(`/project-lines/${line.id}/materials`, { items: cleanMats(items), reason }); onSaved(); }, 'Материалите са записани')}>Запази</button></>}>
+    <div className="muted small" style={{ marginBottom: 8 }}>Договорено {fmtNum(line.qty, 3)} {line.unit}. Промяната се вижда веднага в склада, заявките, количествената сметка и при бригадира.</div>
+    <MaterialsEditor items={items} onChange={setItems} products={products.data || []} qty={Number(line.qty) || 0} unit={line.unit} editable smrTypeId={line.smr_type_id} />
+    <div className="form" style={{ marginTop: 10 }}><Field label="Причина за промяната (задължително)" full><input value={reason} onChange={e => setReason(e.target.value)} placeholder="напр. замерване на място, друга дебелина" /></Field></div>
+  </Modal>;
+}
+
+/** т.26: annexes for work outside the contract — who asked, the value, the approvals, and the decision buttons for whoever may decide. */
+function AmendmentsCard({ pid, onChange }: { pid: number; onChange: () => void }) {
+  const list = useLoad<any[]>(`/projects/${pid}/amendments`);
+  const can = useCan(), cur = useCurrency();
+  const { run, busy } = useAction();
+  const focus = useFocus();
+  const mayDecide = can('approvals', 'approve') || can('contracts', 'write') || can('offers', 'write');
+  const act = (a: any, action: string) => { const note = action === 'reject' ? window.prompt('Причина за отказа:') : null; if (action === 'reject' && note == null) return;
+    run(async () => { const r = await api.post(`/amendments/${a.id}/${action}`, { note }); await list.reload(); onChange(); return r; },
+      action === 'reject' ? 'Анексът е отказан' : 'Подписът е записан'); };
+  const rows = list.data || [];
+  if (!rows.length) return null;
+  return <Card title="Анекси — работа извън договора" pad={false}><Table focus={focus} rows={rows} cols={[
+    { key: 'code', title: '№', width: 90 },
+    { key: 'title', title: 'Дейност', render: (a: any) => <><b>{a.title}</b><div className="small muted">{fmtNum(a.changes.qty, 3)} {a.changes.unit} × {fmtMoney(a.unit_price)} · заявил {a.created_by_name}</div>{a.description ? <div className="small">{a.description}</div> : null}</> },
+    { key: 'amount', title: `Стойност, ${cur}`, num: true, render: (a: any) => fmtMoney(a.amount) },
+    { key: 'who', title: 'Одобрява', render: (a: any) => <span className="small">{a.amount > a.limit ? 'Управител' : 'двама от Оферти/Договори'}{a.first_approved_by_name ? <div className="muted">1-ви подпис: {a.first_approved_by_name}</div> : null}</span> },
+    { key: 'status', title: 'Статус', render: (a: any) => <>{a.status === 'pending' ? <span className="badge warn">чака</span> : a.status === 'approved' ? <span className="badge ok">одобрен</span> : <span className="badge bad">отказан</span>}
+      {a.decided_by_name ? <div className="small muted">{a.decided_by_name}{a.decision_note ? `: ${a.decision_note}` : ''}</div> : null}</> },
+    { key: 'x', title: '', width: 170, render: (a: any) => a.status === 'pending' && mayDecide ? <span className="row" style={{ flexWrap: 'nowrap' }}>
+      <button className="sm primary" disabled={busy} onClick={() => act(a, 'approve')}>Одобри</button><button className="sm ghost" disabled={busy} onClick={() => act(a, 'reject')}>Откажи</button></span> : null },
+  ]} /></Card>;
 }

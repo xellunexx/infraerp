@@ -1,7 +1,7 @@
 // Къде живее всеки вид запис: известията и опашките водят до самия запис (страница + таб + ред), не до началото на модула.
 // Едно място за всички — нов вид запис се добавя тук, а не във всеки обработчик поотделно.
 const ACCOUNTING = { payment_request: 'requests', proforma: 'proformas', supplier_order: 'orders', accommodation: 'accommodations', transaction: 'transactions' };
-const PROJECT_TAB = { document: 'docs', contract: 'contract', message: 'messages', task: 'tasks', issue: 'tasks', stage: 'overview', project: 'overview' };
+const PROJECT_TAB = { document: 'docs', contract: 'contract', message: 'messages', task: 'tasks', issue: 'tasks', stage: 'overview', project: 'overview', amendment: 'contract' };
 const TECHNICAL_TAB = { schedule_item: 'schedule', progress_entry: 'progress', project_line: 'progress' };
 const BRIGADE_TAB = { document: 'docs', message: 'messages', issue: 'issues', schedule_item: 'plan', progress_entry: 'progress', project: 'plan', task: 'plan' };
 
@@ -17,7 +17,7 @@ export function recordLink(type, id, projectId, department = null) {
   if (type === 'delivery' && projectId != null) return `/logistics?tab=deliveries&pid=${projectId}${f}`;
   if (type === 'asset_allocation' && projectId != null) return `/logistics?tab=assets&pid=${projectId}${f}`;
   if (TECHNICAL_TAB[type] && projectId != null) return `/technical/${projectId}?tab=${TECHNICAL_TAB[type]}${f}`;
-  if (PROJECT_TAB[type] && projectId != null) return `/projects/${projectId}?tab=${PROJECT_TAB[type]}${type === 'task' || type === 'issue' ? f : ''}`;
+  if (PROJECT_TAB[type] && projectId != null) return `/projects/${projectId}?tab=${PROJECT_TAB[type]}${['task', 'issue', 'amendment'].includes(type) ? f : ''}`;
   return null;
 }
 

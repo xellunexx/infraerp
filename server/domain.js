@@ -4,6 +4,7 @@ import { on, emit, notify, audit, reindex, bad, HttpError, setting } from './cor
 import { progressSummary, round2, consumption, scheduleStatus } from './calc.js';
 import { validUntil } from './pricing.js';
 import { splitSchedule, grossOf } from './payments.js';
+import { parseMaterials } from './materials.js';
 
 /** Lines that count towards the offer: no section, a normal section, or (once confirmed) the chosen alternative. */
 export const COUNTED_LINES = `FROM offer_lines l LEFT JOIN offer_sections s ON s.id = l.section_id WHERE l.version_id = ? AND (s.id IS NULL OR s.alternative = 0 OR s.selected = 1)`;
@@ -212,6 +213,8 @@ on('offer.confirmed', 'init_project_card', (db, ev) => {
     const lid = Number(insLine.run(pid, l.sort, l.id, l.smr_type_id, l.product_id, l.code, l.description, l.unit, l.qty, round2(l.unit_price * factor), l.unit_cost, l.tech_note).lastInsertRowid);
     if (l.smr_type_id) for (const r of db.prepare('SELECT * FROM recipe_items WHERE smr_type_id = ?').all(l.smr_type_id)) insRec.run(lid, r.product_id, r.norm_per_unit, r.waste_pct);
     else if (l.product_id) insRec.run(lid, l.product_id, 1, 0);
+    for (const m of parseMaterials(l.materials)) db.prepare(`INSERT INTO project_line_recipe(project_line_id, product_id, norm_per_unit, waste_pct, adjustment_note) VALUES (?,?,?,?,?)
+      ON CONFLICT(project_line_id, product_id) DO UPDATE SET norm_per_unit = excluded.norm_per_unit, waste_pct = excluded.waste_pct, adjustment_note = excluded.adjustment_note`).run(lid, m.product_id, m.norm_per_unit, m.waste_pct || 0, m.note || null);
     // the linear schedule covers every work line: catalogue СМР rows AND free-text work; pure product lines are procurement, not site work
     if (!l.product_id) { sched.run(pid, lid, l.description, l.sort, String(l.planned_days || 1)); cursor += l.planned_days || 1; } // crew column holds planned days until dates exist
     n++;
