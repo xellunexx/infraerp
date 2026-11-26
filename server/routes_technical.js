@@ -2,7 +2,7 @@
 import crypto from 'node:crypto';
 import { tx, nextCode } from './db.js';
 import { HttpError, bad, need, can, needProject, canSeeProject, audit, updateRow, emit, setting } from './core.js';
-import { progressSummary, consumption, scheduleStatus } from './calc.js';
+import { progressSummary, consumption, scheduleStatus, projectLines } from './calc.js';
 import { h, pick, num, reqStr } from './app.js';
 import { setStage } from './domain.js';
 
@@ -99,7 +99,8 @@ export default function mountTechnical(app, db) {
     needP(req);
     const pid = Number(req.params.pid);
     return { items: scheduleStatus(db, pid), deadline: db.prepare('SELECT install_deadline FROM contracts WHERE project_id = ?').get(pid)?.install_deadline || null,
-      lines: db.prepare('SELECT id, code, description, unit, qty FROM project_lines WHERE project_id = ? AND removed = 0 ORDER BY sort, id').all(pid) };
+      // one reading of the КС lines (calc.projectLines): what the picker and the brigadier's instructions show; no prices
+      lines: projectLines(db, pid).map(l => ({ id: l.id, code: l.code, description: l.description, unit: l.unit, qty: l.qty, done_qty: l.done_qty, tech_note: l.tech_note, image_version_id: l.image_version_id })) };
   }));
   app.post('/api/projects/:pid/schedule', h(req => tx(db, () => {
     needP(req, 'technical', 'write');

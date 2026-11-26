@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { api, fmtDate, fmtMoney, today } from '../api';
 import { ConfirmTab, PaymentForm, orderChoices, useQueue } from './PaymentForm';
-import { Card, Empty, Field, Loader, Modal, Status, Table, Tabs, useAction, useCan, useCurrency, useForm, useLoad, usePath } from '../ui';
+import { Card, LineSelect, Empty, Field, Loader, Modal, Status, Table, Tabs, useAction, useCan, useCurrency, useForm, useLoad, usePath } from '../ui';
 
 const KIND: Record<string, string> = { advance: 'Аванс', interim: 'Междинна', final: 'Окончателна', other: 'Друга' };
 const DIR: Record<string, [string, string]> = { in: ['Приход', 'ok'], out: ['Разход', ''] };
@@ -489,8 +489,7 @@ function OrderForm({ projects, pid, row, onClose, onDone }: { projects: any[]; p
   return <Modal title={edit ? `Поръчка ${row.code}` : 'Нова поръчка към доставчик'} onClose={onClose} footer={<><button className="ghost" onClick={onClose}>Отказ</button><button className="primary" disabled={busy || !f.v.supplier.trim() || !f.v.project_id} onClick={save}>Запази</button></>}>
     <div className="form c2">
       <ProjSelect projects={projects} value={f.v.project_id} onChange={v => { f.set('project_id', v); f.set('project_line_id', ''); }} />
-      <Field label="Позиция от КС"><select value={f.v.project_line_id} onChange={e => f.set('project_line_id', e.target.value)}><option value="">— не е вързана —</option>
-        {(proj.data?.lines || []).map((l: any) => <option key={l.id} value={l.id}>{l.description}</option>)}</select></Field>
+      <Field label="Позиция от КС"><LineSelect lines={proj.data?.lines || []} value={f.v.project_line_id} onChange={v => f.set('project_line_id', v)} empty="— не е вързана —" /></Field>
       <Field label="Доставчик"><input {...f.bind('supplier')} required /></Field>
       <Field label="Поръчка / проформа №"><input {...f.bind('order_doc_no')} /></Field>
       <Field label="Обща стойност"><input type="number" min="0" step="any" {...f.bind('total_eur')} /></Field>

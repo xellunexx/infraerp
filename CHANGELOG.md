@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-11-26 — Batch 1 of the 45-point review (audit: docs/AUDIT-SLACK-2026-11-26.md)
+- **Dashboard (1, 2, 3):** the four KPI cards are gone. „В изпълнение", „Предстоящи" and „В договаряне" show their count and open the full list (`/projects?stage=…`). The projects list has stage tabs. One `stageOf` rule serves both.
+- **Project card:**
+  - 13: contract versions are a small „История" list on the appendices card.
+  - 15: „Срок на договора".
+  - 22: no unit price or value in КС.
+  - 44: the contract value card is for Accounting, Logistics and Management only.
+  - The КС picture read the document id as a version id; it now shows the latest version.
+- **27 One КС line picker (`LineSelect`):** the list shows code, description and quantities. The chosen line is shown in full (done/left, instruction, picture). Used for progress, new activity and supplier orders.
+- **Brigadier instructions** were always empty; the schedule now reads lines through `calc.projectLines` (instruction and done quantity, no prices).
+- **Project card links** open `/technical/<project>`.
+- **41 Timeline and audit** read as sentences in Bulgarian, with a „Поле: старо → ново" list (`server/human.js`, one place for all names).
+- **40 Files for the brigadier:** checkboxes and „Изпрати на бригадира" in the project's files (office only, audited). The brigadier is notified and the link opens the new „Документи" tab, where all files are listed with the office's first.
+- Answers recorded: 12 is waiting; delivery items may be free text; out-of-contract work up to 500 € is approved two-factor by Offers/Contracts, above that by the Manager; the brigadier sees everything; anyone may set urgency; batch order 1 → 2 → 4 → 3 → 6 → 5 → 7.
+- Tests: `stages`, `contract_value_card`, `schedule_lines`, `human`, `brigade_docs`. Full suite 144/144.
+
 ## 2026-11-26 — Review fixes, by cause (to-do points 16, 9, 6, 36+35, 18, 8)
 - **16 Notifications open the record itself.** `server/links.js` is one map of where each kind of record lives (payment request → Счетоводство / Заявки за плащане, proforma, order, accommodation, document, contract, message). It is applied when notifications and the management queue are read, so old notifications open the right place too. Accounting and the project card follow `?tab=` even when already open; `Table focus` marks the row.
 - **9 A file uploaded again is never a second document.** Identical bytes in the same place (project + contract/appendix link) are refused with the title and version they already have. A changed file with the same name becomes the next version. The version route refuses bytes the document already has.

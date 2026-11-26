@@ -6,13 +6,6 @@ import { MILESTONE, PaymentForm, milestoneChoices } from './PaymentForm';
 import { deliveryCols } from './Logistics';
 import { Card, DeptBadge, Empty, Field, Kpi, Link, Loader, Modal, NewVersionButton, Progress, Status, Table, Tabs, navigate, useAction, useCan, useCurrency, useForm, useLoad, useMessages, usePath, VersionLinks } from '../ui';
 
-const EVENT_LABEL: Record<string, string> = { 'offer.confirmed': 'Потвърдена оферта', 'contract.submitted': 'Договор изпратен за одобрение', 'contract.signed': 'Подписан договор',
-  'project.assigned': 'Определен отговорник', 'stage.changed': 'Промяна на етап', 'request.created': 'Заявка за материали', 'progress.recorded': 'Отчетено изпълнение',
-  'amendment.approved': 'Одобрен анекс', 'delivery.changed': 'Промяна по доставка', 'issue.reported': 'Докладван проблем',
-  'contract.payment_recorded': 'Плащане по договора', 'project.reopen_requested': 'Заявка за връщане', 'project.reopened': 'Обектът е върнат в изпълнение',
-  'project.reopen_decided': 'Решение по връщане', 'supplier_order.created': 'Нова поръчка към доставчик', 'supplier_order.payment': 'Плащане по поръчка',
-  'material_request.submitted': 'Заявка за материали', 'material_request.approved': 'Одобрена заявка', 'material_request.fulfilled': 'Изпълнена заявка',
-  'material_request.cancelled': 'Отменена заявка', 'warehouse.transfer': 'Пренос на материали', 'warehouse.movement': 'Складово движение' };
 const PLANNED = ['Технически спецификации', 'Склад'];
 
 // Етапите на договора са огледало на домейн факти — сървърът отказва ръчни отметки по тях.
@@ -76,12 +69,10 @@ function ContractTab({ pid, onChange }: { pid: number; onChange: () => void }) {
     <ContractTimeline d={d} />
     <PaymentsCard pid={pid} d={d} cur={cur} write={write} busy={busy} onSaved={async () => { await c.reload(); onChange(); }} />
     <ContractFiles pid={pid} contract={d} docs={docs} write={write} />
-    <Card title={`Приложения${d.active_version ? ` към версия ${d.active_version}` : ' (проект)'}`}>
+    <Card title={`Приложения${d.active_version ? ` към версия ${d.active_version}` : ' (проект)'}`} actions={d.versions?.length ? <span className="row small">История: {d.versions.map((r: any) =>
+      <button key={r.id} className="ghost sm" title={`${r.reason || ''} · ${fmtDateTime(r.created_at)}`} onClick={async () => setVer(await api.get(`/contract-versions/${r.id}`))}>v{r.version}</button>)}</span> : undefined}>
       {d.appendices.map((a: any) => <details key={a.id} style={{ marginBottom: 8 }} open={a.number === 3}><summary><b>{a.title}</b></summary><div className="pre mono" style={{ padding: '8px 0 0 14px' }}>{a.body}</div></details>)}
     </Card>
-    <Card title="Версии на договора" pad={false}><Table rows={d.versions} onRow={async r => setVer(await api.get(`/contract-versions/${r.id}`))} empty={<Empty title="Още няма одобрена версия">Версия 1 се създава при одобрение на договора.</Empty>} cols={[
-      { key: 'version', title: 'Версия', render: r => 'v' + r.version }, { key: 'reason', title: 'Основание' }, { key: 'total_value', title: `Стойност, ${cur}`, num: true, render: r => fmtMoney(r.total_value) },
-      { key: 'approved_by_name', title: 'Одобрил' }, { key: 'created_at', title: 'Дата', render: r => fmtDateTime(r.created_at) }]} /></Card>
     {ver && <Modal wide title={`Договор ${d.code} — версия ${ver.version}`} onClose={() => setVer(null)}>
       <p className="muted">{ver.reason} · {fmtDateTime(ver.created_at)} · неизменяем запис</p>
       <Table rows={ver.snapshot.lines} cols={[{ key: 'description', title: 'Описание' }, { key: 'unit', title: 'Мярка' }, { key: 'qty', title: 'Количество', num: true, render: (r: any) => fmtNum(r.qty, 3) },
@@ -268,8 +259,8 @@ export function ProjectCard({ id }: { id: number }) {
     {d.archived ? <div className="alert bad">Обектът е архивиран — показан е архивният запис, не активна работа.{write ? ' „Възстанови от архив“ го връща в списъка.' : ''}</div> : null}
     <div className="grid g4 kpis-m" style={{ marginBottom: 14 }}>
       <Kpi label="Изпълнение" value={d.progress_pct + '%'} sub={<Progress pct={d.progress_pct} />} />
-      {money ? <Kpi label={`Договорна стойност без ДДС, ${cur}`} value={fmtMoney(d.finance.contract_value)} sub={`себестойност ${fmtMoney(d.finance.cost_price)}`} /> : <Kpi label="Договор" value={d.contract ? d.contract.code : '—'} sub={d.contract && <Status value={d.contract.status} />} />}
-      <Kpi label="Планирано изпълнение" value={d.planned_start ? `${fmtDate(d.planned_start)} – ${fmtDate(d.planned_end)}` : 'няма срокове'} sub={d.contract?.delivery_deadline ? `доставка до ${fmtDate(d.contract.delivery_deadline)}` : 'сроковете се активират при подписан договор'} />
+      {d.contract_value_card ? <Kpi label={`Договорна стойност без ДДС, ${cur}`} value={fmtMoney(d.contract_value_card.value)} sub={d.contract_value_card.cost_price != null ? `себестойност ${fmtMoney(d.contract_value_card.cost_price)}` : undefined} /> : <Kpi label="Договор" value={d.contract ? d.contract.code : '—'} sub={d.contract && <Status value={d.contract.status} />} />}
+      <Kpi label="Срок на договора" value={d.planned_start ? `${fmtDate(d.planned_start)} – ${fmtDate(d.planned_end)}` : 'няма срокове'} sub={d.contract?.delivery_deadline ? `доставка до ${fmtDate(d.contract.delivery_deadline)}` : 'сроковете се активират при подписан договор'} />
       <Kpi label="Отговорници" value={<span style={{ fontSize: 14 }}>{d.technical_name || 'няма Техник'} / {d.brigadier_name || 'няма Бригадир'}</span>} tone={!d.technical_id || !d.brigadier_id ? 'warn' : undefined} sub="Техник / Бригадир" />
     </div>
     {failed > 0 && <div className="alert bad">Има {failed} неуспешно обработени събития по този обект. Виж „Настройки → Синхронизация“.</div>}
@@ -292,7 +283,7 @@ export function ProjectCard({ id }: { id: number }) {
           <Field label="Бригадир"><select disabled={!write || busy} value={d.brigadier_id || ''} onChange={e => patch({ brigadier_id: e.target.value ? Number(e.target.value) : null }, 'Записано')}><option value="">— не е определен —</option>
             {(users.data || []).filter(u => u.active && u.role === 'brigadier').map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}</select></Field></div></Card>
         <Card title="Последни събития" pad={false} actions={<a onClick={() => setTab('timeline')}>Цялата хронология</a>}><Table rows={(timeline.data || []).slice(0, 6)} empty={<Empty title="Няма събития" />} cols={[
-          { key: 'ts', title: 'Кога', render: r => fmtDateTime(r.ts), width: 120 }, { key: 'type', title: 'Събитие', render: r => EVENT_LABEL[r.type] || r.type }, { key: 'status', title: '', render: r => <Status value={r.status} /> }]} /></Card>
+          { key: 'ts', title: 'Кога', render: r => fmtDateTime(r.ts), width: 120 }, { key: 'type', title: 'Събитие', render: r => r.label || r.type }, { key: 'status', title: '', render: r => <Status value={r.status} /> }]} /></Card>
       </div></div>}
 
     {tab === 'customer' && <div className="grid g2">
@@ -308,26 +299,22 @@ export function ProjectCard({ id }: { id: number }) {
 
     {tab === 'lines' && <Card title="Количествено-стойностна сметка (КС) — договорни количества" pad={false}>
       <Table rows={d.lines} empty={<Empty title="Няма редове" />} cols={[{ key: 'sort', title: '№', width: 40 },
-        { key: 'img', title: '', width: 56, render: (r: any) => r.image_document_id ? <a href={`/api/documents/${r.image_document_id}/file`} target="_blank" rel="noreferrer" title="Техническа спецификация / снимка"><img src={`/api/documents/${r.image_document_id}/file`} alt="" style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 6, display: 'block' }} /></a> : null },
+        { key: 'img', title: '', width: 56, render: (r: any) => r.image_version_id ? <a href={`/api/documents/${r.image_version_id}/file`} target="_blank" rel="noreferrer" title="Техническа спецификация / снимка"><img src={`/api/documents/${r.image_version_id}/file`} alt="" style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 6, display: 'block' }} /></a> : null },
         { key: 'description', title: 'Описание на СМР' }, { key: 'unit', title: 'Мярка' },
         { key: 'qty', title: 'Договорено', num: true, render: (r: any) => fmtNum(r.qty, 3) }, { key: 'done_qty', title: 'Изпълнено', num: true, render: (r: any) => <>{fmtNum(r.done_qty, 3)}{r.qty > 0 && r.done_qty > r.qty ? <div><span className="badge bad">над договора +{fmtNum(r.done_qty - r.qty, 3)}</span></div> : null}</> },
         { key: 'pct', title: '%', num: true, render: (r: any) => r.qty ? fmtNum(Math.min(100, r.done_qty / r.qty * 100), 0) + '%' : '—' },
-        ...(money ? [{ key: 'unit_price', title: 'Ед. цена', num: true, render: (r: any) => fmtMoney(r.unit_price) }, { key: 'tot', title: `Стойност, ${cur}`, num: true, render: (r: any) => fmtMoney(r.qty * r.unit_price) }] : [])]}
-        foot={money ? <tr><td colSpan={8}>Общо без ДДС (версия {d.baseline_version ?? 'проект'})</td><td className="num">{fmtMoney(d.finance.contract_value)}</td></tr> : undefined} /></Card>}
+]} /></Card>}
 
     {tab === 'timeline' && <Card title="Хронология на обекта"><Loader state={timeline}>{(timeline.data || []).length === 0 ? <Empty title="Няма събития" /> : <ul className="timeline">{(timeline.data || []).map(e => <li key={e.id}>
-      <div className="muted small">{fmtDateTime(e.ts)}<br />{e.user_name || 'система'}</div>
-      <div><b>{EVENT_LABEL[e.type] || e.type}</b> <DeptBadge code={e.origin_module} /> <Status value={e.status} /> {e.approval_status && <span className="badge warn">одобрение: {e.approval_status}</span>}
-        <div className="muted small">засегнати: {JSON.parse(e.affected_modules || '[]').join(', ') || '—'}</div>
-        {e.new_value && <div className="mono small pre faint">{e.prev_value ? e.prev_value + ' → ' : ''}{e.new_value}</div>}{e.last_error && <div className="badge bad">{e.last_error}</div>}</div></li>)}</ul>}</Loader></Card>}
-
+      <div className="muted small">{fmtDateTime(e.ts)}</div>
+      <div><b>{e.sentence}</b> <DeptBadge code={e.origin_module} />{e.approval_status === 'pending' && <span className="badge warn">чака одобрение</span>}{e.status === 'failed' && <span className="badge bad">не е обработено</span>}
+        {(e.changes || []).length ? <ul className="small changes">{e.changes.map((c: string, i: number) => <li key={i}>{c}</li>)}</ul> : null}</div></li>)}</ul>}</Loader></Card>}
     {tab === 'audit' && <Card title="Одитна следа" pad={false}><Loader state={audit}><Table rows={audit.data || []} empty={<Empty title="Няма записи" />} cols={[
-      { key: 'ts', title: 'Кога', render: r => fmtDateTime(r.ts), width: 130 }, { key: 'user_name', title: 'Кой', render: r => r.user_name || 'система' }, { key: 'module', title: 'Модул' },
-      { key: 'entity_type', title: 'Обект на промяната', render: r => `${r.entity_type}${r.entity_id ? ' #' + r.entity_id : ''}` }, { key: 'action', title: 'Действие' },
-      { key: 'before', title: 'Преди', render: r => <span className="mono small">{r.before}</span> }, { key: 'after', title: 'След', render: r => <span className="mono small">{r.after}</span> }]} /></Loader></Card>}
+      { key: 'ts', title: 'Кога', render: r => fmtDateTime(r.ts), width: 130 },
+      { key: 'sentence', title: 'Какво', render: r => <><b>{r.sentence}</b>{(r.changes || []).length ? <ul className="small changes">{r.changes.map((c: string, i: number) => <li key={i}>{c}</li>)}</ul> : null}</> }]} /></Loader></Card>}
 
-    {tab === 'schedule' && <ScheduleTab sched={sched} />}
-    {tab === 'progress' && <ProgressTab prog={prog} />}
+    {tab === 'schedule' && <ScheduleTab sched={sched} pid={id} />}
+    {tab === 'progress' && <ProgressTab prog={prog} pid={id} />}
     {tab === 'logistics' && <LogisticsTab logi={logi} pid={id} />}
     {tab === 'tasks' && <TasksTab tasks={tasks} pid={id} />}
     {tab === 'docs' && <DocsTab docs={docs} pid={id} write={can('documents', 'write')} />}
@@ -443,10 +430,10 @@ const TSK_ST: Record<string, string> = { open: 'Отворена', done: 'Зав
 const PRI: Record<string, string> = { low: 'нисък', normal: 'нормален', high: 'висок', urgent: 'спешен' };
 const ISSUE_KIND: Record<string, string> = { problem: 'Проблем', delay: 'Закъснение', material_shortage: 'Липса на материал', damage: 'Повреда', additional_work: 'Допълнителна работа', other: 'Друго' };
 
-function ScheduleTab({ sched }: { sched: any }) {
+function ScheduleTab({ sched, pid }: { sched: any; pid: number }) {
   const items: any[] = sched.data?.items || [];
   return <Loader state={sched}>
-    <Card title={`Линеен график${sched.data?.deadline ? ` · краен срок ${fmtDate(sched.data.deadline)}` : ''}`} pad={false} actions={<Link to="/technical">Редактирай в Технически →</Link>}>
+    <Card title={`Линеен график${sched.data?.deadline ? ` · краен срок ${fmtDate(sched.data.deadline)}` : ''}`} pad={false} actions={<Link to={`/technical/${pid}`}>Редактирай в Технически →</Link>}>
       <Table rows={items} empty={<Empty title="Няма график">Линейният график се поддържа в Техническия модул.</Empty>} cols={[
         { key: 'name', title: 'Дейност' },
         { key: 'period', title: 'Период', render: (r: any) => r.start_date ? `${fmtDate(r.start_date)} → ${fmtDate(r.end_date)}` : '—' },
@@ -455,7 +442,7 @@ function ScheduleTab({ sched }: { sched: any }) {
       ]} /></Card></Loader>;
 }
 
-function ProgressTab({ prog }: { prog: any }) {
+function ProgressTab({ prog, pid }: { prog: any; pid: number }) {
   const lines: any[] = prog.data?.lines || [];
   const entries: any[] = prog.data?.entries || [];
   return <Loader state={prog}>
@@ -465,7 +452,7 @@ function ProgressTab({ prog }: { prog: any }) {
       { key: 'done_qty', title: 'Извършено', num: true, render: (r: any) => <>{fmtNum(r.done_qty)}{r.qty > 0 && r.done_qty > r.qty ? <div><span className="badge bad">над договора +{fmtNum(r.done_qty - r.qty, 3)}</span></div> : null}</> },
       { key: 'pct', title: '%', width: 130, render: (r: any) => r.pct != null ? <div className="row" style={{ flexWrap: 'nowrap' }}><Progress pct={r.pct} /><span className="small num" style={{ width: 40 }}>{r.pct}%</span></div> : '—' },
     ]} /></Card>
-    <Card title="Дневни отчети" pad={false} actions={<Link to="/technical">Въведи отчет →</Link>}><Table rows={entries} empty={<Empty title="Няма отчети" />} cols={[
+    <Card title="Дневни отчети" pad={false} actions={<Link to={`/technical/${pid}`}>Въведи отчет →</Link>}><Table rows={entries} empty={<Empty title="Няма отчети" />} cols={[
       { key: 'work_date', title: 'Дата', render: (r: any) => fmtDate(r.work_date) }, { key: 'line_description', title: 'Ред' },
       { key: 'qty', title: 'Кол-во', num: true, render: (r: any) => <span className={r.voided ? 'muted' : ''} style={r.voided ? { textDecoration: 'line-through' } : {}}>{fmtNum(r.qty)} {r.unit}</span> },
       { key: 'note', title: 'Бележка' }, { key: 'reported_by_name', title: 'От' },
@@ -489,7 +476,7 @@ function LogisticsTab({ logi, pid }: { logi: any; pid: number }) {
 function TasksTab({ tasks, pid }: { tasks: any; pid: number }) {
   const d = tasks.data;
   return <Loader state={tasks}>
-    <Card title="Задачи" pad={false} actions={<Link to="/technical">В Технически →</Link>}><Table rows={d?.tasks || []} empty={<Empty title="Няма задачи" />} cols={[
+    <Card title="Задачи" pad={false} actions={<Link to={`/technical/${pid}`}>В Технически →</Link>}><Table rows={d?.tasks || []} empty={<Empty title="Няма задачи" />} cols={[
       { key: 'code', title: '№', width: 90 }, { key: 'title', title: 'Задача' },
       { key: 'assignee_name', title: 'Отговорник', render: (r: any) => r.assignee_name || r.assignee_dept || '—' },
       { key: 'due_date', title: 'Срок', render: (r: any) => fmtDate(r.due_date) },
@@ -508,8 +495,17 @@ function TasksTab({ tasks, pid }: { tasks: any; pid: number }) {
 function DocsTab({ docs, pid, write: docsWrite }: { docs: any; pid: number; write?: boolean }) {
   const rows: any[] = docs.data || [];
   const latest = (d: any) => d.versions?.[d.versions.length - 1];
+  const [sel, setSel] = useState<Record<number, boolean>>({});
+  const { run, busy } = useAction();
+  const ids = Object.keys(sel).filter(k => sel[Number(k)]).map(Number);
+  const send = (share: boolean) => run(async () => { await api.post(`/projects/${pid}/documents/brigade`, { ids, share }); setSel({}); docs.reload(); },
+    share ? 'Файловете са изпратени на бригадира' : 'Файловете вече не са отбелязани за бригадира');
   return <Loader state={docs}>
-    <Card title="Файлове на обекта" pad={false} actions={<Link to={`/brigade/${pid}`}>Качи в Бригадир →</Link>}><Table rows={rows} empty={<Empty title="Няма файлове" />} cols={[
+    <Card title="Файлове на обекта" pad={false} actions={docsWrite ? <span className="row">
+      <button className="primary sm" disabled={busy || !ids.length} onClick={() => send(true)}>Изпрати на бригадира{ids.length ? ` (${ids.length})` : ''}</button>
+      <button className="ghost sm" disabled={busy || !ids.length} onClick={() => send(false)}>Спри за бригадира</button></span> : undefined}><Table rows={rows} empty={<Empty title="Няма файлове" />} cols={[
+      ...(docsWrite ? [{ key: 'sel', title: '', width: 32, render: (r: any) => <input type="checkbox" checked={!!sel[r.id]} onChange={e => setSel(x => ({ ...x, [r.id]: e.target.checked }))} /> }] : []),
+      { key: 'shared_with_brigade', title: 'Бригадир', width: 90, render: (r: any) => r.shared_with_brigade ? <span className="badge ok" title={r.shared_at ? `от ${fmtDateTime(r.shared_at)}` : ''}>изпратен</span> : <span className="muted small">—</span> },
       { key: 'title', title: 'Файл', render: (r: any) => { const v = latest(r); return <>{r.title}<div className="small muted">{v?.filename} · {v ? Math.round(v.size / 1024) + ' KB' : ''} · {fmtDateTime(v?.created_at)}{r.entity_type ? ` · към ${r.entity_type} #${r.entity_id}` : ''}</div></> } },
       { key: 'category', title: 'Вид', render: (r: any) => ({ photo: 'Снимка', document: 'Документ', act: 'Акт', contract: 'Договор', appendix: 'Приложение', other: 'Друго' } as any)[r.category] || r.category },
       { key: 'versions', title: 'Версии', render: (r: any) => <VersionLinks doc={r} /> },

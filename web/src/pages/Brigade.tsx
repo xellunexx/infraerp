@@ -1,7 +1,7 @@
 // Бригадир: терен интерфейс — моите обекти, дневен план, прогрес, присъствие, проблеми, снимки, съобщения.
 import React, { useRef, useState } from 'react';
 import { api, fmtDate, fmtDateTime, fmtNum, today } from '../api';
-import { Card, Empty, Field, Link, Loader, Modal, NewVersionButton, Progress, Status, Table, Tabs, useAction, useAuth, useCan, useForm, useLoad, useMessages, usePath, useToast, VersionLinks } from '../ui';
+import { Card, LineSelect, Empty, Field, Link, Loader, Modal, NewVersionButton, Progress, Status, Table, Tabs, useAction, useAuth, useCan, useForm, useLoad, useMessages, usePath, useToast, VersionLinks } from '../ui';
 
 const KIND: Record<string, string> = { problem: 'Проблем', delay: 'Закъснение', material_shortage: 'Липса на материал', damage: 'Повреда', additional_work: 'Допълнителна работа', other: 'Друго' };
 const SEV: Record<string, string> = { low: 'Нисък', medium: 'Среден', high: 'Висок', critical: 'Критичен' };
@@ -46,14 +46,16 @@ export function Brigade() {
 
 export function BrigadeProject({ id }: { id: number }) {
   const path = usePath();
-  const [tab, setTab] = useState('plan');
+  const tabOf = () => new URLSearchParams(path.split('?')[1] || '').get('tab') || 'plan';
+  const [tab, setTab] = useState(tabOf());
+  React.useEffect(() => { setTab(tabOf()); }, [path]);
   const proj = useLoad<any>(`/projects/${id}`);
   const sched = useLoad<any>(tab === 'plan' ? `/projects/${id}/schedule` : null);
   const logi = useLoad<any>(tab === 'plan' ? `/projects/${id}/logistics` : null);
   const prog = useLoad<any>(tab === 'progress' ? `/projects/${id}/progress` : null);
   const att = useLoad<any>(tab === 'attendance' ? `/projects/${id}/attendance` : null);
   const issues = useLoad<any[]>(tab === 'issues' ? `/issues?project_id=${id}` : null);
-  const docs = useLoad<any[]>(tab === 'photos' ? `/projects/${id}/documents` : null);
+  const docs = useLoad<any[]>(tab === 'photos' || tab === 'docs' ? `/projects/${id}/documents` : null);
   const msgs = useLoad<any[]>(tab === 'messages' ? `/projects/${id}/messages` : null);
   const p = proj.data;
   const reloadAll = () => { proj.reload(); sched.reload(); prog.reload(); att.reload(); issues.reload(); docs.reload(); msgs.reload(); };
@@ -66,7 +68,8 @@ export function BrigadeProject({ id }: { id: number }) {
       <Link className="btn sm ghost" to="/brigade">← Бригадир</Link></div>
     <Loader state={proj}>
       {p && <div className="small muted" style={{ marginBottom: 10 }}>{p.customer?.name} · {p.site_address || '—'}{p.contract?.install_deadline ? ` · монтаж до ${fmtDate(p.contract.install_deadline)}` : ''}</div>}
-      <Tabs value={tab} onChange={setTab} tabs={[['plan', 'План'], ['progress', 'Прогрес'], ['attendance', 'Присъствие'], ['issues', 'Проблеми'], ['photos', 'Снимки'], ['messages', 'Съобщения']]} />
+      <Tabs value={tab} onChange={setTab} tabs={[['plan', 'План'], ['progress', 'Прогрес'], ['attendance', 'Присъствие'], ['issues', 'Проблеми'], ['docs', 'Документи'], ['photos', 'Снимки'], ['messages', 'Съобщения']]} />
+      {tab === 'docs' && <DocsFromOffice docs={docs} />}
       {tab === 'plan' && <PlanTab sched={sched} logi={logi} />}
       {tab === 'progress' && <ProgressTab pid={id} prog={prog} write={write} onChanged={reloadAll} />}
       {tab === 'attendance' && <AttendanceTab pid={id} att={att} write={write} onChanged={reloadAll} />}
@@ -121,10 +124,7 @@ function ProgressTab({ pid, prog, write, onChanged }: { pid: number; prog: any; 
   };
   return <Loader state={prog}>
     {write && <Card title="Запис на извършено"><div className="form c3">
-      <Field label="Ред от КС"><select {...f.bind('project_line_id')}>
-        <option value="">— избери —</option>
-        {lines.map(l => <option key={l.id} value={l.id}>{l.code ? l.code + ' · ' : ''}{l.description} — {fmtNum(l.done_qty)}/{fmtNum(l.qty)} {l.unit}</option>)}
-      </select></Field>
+      <Field label="Ред от КС"><LineSelect lines={lines} value={f.v.project_line_id} onChange={v => f.set('project_line_id', v)} /></Field>
       <Field label="Дата"><input type="date" {...f.bind('work_date')} max={today()} /></Field>
       <Field label="Количество"><input type="number" min="0" step="any" {...f.bind('qty')} /></Field>
       <Field label="Бележка" full><input {...f.bind('note')} placeholder="по желание" /></Field>
@@ -274,4 +274,13 @@ function MessagesTab({ pid, msgs, write, onChanged }: { pid: number; msgs: any; 
     {write && <div className="row"><input {...f.bind('body')} placeholder="Съобщение…" style={{ flex: 1 }} onKeyDown={e => { if (e.key === 'Enter') send(); }} />
       <button className="primary" disabled={!f.v.body.trim()} onClick={send}>Изпрати</button></div>}
   </Card>;
+}
+
+// ---------------------------------------------------------------- Документи (т.40): всичко по обекта, изпратеното от офиса най-отгоре
+function DocsFromOffice({ docs }: { docs: any }) {
+  const rows: any[] = docs.data || [];
+  const latest = (d: any) => d.versions?.[d.versions.length - 1];
+  return <Loader state={docs}><Card title="Документи по обекта" pad={false}><Table rows={rows} empty={<Empty title="Няма документи" />} cols={[
+    { key: 'title', title: 'Документ', render: (r: any) => <>{r.shared_with_brigade ? <span className="badge ok" style={{ marginRight: 6 }}>от офиса</span> : null}<b>{r.title}</b><div className="small muted">{latest(r)?.filename} · v{r.current_version}</div></> },
+    { key: 'x', title: '', width: 90, render: (r: any) => { const v = latest(r); return v ? <a className="btn sm" href={`/api/documents/${v.id}/file`} target="_blank" rel="noreferrer">Отвори</a> : null; } }]} /></Card></Loader>;
 }
