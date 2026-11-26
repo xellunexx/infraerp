@@ -188,3 +188,15 @@ export function LineSelect({ lines, value, onChange, empty = '— избери �
     </div>}
   </div>;
 }
+
+/** The tab and the record a link points at (?tab=…&focus=…). Follows the URL also when the page is already open,
+ *  so a notification or a "Отвори" link always lands on the record. */
+export function useLinkTab(fallback: string): [string, (t: string) => void, string | null] {
+  const path = usePath();
+  const q = () => new URLSearchParams(path.split('?')[1] || '');
+  const [tab, setTab] = useState(q().get('tab') || fallback);
+  useEffect(() => { const t = q().get('tab'); if (t) setTab(t); }, [path]);
+  return [tab, setTab, q().get('focus')];
+}
+/** The record a link points at (?focus=…), for tables inside sub-components. */
+export function useFocus(): string | null { const path = usePath(); return new URLSearchParams(path.split('?')[1] || '').get('focus'); }

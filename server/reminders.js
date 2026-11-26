@@ -75,7 +75,8 @@ export function sweepReminders(db) {
   const sent = [];
   const insLog = db.prepare(`INSERT INTO reminders_log(entity_type, entity_id, kind, bucket, notified)
     VALUES (?,?,?,?,?) ON CONFLICT(entity_type, entity_id, kind, bucket) DO NOTHING`);
-  const insNotif = db.prepare(`INSERT INTO notifications(department, user_id, project_id, title, body, link, severity) VALUES (?,?,?,?,?,?,?)`);
+  // ref_type/ref_id: the reminder names its record, so the reader is taken to it (links.js), not to the module's first page
+  const insNotif = db.prepare(`INSERT INTO notifications(department, user_id, project_id, title, body, link, severity, ref_type, ref_id) VALUES (?,?,?,?,?,?,?,?,?)`);
   const todayBucket = db.prepare(`SELECT CAST(strftime('%s','now')/86400 AS INTEGER) b`).get().b;
   for (const w of WATCHDOGS) {
     let rows;
@@ -87,8 +88,8 @@ export function sweepReminders(db) {
       if (!lr.changes) continue; // вече напомнено днес
       const link = w.link(r);
       const projectId = r.project_id ?? null;
-      for (const d of departments) insNotif.run(d, null, projectId, `⏰ ${w.label}: ${r.code || r.name || r.title || r.entity_label || '#' + r.id}`, `Чака повече от ${THRESHOLD_H} часа.`, link, 'warn');
-      for (const u of users.filter(Boolean)) insNotif.run(null, u, projectId, `⏰ ${w.label}: ${r.code || r.name || r.title || '#' + r.id}`, `Чака повече от ${THRESHOLD_H} часа.`, link, 'warn');
+      for (const d of departments) insNotif.run(d, null, projectId, `⏰ ${w.label}: ${r.code || r.name || r.title || r.entity_label || '#' + r.id}`, `Чака повече от ${THRESHOLD_H} часа.`, link, 'warn', w.entity, r.id);
+      for (const u of users.filter(Boolean)) insNotif.run(null, u, projectId, `⏰ ${w.label}: ${r.code || r.name || r.title || '#' + r.id}`, `Чака повече от ${THRESHOLD_H} часа.`, link, 'warn', w.entity, r.id);
       sent.push({ kind: w.kind, entity: w.entity, id: r.id });
     }
   }

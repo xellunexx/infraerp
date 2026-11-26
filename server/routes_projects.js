@@ -1,6 +1,6 @@
 // Договори + Картон на обекта (core view) + engine visibility, notifications, search.
 import { tx, nextCode } from './db.js';
-import { HttpError, bad, need, can, needProject, canSeeProject, scopeRows, canSeeMoney, redactMoney, audit, updateRow, emit, reindex, resolveApproval, setting } from './core.js';
+import { HttpError, bad, need, can, needProject, canSeeProject, scopeRows, canSeeMoney, redactMoney, audit, updateRow, emit, notify, on, reindex, resolveApproval, setting } from './core.js';
 import { milestones, grossOf } from './payments.js';
 import { signContract, advancePct, newContractVersion, setStage, deriveProjectStatus, syncProjectStatus } from './domain.js';
 import { progressSummary, finance } from './calc.js';
@@ -263,7 +263,7 @@ export default function mountProjects(app, db) {
     audit(db, req.user, { project_id: id, entity_type: 'project', entity_id: id, action: 'update', before: pick(before, Object.keys(f)), after: f, module: 'projects' });
     if (f.name || f.site_address) { const a = db.prepare('SELECT p.code, p.name, p.site_address, c.name AS cn FROM projects p JOIN customers c ON c.id = p.customer_id WHERE p.id = ?').get(id); reindex(db, 'project', id, a.code, a.name, `${a.cn} ${a.site_address || ''}`); }
     for (const k of ['technical_id', 'brigadier_id']) if (f[k] !== undefined && f[k] !== before[k])
-      emit(db, req.user, { type: 'project.assigned', origin: 'projects', project_id: id, entity_type: 'project', entity_id: id, prev: { [k]: before[k] }, next: { [k]: f[k] }, affected: ['technical', 'brigadier'] });
+      emit(db, req.user, { type: 'project.assigned', origin: 'projects', project_id: id, entity_type: 'project', entity_id: id, prev: { [k]: before[k] }, next: { [k]: f[k] }, affected: [k === 'technical_id' ? 'technical' : 'brigadier'] });
     // coarse status is stage-derived; the only manual writes are on_hold (pause) and resume (re-derive)
     if (b.status !== undefined) {
       if (b.status !== 'on_hold' && b.status !== 'resume') throw bad('Статусът следва етапите — възможни са само „on_hold“ (пауза) и „resume“ (възобновяване)');
@@ -368,3 +368,13 @@ export default function mountProjects(app, db) {
       .filter(r => can(req.user, allowed[r.kind]) && (r.kind !== 'project' || visible(req.user, r.ref_id)));
   }));
 }
+// a change of technician or brigadier is told to the person who takes over and to the one replaced
+on('project.assigned', 'notify_people', (db, ev) => {
+  const [k] = Object.keys(ev.next || {}); if (!k) return { skipped: true };
+  const p = db.prepare('SELECT code, name FROM projects WHERE id = ?').get(ev.project_id);
+  const nm = id => id ? db.prepare('SELECT full_name FROM users WHERE id = ?').get(id)?.full_name || '—' : '—';
+  const role = k === 'technical_id' ? 'техник' : 'бригадир';
+  const body = `Нов ${role}: ${nm(ev.next[k])} (преди: ${nm(ev.prev?.[k])})`;
+  notify(db, ev, { users: [ev.next[k]], title: `Вие сте ${role} на ${p?.code || ''} — ${p?.name || ''}`, body, link: `/projects/${ev.project_id}` });
+  return notify(db, ev, { users: [ev.prev?.[k]].filter(x => x && x !== ev.next[k]), title: `Смяна на ${role} на ${p?.code || ''}`, body, link: `/projects/${ev.project_id}` });
+});

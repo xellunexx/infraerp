@@ -1,6 +1,8 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { tx } from './db.js';
+import { humanEvent } from './human.js';
+import { recordLink } from './links.js';
 
 export const DEPARTMENTS = [
   ['management', 'Управител', '#7c3aed'], ['offers', 'Оферти', '#2563eb'], ['contracts', 'Договори', '#0891b2'],
@@ -202,6 +204,15 @@ export function notify(db, ev, { departments = [], users = [], title, body = '',
   return { departments, users: users.filter(Boolean) };
 }
 
+function notifyAffected(db, ev) {
+  const depts = (JSON.parse(ev.affected_modules || '[]') || []).filter(d => DEPT_CODES.has(d));
+  if (!depts.length) return { skipped: 'no affected department' };
+  const p = ev.project_id ? db.prepare('SELECT code FROM projects WHERE id = ?').get(ev.project_id) : null;
+  const h = humanEvent(db, { ...ev, user_name: ev.user_id ? db.prepare('SELECT full_name FROM users WHERE id = ?').get(ev.user_id)?.full_name : null });
+  return notify(db, ev, { departments: depts, title: `${h.label}${p ? ' — ' + p.code : ''}`, body: [h.user_name ? `от ${h.user_name}` : '', ...h.changes].filter(Boolean).join(' · '),
+    link: recordLink(ev.entity_type, ev.entity_id, ev.project_id) ?? (ev.project_id ? `/projects/${ev.project_id}` : null), severity: ev.approval_status === 'pending' ? 'warn' : 'info' });
+}
+
 /** Process one event: every handler runs in its own transaction and is recorded once (idempotent on retry). */
 export function processEvent(db, id) {
   const ev = db.prepare('SELECT * FROM events WHERE id = ?').get(id);
@@ -210,7 +221,8 @@ export function processEvent(db, id) {
   ev.prev = ev.prev_value ? JSON.parse(ev.prev_value) : null;
   ev.next = ev.new_value ? JSON.parse(ev.new_value) : null;
   let error = null;
-  for (const h of handlers.get(ev.type) || []) {
+  // an event nobody handles still reaches the departments it affects (the "Slack" rule: no silent facts)
+  for (const h of handlers.get(ev.type) || [{ name: 'notify_affected', fn: notifyAffected }]) {
     const done = db.prepare("SELECT 1 FROM event_effects WHERE event_id = ? AND handler = ? AND status = 'ok'").get(id, h.name);
     if (done) continue;
     try {
