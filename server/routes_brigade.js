@@ -209,9 +209,16 @@ export default function mountBrigade(app, db) {
       const table = DOC_ENTITIES[entityType];
       if (!table || entityId == null || !db.prepare(`SELECT id FROM ${table} WHERE id = ?`).get(entityId)) throw bad('Невалидна връзка към обект');
     }
+    // the same place = same project and same link (contract, appendix, …): a file is never a second document there
+    const sha = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
+    const here = db.prepare(`SELECT d.*, v.version AS v_version, v.sha256, v.filename FROM documents d JOIN document_versions v ON v.document_id = d.id
+      WHERE d.project_id = ? AND d.entity_type IS ? AND d.entity_id IS ? ORDER BY d.id, v.version`).all(pid, entityType, entityId);
+    const dup = here.find(x => x.sha256 === sha);
+    if (dup) throw bad(`Този файл вече е качен: „${dup.title}“ (v${dup.v_version}).`);
+    const sameName = here.filter(x => x.v_version === x.current_version).find(x => x.filename === String(req.file.originalname || ''));
+    if (sameName) return addVersion(req, db.prepare('SELECT * FROM documents WHERE id = ?').get(sameName.id));
     const ext = (String(req.file.originalname || '').match(/\.([a-z0-9]{1,8})$/i)?.[1] || 'bin').toLowerCase();
     const stored = `${crypto.randomUUID()}.${ext}`;
-    const sha = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
     fs.mkdirSync(FILES_DIR, { recursive: true });
     fs.writeFileSync(path.join(FILES_DIR, stored), req.file.buffer);
     try {
@@ -227,13 +234,10 @@ export default function mountBrigade(app, db) {
       });
     } catch (e) { try { fs.unlinkSync(path.join(FILES_DIR, stored)); } catch {} throw e; }
   }));
-  app.post('/api/documents/:id/versions', upload.single('file'), h(req => {
-    const doc = db.prepare('SELECT * FROM documents WHERE id = ?').get(Number(req.params.id));
-    if (!doc) throw new HttpError(404, 'Няма такъв документ');
-    if (doc.project_id != null) needField(req, doc.project_id, { resource: 'documents', action: 'write' });
-    else need(req.user, 'documents', 'write');
-    if (!req.file) throw bad('Файлът липсва');
-    if (!OK_MIME.test(req.file.mimetype || '')) throw bad('Типът файл не е позволен');
+  /** Next version of an existing document (the caller has checked rights and the file). */
+  function addVersion(req, doc) {
+    const same = db.prepare('SELECT version FROM document_versions WHERE document_id = ? AND sha256 = ?').get(doc.id, crypto.createHash('sha256').update(req.file.buffer).digest('hex'));
+    if (same) throw bad(`Този файл вече е качен: „${doc.title}“ (v${same.version}).`);
     const ext = (String(req.file.originalname || '').match(/\.([a-z0-9]{1,8})$/i)?.[1] || 'bin').toLowerCase();
     const stored = `${crypto.randomUUID()}.${ext}`;
     const sha = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
@@ -251,6 +255,15 @@ export default function mountBrigade(app, db) {
         return { ...db.prepare(`${docView} WHERE d.id = ?`).get(doc.id), versions: docVersions(doc.id) };
       });
     } catch (e) { try { fs.unlinkSync(path.join(FILES_DIR, stored)); } catch {} throw e; }
+  }
+  app.post('/api/documents/:id/versions', upload.single('file'), h(req => {
+    const doc = db.prepare('SELECT * FROM documents WHERE id = ?').get(Number(req.params.id));
+    if (!doc) throw new HttpError(404, 'Няма такъв документ');
+    if (doc.project_id != null) needField(req, doc.project_id, { resource: 'documents', action: 'write' });
+    else need(req.user, 'documents', 'write');
+    if (!req.file) throw bad('Файлът липсва');
+    if (!OK_MIME.test(req.file.mimetype || '')) throw bad('Типът файл не е позволен');
+    return addVersion(req, doc);
   }));
   app.get('/api/documents/:vid/file', h((req, res) => {
     need(req.user, 'documents');
