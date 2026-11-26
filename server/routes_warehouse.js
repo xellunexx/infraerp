@@ -9,6 +9,22 @@ import { stock, consumption } from './calc.js';
 const KINDS = ['receipt', 'issue', 'return', 'adjust', 'transfer_out'];
 const signedQty = (v, label) => { const n = Number(v); if (!Number.isFinite(n) || n === 0) throw bad(`Невалидно количество за „${label}“`); return n; };
 
+/** Issue an approved request to its project: one write path, used by the warehouse and by a delivered delivery. */
+export function fulfilRequest(db, user, id) {
+  const m = db.prepare('SELECT * FROM material_requests WHERE id = ?').get(id);
+  if (!m) throw new HttpError(404, 'Няма такава заявка');
+  if (m.status !== 'approved') throw bad('Заявката трябва първо да бъде одобрена');
+  const items = db.prepare('SELECT i.*, p.unit_cost FROM request_items i JOIN products p ON p.id = i.product_id WHERE i.request_id = ?').all(id);
+  const ins = db.prepare(`INSERT INTO stock_movements(uid, product_id, kind, qty, project_id, project_line_id, request_id, unit_cost, responsible_id) VALUES (?,?,'issue',?,?,?,?,?,?)`);
+  const rel = db.prepare(`UPDATE reservations SET status = 'fulfilled' WHERE request_item_id = ? AND status = 'active'`);
+  for (const it of items) { ins.run(crypto.randomUUID(), it.product_id, it.qty, m.project_id, it.project_line_id ?? null, id, it.unit_cost, user.id); rel.run(it.id); }
+  db.prepare("UPDATE material_requests SET status = 'fulfilled' WHERE id = ?").run(id);
+  audit(db, user, { project_id: m.project_id, entity_type: 'material_request', entity_id: id, action: 'fulfil', after: { items: items.length }, module: 'warehouse' });
+  emit(db, user, { type: 'material_request.fulfilled', origin: 'warehouse', project_id: m.project_id, entity_type: 'material_request', entity_id: id,
+    dedupe_key: `mrqf:${id}`, next: { code: m.code, requester_id: m.requested_by }, affected: ['warehouse', 'logistics'] });
+  return m;
+}
+
 export default function mountWarehouse(app, db) {
   const needWh = (req, a = 'read') => need(req.user, 'warehouse', a);
   const prod = id => db.prepare('SELECT * FROM products WHERE id = ?').get(id);
@@ -20,8 +36,10 @@ export default function mountWarehouse(app, db) {
     const code = nextCode(db, 'MRQ');
     const id = Number(db.prepare(`INSERT INTO material_requests(code, project_id, origin, needed_by, status, note, requested_by, needs_approval)
       VALUES (?,?,?,?, 'submitted', ?,?,1)`).run(code, pid, origin, needed_by || null, note || null, req.user.id).lastInsertRowid);
-    const ins = db.prepare('INSERT INTO request_items(request_id, product_id, qty, project_line_id) VALUES (?,?,?,?)');
+    const ins = db.prepare('INSERT INTO request_items(request_id, product_id, qty, project_line_id, outside_contract, reason) VALUES (?,?,?,?,?,?)');
     const lineOf = db.prepare('SELECT project_id FROM project_lines WHERE id = ?');
+    // a material is "in the КС" when a line of this project needs it (its recipe); anything else is outside the contract
+    const inKs = new Set(db.prepare(`SELECT DISTINCT r.product_id FROM project_line_recipe r JOIN project_lines l ON l.id = r.project_line_id WHERE l.project_id = ? AND l.removed = 0`).all(pid).map(x => x.product_id));
     for (const it of items) {
       const p = prod(Number(it.product_id));
       if (!p) throw bad('Невалиден продукт в заявката');
@@ -30,7 +48,9 @@ export default function mountWarehouse(app, db) {
         const ln = lineOf.get(lid);
         if (!ln || ln.project_id !== pid) throw bad('КС редът не е от този обект');
       }
-      ins.run(id, p.id, num(it.qty, 'Количество', { min: 0.000001 }), lid);
+      const outside = inKs.has(p.id) ? 0 : 1;
+      if (outside && !String(it.reason || '').trim()) throw bad(`„${p.name}“ не е по КС на обекта — напишете причината`);
+      ins.run(id, p.id, num(it.qty, 'Количество', { min: 0.000001 }), lid, outside, outside ? String(it.reason).trim() : null);
     }
     audit(db, req.user, { project_id: pid, entity_type: 'material_request', entity_id: id, action: 'create', after: { code, items: items.length, origin }, module: 'warehouse' });
     emit(db, req.user, { type: 'material_request.submitted', origin: 'warehouse', project_id: pid, entity_type: 'material_request', entity_id: id,
@@ -185,6 +205,9 @@ export default function mountWarehouse(app, db) {
     const items = db.prepare('SELECT i.*, p.unit_cost, p.code AS pcode, p.name AS pname FROM request_items i JOIN products p ON p.id = i.product_id WHERE i.request_id = ?').all(id);
     if (action === 'approve') {
       if (m.status !== 'submitted') throw bad('Заявката не е в статус „подадена“');
+      // separation of duties: nobody approves their own request; material outside the КС is the Manager's decision
+      if (m.requested_by === req.user.id && req.user.role !== 'admin') throw new HttpError(403, 'Не можете да одобрите собствената си заявка');
+      if (items.some(i => i.outside_contract) && !can(req.user, 'approvals', 'approve')) throw new HttpError(403, 'Заявката има материали извън КС — одобрява Управител');
       // резервира цялото количество по всяка позиция — наличността е съвет, не блокира (закупуване съществува)
       // "за покупка" = колко не стига складът СЕГА, преди да резервираме — снимка за поръчителната служба.
       const freeNow = new Map(stock(db).map(s => [s.id, s.free]));
@@ -199,18 +222,7 @@ export default function mountWarehouse(app, db) {
       emit(db, req.user, { type: 'material_request.approved', origin: 'warehouse', project_id: m.project_id, entity_type: 'material_request', entity_id: id,
         dedupe_key: `mrqa:${id}`, next: { code: m.code, requester_id: m.requested_by }, affected: ['warehouse'] });
     } else if (action === 'fulfil') {
-      if (m.status !== 'approved') throw bad('Заявката трябва първо да бъде одобрена');
-      // изписва от склада: складов записа на продукт + освобождава резервацията
-      const ins = db.prepare(`INSERT INTO stock_movements(uid, product_id, kind, qty, project_id, project_line_id, request_id, unit_cost, responsible_id) VALUES (?,?,'issue',?,?,?,?,?,?)`);
-      const rel = db.prepare(`UPDATE reservations SET status = 'fulfilled' WHERE request_item_id = ? AND status = 'active'`);
-      for (const it of items) {
-        ins.run(crypto.randomUUID(), it.product_id, it.qty, m.project_id, it.project_line_id ?? null, id, it.unit_cost, req.user.id);
-        rel.run(it.id);
-      }
-      db.prepare("UPDATE material_requests SET status = 'fulfilled' WHERE id = ?").run(id);
-      audit(db, req.user, { project_id: m.project_id, entity_type: 'material_request', entity_id: id, action: 'fulfil', after: { items: items.length }, module: 'warehouse' });
-      emit(db, req.user, { type: 'material_request.fulfilled', origin: 'warehouse', project_id: m.project_id, entity_type: 'material_request', entity_id: id,
-        dedupe_key: `mrqf:${id}`, next: { code: m.code, requester_id: m.requested_by }, affected: ['warehouse', 'logistics'] });
+      fulfilRequest(db, req.user, id);
     } else if (action === 'cancel') {
       if (!['submitted', 'approved'].includes(m.status)) throw bad('Заявката не може да бъде отменена');
       db.prepare("UPDATE reservations SET status = 'cancelled' WHERE request_item_id IN (SELECT id FROM request_items WHERE request_id = ?) AND status = 'active'").run(id);
@@ -229,7 +241,7 @@ export default function mountWarehouse(app, db) {
       FROM reservations r JOIN products p ON p.id = r.product_id JOIN projects pr ON pr.id = r.project_id
       LEFT JOIN request_items ri ON ri.id = r.request_item_id LEFT JOIN material_requests m ON m.id = ri.request_id
       LEFT JOIN users u ON u.id = m.requested_by
-      WHERE r.status = ? ORDER BY r.id DESC LIMIT 300`).all(String(req.query.status || 'active')));
+      WHERE r.status = ? AND (? IS NULL OR r.project_id = ?) ORDER BY r.id DESC LIMIT 300`).all(String(req.query.status || 'active'), req.query.project_id ? Number(req.query.project_id) : null, req.query.project_id ? Number(req.query.project_id) : null));
   }));
 
   /** Machinery/tools register — the warehouse's read-only view onto the same `assets`

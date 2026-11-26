@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { api, fmtDate, fmtDateTime, fmtNum } from '../api';
 import { ASSET_KIND } from './Logistics';
-import { Card, Empty, Field, Loader, Modal, Status, Table, Tabs, useAction, useLoad, useLinkTab } from '../ui';
+import { Card, Empty, Field, Loader, Modal, Status, Table, Tabs, useAction, useLoad, useLinkTab, usePath } from '../ui';
 
 const KIND_LABEL: Record<string, string> = { receipt: 'Приемане', issue: 'Изписване към обект', return: 'Връщане', adjust: 'Корекция', transfer_out: 'Пренос към друг обект', transfer_in: 'Пренос от друг обект' };
 const FORM_KINDS = ['receipt', 'issue', 'return', 'adjust', 'transfer_out'];
@@ -79,7 +79,7 @@ function RequestDetail({ id, onClose, onDone }: { id: number; onClose: () => voi
       <dt>Подадена от</dt><dd>{m.origin === 'technical' ? 'Технически отдел' : m.origin === 'contracts' ? 'Договори' : 'Склад'}</dd>
       <dt>Бележка</dt><dd>{m.note || '—'}</dd><dt>Заявил</dt><dd>{m.requester_name || '—'}</dd><dt>Създадена</dt><dd>{fmtDateTime(m.created_at)}</dd></dl>
     <table className="t" style={{ marginTop: 8 }}><thead><tr><th>Продукт</th><th>СМР ред</th><th>Количество</th><th>Резервирано</th><th>За покупка</th></tr></thead><tbody>
-      {(m.items || []).map((i: any) => <tr key={i.id}><td>{i.product_code} — {i.product_name} ({i.unit})</td><td className="small">{i.project_line_code || '—'}</td><td className="num">{fmtNum(i.qty)}</td>
+      {(m.items || []).map((i: any) => <tr key={i.id}><td>{i.product_code} — {i.product_name} ({i.unit}){i.outside_contract ? <div><span className="badge warn">извън КС</span> <span className="small">{i.reason}</span></div> : null}</td><td className="small">{i.project_line_code || '—'}</td><td className="num">{fmtNum(i.qty)}</td>
         <td className="num">{fmtNum(i.reserved_qty)}</td><td className="num">{fmtNum(i.to_purchase_qty)}</td></tr>)}</tbody></table>
     <div className="actions" style={{ marginTop: 12 }}>
       {m.status === 'submitted' && <button className="primary" disabled={busy} onClick={() => act('approve', 'Заявката е одобрена и материалите са резервирани')}>Одобри и резервирай</button>}
@@ -95,9 +95,13 @@ export function Warehouse() {
   const [reqOpen, setReqOpen] = useState(false);
   const [detail, setDetail] = useState<number | null>(null);
   const stock = useLoad<any[]>('/warehouse/stock');
-  const requests = useLoad<any[]>('/material-requests');
-  const reservations = useLoad<any[]>('/warehouse/reservations?status=active');
-  const movements = useLoad<any[]>('/warehouse/movements');
+  // т.31: everything can be narrowed to one project (contract); stock itself is shared by all projects
+  const path = usePath();
+  const [pid, setPid] = useState(new URLSearchParams(path.split('?')[1] || '').get('pid') || '');
+  const q = pid ? `project_id=${pid}` : '';
+  const requests = useLoad<any[]>(`/material-requests${q ? '?' + q : ''}`, [pid]);
+  const reservations = useLoad<any[]>(`/warehouse/reservations?status=active${q ? '&' + q : ''}`, [pid]);
+  const movements = useLoad<any[]>(`/warehouse/movements${q ? '?' + q : ''}`, [pid]);
   const fleet = useLoad<any[]>(tab === 'fleet' ? '/warehouse/fleet' : null);
   const projects = useLoad<any[]>('/projects');
   const reloadAll = () => { stock.reload(); requests.reload(); reservations.reload(); movements.reload(); };
@@ -106,6 +110,8 @@ export function Warehouse() {
     <div className="page-head"><h1>Склад</h1><span className="spacer" />
       {tab === 'stock' && <button className="primary" onClick={() => setMoveOpen(true)}>Ново движение</button>}
       {tab === 'requests' && <button className="primary" onClick={() => setReqOpen(true)}>Нова заявка</button>}
+      <select value={pid} onChange={e => setPid(e.target.value)} style={{ maxWidth: 280 }}><option value="">Всички обекти</option>
+        {(projects.data || []).filter((p: any) => !p.archived).map((p: any) => <option key={p.id} value={p.id}>{p.code} — {p.name}</option>)}</select>
       <button className="sm" onClick={reloadAll}>Обнови</button></div>
     <Tabs tabs={[['stock', `Склад (${(stock.data || []).length})`], ['requests', `Заявки (${(requests.data || []).length})`],
       ['reservations', `Резервации (${(reservations.data || []).length})`], ['movements', 'Движения'], ['fleet', 'Машини и инструменти']]} value={tab} onChange={setTab} />

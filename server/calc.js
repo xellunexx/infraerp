@@ -45,8 +45,10 @@ export function consumption(db, projectId, tolerancePct = 5) {
   return [...map.values()].map(m => {
     const p = prod.get(m.product_id);
     const limit = m.expected * (1 + tolerancePct / 100);
-    return { ...m, ...p, variance: r3(m.consumed - m.expected), on_site: r3(m.issued - m.consumed),
-      over: m.consumed > limit + 1e-9, unplanned: m.required === 0 && m.consumed > 0 };
+    // built in: what the daily reports used by the norm, unless an actual consumption was recorded for the product
+    const basis = m.consumed > 0 ? 'actual' : 'norm', built = basis === 'actual' ? m.consumed : m.expected;
+    return { ...m, ...p, consumed: r3(built), basis, variance: r3(built - m.expected), on_site: r3(m.issued - built),
+      over: basis === 'actual' && m.consumed > limit + 1e-9, unplanned: m.required === 0 && built > 0 };
   });
 }
 

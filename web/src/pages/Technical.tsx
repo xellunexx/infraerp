@@ -220,7 +220,7 @@ function MaterialsTab({ pid, cons }: { pid: number; cons: ReturnType<typeof useL
         { key: 'code', title: 'Код', width: 90 }, { key: 'name', title: 'Материал' }, { key: 'unit', title: 'Мярка', width: 60 },
         { key: 'required', title: 'По договор', num: true, render: (r: any) => fmtNum(r.required) },
         { key: 'expected', title: 'По извършено', num: true, render: (r: any) => fmtNum(r.expected) },
-        { key: 'consumed', title: 'Изразходено', num: true, render: (r: any) => fmtNum(r.consumed) },
+        { key: 'consumed', title: 'Вградено', num: true, render: (r: any) => <>{fmtNum(r.consumed)}{r.basis === 'norm' && r.consumed ? <div className="small muted">по норма от отчетите</div> : null}</> },
         { key: 'on_site', title: 'На обекта', num: true, render: (r: any) => fmtNum(r.on_site) },
         { key: 'variance', title: 'Отклонение', num: true, render: (r: any) => <span className={r.variance > 0 ? 'badge bad' : ''}>{fmtNum(r.variance)}</span> },
         { key: 'flag', title: '', render: (r: any) => r.over ? <span className="badge bad">Наднормен</span> : r.unplanned ? <span className="badge warn">Непланиран</span> : null },
@@ -246,10 +246,15 @@ function TechRequestModal({ pid, rows, onClose, onDone }: { pid: number; rows: a
   const [sel, setSel] = useState<Record<number, boolean>>({});
   const [neededBy, setNeededBy] = useState('');
   const [note, setNote] = useState('');
-  const items = rows.filter(r => sel[r.product_id] !== false && Number(effQty[r.product_id]) > 0)
-    .map(r => ({ product_id: r.product_id, qty: Number(effQty[r.product_id]) }));
+  // materials not in the КС of this project: chosen from the catalogue, each with a reason; the Manager approves them
+  const products = useLoad<any[]>('/products');
+  const [extra, setExtra] = useState<{ product_id: string; qty: string; reason: string }[]>([]);
+  const items = [...rows.filter(r => sel[r.product_id] !== false && Number(effQty[r.product_id]) > 0)
+    .map(r => ({ product_id: r.product_id, qty: Number(effQty[r.product_id]), ...(r.required ? {} : { reason: note || 'по заявка от обекта' }) })),
+    ...extra.filter(x => x.product_id && Number(x.qty) > 0).map(x => ({ product_id: Number(x.product_id), qty: Number(x.qty), reason: x.reason }))];
+  const extraMissingReason = extra.some(x => x.product_id && Number(x.qty) > 0 && !x.reason.trim());
   return <Modal wide title="Заявка за материали към склад" onClose={onClose}
-    footer={<><button onClick={onClose}>Отказ</button><button className="primary" disabled={busy || !items.length}
+    footer={<><button onClick={onClose}>Отказ</button><button className="primary" disabled={busy || !items.length || extraMissingReason}
       onClick={() => run(async () => {
         await api.post(`/projects/${pid}/material-requests`, { items, needed_by: neededBy || null, note: note || null });
         onDone();
@@ -265,8 +270,17 @@ function TechRequestModal({ pid, rows, onClose, onDone }: { pid: number; rows: a
         <td className="num">{fmtNum(r.required)}</td><td className="num">{fmtNum(r.on_site)}</td>
         <td className="num">{pendingQty[r.product_id] ? fmtNum(pendingQty[r.product_id]) : '—'}</td>
         <td><input type="number" step="any" style={{ width: 100 }} value={effQty[r.product_id] ?? ''} onChange={e => setQty(q => ({ ...(q ?? effQty), [r.product_id]: e.target.value }))} /></td></tr>)}
-      {!rows.length && <tr><td colSpan={6} className="muted">Няма материали по този обект.</td></tr>}
+      {!rows.length && <tr><td colSpan={6} className="muted">Няма материали по КС на този обект — задайте ги в КС (✎ материали) или добавете извън КС по-долу.</td></tr>}
     </tbody></table>
+    <h4 style={{ margin: '12px 0 4px' }}>Допълнителни материали (извън КС)</h4>
+    <div className="muted small" style={{ marginBottom: 6 }}>Всеки ред иска причина. Заявка с материали извън КС се одобрява от Управител.</div>
+    {extra.map((x, i) => <div key={i} className="row" style={{ marginBottom: 6, flexWrap: 'nowrap' }}>
+      <select value={x.product_id} onChange={e => setExtra(a => a.map((y, j) => j === i ? { ...y, product_id: e.target.value } : y))} style={{ flex: 2 }}><option value="">— материал от номенклатурата —</option>
+        {(products.data || []).filter(p => p.active !== 0).map(p => <option key={p.id} value={p.id}>{p.code ? p.code + ' · ' : ''}{p.name} ({p.unit})</option>)}</select>
+      <input type="number" min="0" step="any" placeholder="кол." style={{ width: 90 }} value={x.qty} onChange={e => setExtra(a => a.map((y, j) => j === i ? { ...y, qty: e.target.value } : y))} />
+      <input placeholder="причина (задължително)" style={{ flex: 2 }} value={x.reason} onChange={e => setExtra(a => a.map((y, j) => j === i ? { ...y, reason: e.target.value } : y))} />
+      <button className="ghost sm danger" onClick={() => setExtra(a => a.filter((_, j) => j !== i))}>✕</button></div>)}
+    <button className="sm" onClick={() => setExtra(a => [...a, { product_id: '', qty: '', reason: '' }])}>+ материал извън КС</button>
     <div className="muted small" style={{ marginTop: 6 }}>„Вече заявено“ е сумата по висящи заявки за този обект — приспада се от предложеното количество. Заявката отива в опашката на склада с белег „от техническия отдел“.</div>
   </Modal>;
 }

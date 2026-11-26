@@ -151,7 +151,7 @@ CREATE TABLE IF NOT EXISTS material_requests (
 CREATE TABLE IF NOT EXISTS request_items (
   id INTEGER PRIMARY KEY, request_id INTEGER NOT NULL REFERENCES material_requests(id) ON DELETE CASCADE,
   product_id INTEGER NOT NULL REFERENCES products(id), qty REAL NOT NULL, reserved_qty REAL NOT NULL DEFAULT 0,
-  to_purchase_qty REAL NOT NULL DEFAULT 0, project_line_id INTEGER REFERENCES project_lines(id));
+  to_purchase_qty REAL NOT NULL DEFAULT 0, project_line_id INTEGER REFERENCES project_lines(id), outside_contract INTEGER NOT NULL DEFAULT 0, reason TEXT);
 CREATE TABLE IF NOT EXISTS stock_movements (
   id INTEGER PRIMARY KEY, uid TEXT NOT NULL UNIQUE, product_id INTEGER NOT NULL REFERENCES products(id), kind TEXT NOT NULL,
   qty REAL NOT NULL, project_id INTEGER REFERENCES projects(id), to_project_id INTEGER REFERENCES projects(id),

@@ -118,7 +118,7 @@ export function Logistics() {
         { key: 'required', title: 'Необходимо по КС', num: true },
         { key: 'expected', title: 'По рецепта (извършено)', num: true },
         { key: 'issued', title: 'Заредено на обект', num: true },
-        { key: 'consumed', title: 'Вградено', num: true },
+        { key: 'consumed', title: 'Вградено', num: true, render: (r: any) => <>{r.consumed}{r.basis === 'norm' && r.consumed ? <div className="small muted">по норма</div> : null}</> },
         { key: 'on_site', title: 'На обект (ост.)', num: true },
         { key: 'variance', title: 'Отклонение', num: true, render: (r: any) => r.over ? <span className="badge bad">{r.variance}</span> : r.variance },
       ]} /></Loader></Card>}
