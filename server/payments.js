@@ -34,13 +34,20 @@ export function paidState(rows, gross, net = null) {
   return { paid: sum, paid_at, over: gross > 0 ? r2(Math.max(0, sum - gross)) : 0 };
 }
 
+// a payment counts for a stage when it names the stage; a proforma of the same kind counts only when the contract has a single stage of that kind
+// (several interim stages: an unnamed interim proforma would otherwise be counted for each of them)
 const milestoneRows = (db, m, projectId, status) => db.prepare(`SELECT * FROM transactions t WHERE direction = 'in' AND status = ? AND project_id = ? AND NOT EXISTS (SELECT 1 FROM transactions k WHERE k.document_id = t.id AND k.status = 'paid') AND
-  (contract_payment_id = ? OR (contract_payment_id IS NULL AND proforma_id IN (SELECT id FROM proformas WHERE project_id = ? AND kind = ?)))`).all(status, projectId, m.id, projectId, m.kind);
+  (contract_payment_id = ? OR (contract_payment_id IS NULL AND (SELECT COUNT(*) FROM contract_payments x WHERE x.contract_id = ? AND x.kind = ?) = 1
+    AND proforma_id IN (SELECT id FROM proformas WHERE project_id = ? AND kind = ?)))`).all(status, projectId, m.id, m.contract_id, m.kind, projectId, m.kind);
+const KIND_LABEL = { advance: 'Аванс', interim: 'Междинно плащане', final: 'Окончателно плащане' };
+export const stageLabel = (m, count = 1) => m.label || (m.kind === 'interim' && (count > 1 || m.seq > 1) ? `Междинно плащане №${m.seq}` : KIND_LABEL[m.kind] || m.kind);
 
 export function milestones(db, contractId) {
   const c = db.prepare('SELECT project_id FROM contracts WHERE id = ?').get(contractId);
   if (!c) return [];
-  return db.prepare("SELECT * FROM contract_payments WHERE contract_id = ? ORDER BY CASE kind WHEN 'advance' THEN 1 WHEN 'interim' THEN 2 ELSE 3 END").all(contractId).map(m => {
+  const all = db.prepare("SELECT * FROM contract_payments WHERE contract_id = ? ORDER BY CASE kind WHEN 'advance' THEN 1 WHEN 'interim' THEN 2 ELSE 3 END, seq").all(contractId);
+  const interims = all.filter(m => m.kind === 'interim').length;
+  return all.map(m => {
     const vat = m.vat_pct ?? vatSetting(db);
     const gross = m.gross ?? (m.amount == null ? null : grossOf(m.amount, vat));
     const rows = milestoneRows(db, m, c.project_id, 'paid'), st = paidState(rows, gross ?? 0, m.amount);
@@ -48,7 +55,7 @@ export function milestones(db, contractId) {
     // notes written with each payment, read from the ledger rows themselves: one note per payment, shown on its milestone
     const payment_notes = [...rows, ...repRows].filter(t => t.note && String(t.note).trim()).sort((x, y) => String(x.tx_date).localeCompare(String(y.tx_date)))
       .map(t => ({ date: t.tx_date, amount: t.amount, note: t.note }));
-    return { id: m.id, kind: m.kind, pct: m.pct, amount: m.amount, net: m.amount, gross, vat_pct: vat, note: m.note, payment_notes, paid: st.paid, paid_at: st.paid_at,
+    return { id: m.id, kind: m.kind, seq: m.seq, label: stageLabel(m, interims), due_on: m.due_on, due_note: m.due_note, pct: m.pct, amount: m.amount, net: m.amount, gross, vat_pct: vat, note: m.note, payment_notes, paid: st.paid, paid_at: st.paid_at,
       over: gross > 0 ? r2(Math.max(0, st.paid - gross)) : 0, reported, unmatched_date: m.paid_at && !rows.length ? m.paid_at : null };
   });
 }

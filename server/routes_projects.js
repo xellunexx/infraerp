@@ -27,7 +27,7 @@ export default function mountProjects(app, db) {
     c.advance_paid_at = adv?.paid_at || null;
     // a contract without an advance runs from its signing; with one, from the day the advance is complete in the ledger
     c.deadline_start = c.advance_paid_at || (c.status === 'signed' && adv && adv.gross === 0 ? c.signed_on : null);
-    c.unmatched_paid_at = c.payments.filter(p => p.unmatched_date).map(p => ({ kind: p.kind, date: p.unmatched_date }));
+    c.unmatched_paid_at = c.payments.filter(p => p.unmatched_date).map(p => ({ kind: p.kind, label: p.label, date: p.unmatched_date }));
     const days = (a, n) => new Date(Date.parse(a) + Math.round(Number(n)) * 86400000).toISOString().slice(0, 10);
     c.final_deadline = c.deadline_start && c.prod_delivery_days != null && c.install_days != null
       ? days(days(c.deadline_start, c.prod_delivery_days), c.install_days) : null;
@@ -114,24 +114,46 @@ export default function mountProjects(app, db) {
 
   /** §14.3 payment milestones (аванс/междинно/окончателно): real bank dates arrive after signing,
    *  so they live in their own table — the contract body stays versioned. */
+  app.delete('/api/contract-payments/:id', h(req => tx(db, () => {
+    const m = db.prepare('SELECT m.*, c.project_id, c.status AS contract_status FROM contract_payments m JOIN contracts c ON c.id = m.contract_id WHERE m.id = ?').get(Number(req.params.id));
+    if (!m) throw new HttpError(404, 'Няма такъв етап');
+    need(req.user, 'contracts', 'write'); needProject(db, req.user, m.project_id);
+    if (m.kind !== 'interim') throw bad('Само междинен етап може да се махне');
+    if (m.contract_status === 'signed') throw bad('След подписване етап се маха само с анекс');
+    if (db.prepare('SELECT 1 FROM transactions WHERE contract_payment_id = ?').get(m.id)) throw bad('По етапа има плащания');
+    db.prepare('DELETE FROM contract_payments WHERE id = ?').run(m.id);
+    audit(db, req.user, { project_id: m.project_id, entity_type: 'contract', entity_id: m.contract_id, action: 'payment_plan', before: { kind: m.kind, seq: m.seq, amount: m.amount }, after: { removed: true }, module: 'contracts' });
+    return { ok: true };
+  })));
   app.put('/api/projects/:pid/contract/payments', h(req => tx(db, () => {
     if (!can(req.user, 'finance', 'write')) need(req.user, 'contracts', 'write'); // Accounting corrects the signed plan
     needProject(db, req.user, req.params.pid);
     const pid = Number(req.params.pid), c = db.prepare('SELECT * FROM contracts WHERE project_id = ?').get(pid);
     if (!c) throw new HttpError(404, 'Няма договор');
     const b = req.body || {};
-    if (!['advance', 'interim', 'final'].includes(b.kind)) throw bad('Видът плащане е advance, interim или final');
+    // т.7: a stage is edited by id; without an id, advance/final are the single stage of their kind and an interim is a new stage №n
+    let before = b.id != null ? db.prepare('SELECT * FROM contract_payments WHERE id = ? AND contract_id = ?').get(Number(b.id), c.id) : null;
+    if (b.id != null && !before) throw bad('Няма такъв етап на плащане');
+    const kind = before?.kind ?? b.kind;
+    if (!['advance', 'interim', 'final'].includes(kind)) throw bad('Видът плащане е advance, interim или final');
+    if (!before && kind !== 'interim') before = db.prepare('SELECT * FROM contract_payments WHERE contract_id = ? AND kind = ? AND seq = 1').get(c.id, kind);
+    // after signing an extra stage needs an annex; a kind with no stage at all (a contract signed before schedules existed) is filled in by Accounting, as before
+    if (!before && c.status === 'signed' && db.prepare('SELECT 1 FROM contract_payments WHERE contract_id = ? AND kind = ?').get(c.id, kind)) throw bad('След подписване етап на плащане се добавя само с анекс');
     if (b.paid_at != null && b.paid_at !== '') throw bad('Датата идва от самото плащане — използвайте „Запиши плащане“');
     const num = v => v == null || v === '' ? null : Number(v);
     for (const k of ['pct', 'amount']) if (num(b[k]) != null && !(Number.isFinite(num(b[k])) && num(b[k]) >= 0)) throw bad('Невалидна стойност');
-    const before = db.prepare('SELECT * FROM contract_payments WHERE contract_id = ? AND kind = ?').get(c.id, b.kind);
+    if (b.due_on != null && b.due_on !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(String(b.due_on))) throw bad('Невалидна дата на падеж');
     const keep = (k, v) => b[k] === undefined ? before?.[k] ?? null : v;
     // after signing the plan is the yardstick for „платено“: Contracts may note, only Accounting may correct it
     if (c.status === 'signed' && ((b.pct !== undefined && num(b.pct) !== (before?.pct ?? null)) || (b.amount !== undefined && num(b.amount) !== (before?.amount ?? null)))) need(req.user, 'finance', 'write');
     const vat = before?.vat_pct ?? Number(setting(db, 'vat_pct', '20')), amount = keep('amount', num(b.amount));
-    db.prepare(`INSERT INTO contract_payments(contract_id, kind, pct, amount, vat_pct, gross, note) VALUES (?,?,?,?,?,?,?)
-      ON CONFLICT(contract_id, kind) DO UPDATE SET pct = excluded.pct, amount = excluded.amount, vat_pct = excluded.vat_pct, gross = excluded.gross,
-      note = excluded.note, updated_at = datetime('now')`).run(c.id, b.kind, keep('pct', num(b.pct)), amount, vat, amount == null ? null : amount === before?.amount && before.gross != null ? before.gross : grossOf(amount, vat), keep('note', b.note || null));
+    const gross = amount == null ? null : amount === before?.amount && before.gross != null ? before.gross : grossOf(amount, vat);
+    const vals = [keep('pct', num(b.pct)), amount, vat, gross, keep('note', b.note || null), keep('label', b.label || null), keep('due_on', b.due_on || null), keep('due_note', b.due_note || null)];
+    if (before) db.prepare(`UPDATE contract_payments SET pct = ?, amount = ?, vat_pct = ?, gross = ?, note = ?, label = ?, due_on = ?, due_note = ?, updated_at = datetime('now') WHERE id = ?`).run(...vals, before.id);
+    else {
+      const seq = kind === 'interim' ? (db.prepare("SELECT MAX(seq) s FROM contract_payments WHERE contract_id = ? AND kind = 'interim'").get(c.id).s || 0) + 1 : 1;
+      db.prepare('INSERT INTO contract_payments(contract_id, kind, seq, pct, amount, vat_pct, gross, note, label, due_on, due_note) VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(c.id, kind, seq, ...vals);
+    }
     audit(db, req.user, { project_id: pid, entity_type: 'contract', entity_id: c.id, action: 'payment_plan', before: before ? pick(before, ['kind', 'pct', 'amount']) : null,
       after: { kind: b.kind, pct: keep('pct', num(b.pct)), amount }, module: 'contracts' });
     return contractView(pid);

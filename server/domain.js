@@ -118,19 +118,26 @@ export function signContract(db, user, projectId, { signed_on, install_start, in
     const total = db.prepare('SELECT total_value FROM contract_versions WHERE contract_id = ? AND version = ?').get(c.id, c.active_version)?.total_value
       ?? progressSummary(db, projectId).contract_value;
     const vat = Number(setting(db, 'vat_pct', '20')), plan = splitSchedule(total || 0, vat, Number(c.advance_pct));
-    const typed = Object.fromEntries(db.prepare('SELECT kind, amount FROM contract_payments WHERE contract_id = ? AND amount IS NOT NULL').all(c.id).map(m => [m.kind, m.amount]));
+    // т.7: the interim stages typed with the contract are kept as they are (any number); without them one interim of 30%; final = the rest
+    const stages = db.prepare('SELECT * FROM contract_payments WHERE contract_id = ? ORDER BY seq').all(c.id);
+    const typedAdv = stages.find(m => m.kind === 'advance' && m.amount != null)?.amount;
+    const typedInts = stages.filter(m => m.kind === 'interim' && m.amount != null);
+    const typedFinal = stages.find(m => m.kind === 'final' && m.amount != null)?.amount;
     const [a, n, f] = plan;
+    const upsert = (kind, seq, p) => db.prepare(`INSERT INTO contract_payments(contract_id, kind, seq, pct, amount, vat_pct, gross) VALUES (?,?,?,?,?,?,?)
+      ON CONFLICT(contract_id, kind, seq) DO UPDATE SET pct = excluded.pct, amount = excluded.amount, vat_pct = excluded.vat_pct, gross = excluded.gross`)
+      .run(c.id, kind, seq, p.pct, total ? p.net : null, vat, total ? p.gross : null);
     if (total) {
-      if (typed.advance !== undefined && Math.abs(typed.advance - a.net) > 0.01) throw bad(`Авансът в разплащателния график (${typed.advance.toFixed(2)}) не отговаря на ${c.advance_pct}% от договора (${a.net.toFixed(2)})`);
-      if (typed.interim !== undefined) { n.net = typed.interim; n.gross = grossOf(n.net, vat); }
-      const rest = round2(total - a.net - n.net);
-      if (rest < 0 || (typed.final !== undefined && Math.abs(typed.final - rest) > 0.01)) throw bad('Разплащателният график не е равен на договорната стойност');
-      f.net = rest; f.gross = round2(grossOf(round2(total), vat) - a.gross - n.gross);
-      for (const p of [n, f]) p.pct = typed.interim !== undefined ? round2(p.net / total * 100) : p.pct;
-    }
-    for (const p of plan) db.prepare(`INSERT INTO contract_payments(contract_id, kind, pct, amount, vat_pct, gross) VALUES (?,?,?,?,?,?)
-      ON CONFLICT(contract_id, kind) DO UPDATE SET pct = excluded.pct, amount = excluded.amount, vat_pct = excluded.vat_pct, gross = excluded.gross`)
-      .run(c.id, p.kind, p.pct, total ? p.net : null, vat, total ? p.gross : null);
+      if (typedAdv !== undefined && Math.abs(typedAdv - a.net) > 0.01) throw bad(`Авансът в разплащателния график (${typedAdv.toFixed(2)}) не отговаря на ${c.advance_pct}% от договора (${a.net.toFixed(2)})`);
+      const ints = typedInts.length ? typedInts.map(m => ({ seq: m.seq, net: m.amount, gross: grossOf(m.amount, vat), pct: round2(m.amount / total * 100) })) : [{ seq: 1, ...n }];
+      const intNet = round2(ints.reduce((s, x) => s + x.net, 0)), intGross = round2(ints.reduce((s, x) => s + x.gross, 0));
+      const rest = round2(total - a.net - intNet);
+      if (rest < 0 || (typedFinal !== undefined && Math.abs(typedFinal - rest) > 0.01)) throw bad('Разплащателният график не е равен на договорната стойност');
+      f.net = rest; f.gross = round2(grossOf(round2(total), vat) - a.gross - intGross); f.pct = round2(rest / total * 100);
+      upsert('advance', 1, a);
+      for (const x of ints) upsert('interim', x.seq, x);
+      upsert('final', 1, f);
+    } else for (const p of plan) upsert(p.kind, 1, p);
 
     // Авансовата проформа излиза веднага след подписа — счетоводството я маркира платена,
     // което първо отбелязва етапа в графика и стартира договорния календар.

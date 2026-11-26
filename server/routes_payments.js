@@ -2,7 +2,7 @@
 import crypto from 'node:crypto';
 import { tx, nextCode } from './db.js';
 import { HttpError, bad, need, can, needProject, scopeRows, audit, emit, notify, on, updateRow } from './core.js';
-import { milestones, proformaOpenSql, similarPayments, vatInside, ratePct } from './payments.js';
+import { milestones, proformaOpenSql, similarPayments, vatInside, ratePct, stageLabel } from './payments.js';
 import { bankDate, refuseSimilar, settleRow } from './ledger_rules.js';
 import { h, reqStr } from './app.js';
 
@@ -140,12 +140,12 @@ export default function mountPayments(app, db) {
 
   app.get('/api/payments/queue', h(req => {
     need(req.user, 'finance');
-    const reported = scopeRows(db, req.user, db.prepare(`SELECT t.*, p.code AS project_code, p.name AS project_name, u.full_name AS reported_by_name, pf.code AS proforma_code, m.kind AS milestone_kind, o.code AS order_code
+    const reported = scopeRows(db, req.user, db.prepare(`SELECT t.*, p.code AS project_code, p.name AS project_name, u.full_name AS reported_by_name, pf.code AS proforma_code, m.kind AS milestone_kind, m.seq AS milestone_seq, m.label AS milestone_label_raw, o.code AS order_code
       FROM transactions t LEFT JOIN projects p ON p.id = t.project_id LEFT JOIN users u ON u.id = t.created_by LEFT JOIN proformas pf ON pf.id = t.proforma_id
       LEFT JOIN contract_payments m ON m.id = t.contract_payment_id LEFT JOIN supplier_orders o ON o.id = t.supplier_order_id WHERE t.status = 'reported' ORDER BY t.id`).all())
-      .map(t => ({ ...t, vat_pct: ratePct(t), similar: similarPayments(db, t) }));
+      .map(t => ({ ...t, milestone_label: t.milestone_kind ? stageLabel({ kind: t.milestone_kind, seq: t.milestone_seq, label: t.milestone_label_raw }) : null, vat_pct: ratePct(t), similar: similarPayments(db, t) }));
     const unmatched = scopeRows(db, req.user, db.prepare('SELECT c.id, c.code AS contract_code, c.project_id, p.code AS project_code, p.name AS project_name FROM contracts c JOIN projects p ON p.id = c.project_id').all())
-      .flatMap(c => milestones(db, c.id).filter(m => m.unmatched_date).map(m => ({ id: m.id, kind: m.kind, gross: m.gross, unmatched_date: m.unmatched_date, project_id: c.project_id, project_code: c.project_code, project_name: c.project_name, contract_code: c.contract_code })));
+      .flatMap(c => milestones(db, c.id).filter(m => m.unmatched_date).map(m => ({ id: m.id, kind: m.kind, label: m.label, gross: m.gross, unmatched_date: m.unmatched_date, project_id: c.project_id, project_code: c.project_code, project_name: c.project_name, contract_code: c.contract_code })));
     return { reported, unmatched };
   }));
   app.post('/api/payments/unmatched/:id/clear', h(req => tx(db, () => {

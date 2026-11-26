@@ -49,7 +49,7 @@ export function PaymentForm({ title, url, dateKey = 'tx_date', report, choices, 
   </Modal>;
 }
 
-export const milestoneChoices = (payments: any[]) => payments.filter(p => p.id && p.gross !== 0).map(p => ({ value: String(p.id), label: `${MILESTONE[p.kind] || p.kind}${p.paid_at ? ' (платено)' : ''}`, body: { contract_payment_id: p.id }, amount: Math.max(0, Math.round(((p.gross || 0) - p.paid) * 100) / 100) }));
+export const milestoneChoices = (payments: any[]) => payments.filter(p => p.id && p.gross !== 0).map(p => ({ value: String(p.id), label: `${p.label || MILESTONE[p.kind] || p.kind}${p.paid_at ? ' (платено)' : ''}`, body: { contract_payment_id: p.id }, amount: Math.max(0, Math.round(((p.gross || 0) - p.paid) * 100) / 100) }));
 export const orderChoices = (o: any) => (['advance', 'final'] as const).map(s => ({ value: s, label: STAGE[s], body: { stage: s }, amount: Math.max(0, Math.round((((s === 'advance' ? o.advance_eur : o.final_eur) || 0) - ((s === 'advance' ? o.advance_paid_amount : o.final_paid_amount) || 0)) * 100) / 100) }));
 
 export function ConfirmTab({ queue, onDone }: { queue: any; onDone: () => void }) {
@@ -61,7 +61,7 @@ export function ConfirmTab({ queue, onDone }: { queue: any; onDone: () => void }
   return <Loader state={queue}>
     <Card title="Докладвани плащания" pad={false}><Table rows={queue.data?.reported || []} empty={<Empty title="Няма плащания за потвърждение" />} cols={[
       { key: 'pj', title: 'Обект', render: (r: any) => <>{r.project_code} — {r.project_name}</> },
-      { key: 'for', title: 'За', render: (r: any) => r.order_code ? `${r.order_code} · ${STAGE[r.order_stage] || ''}` : r.proforma_code || MILESTONE[r.milestone_kind] || '—' },
+      { key: 'for', title: 'За', render: (r: any) => r.order_code ? `${r.order_code} · ${STAGE[r.order_stage] || ''}` : r.proforma_code || r.milestone_label || MILESTONE[r.milestone_kind] || '—' },
       { key: 'direction', title: '', render: (r: any) => <span className="badge">{r.direction === 'in' ? 'приход' : 'разход'}</span> },
       { key: 'amount', title: `Сума с ДДС, ${cur}`, num: true, render: (r: any) => fmtMoney(r.amount) },
       { key: 'tx_date', title: 'Дата по банка', render: (r: any) => fmtDate(r.tx_date) },
@@ -70,7 +70,7 @@ export function ConfirmTab({ queue, onDone }: { queue: any; onDone: () => void }
       { key: 'x', title: '', width: 190, render: (r: any) => write ? <span className="row" style={{ flexWrap: 'nowrap' }}><button className="sm primary" disabled={busy} onClick={() => setSel(r)}>Потвърди</button>
         <button className="sm ghost" disabled={busy} onClick={() => reject(r)}>Отхвърли</button></span> : null }]} /></Card>
     {(queue.data?.unmatched || []).length > 0 && <Card title="Стара дата без плащане" pad={false}><Table rows={queue.data.unmatched} cols={[
-      { key: 'pj', title: 'Обект', render: (r: any) => <>{r.project_code} — {r.project_name}</> }, { key: 'kind', title: 'Етап', render: (r: any) => MILESTONE[r.kind] || r.kind },
+      { key: 'pj', title: 'Обект', render: (r: any) => <>{r.project_code} — {r.project_name}</> }, { key: 'kind', title: 'Етап', render: (r: any) => r.label || MILESTONE[r.kind] || r.kind },
       { key: 'gross', title: `Сума с ДДС, ${cur}`, num: true, render: (r: any) => fmtMoney(r.gross) }, { key: 'unmatched_date', title: 'Въведена дата', render: (r: any) => fmtDate(r.unmatched_date) },
       { key: 'x', title: '', width: 300, render: (r: any) => write ? <span className="row" style={{ flexWrap: 'nowrap' }}><button className="sm primary" onClick={() => setSel({ unmatched: r })}>Запиши плащане</button><button className="sm ghost" disabled={busy} onClick={() => clear(r)}>Изчисти датата</button></span> : null }]} /></Card>}
     {sel?.unmatched && <PaymentForm title={`Плащане — ${sel.unmatched.project_code}`} url={`/projects/${sel.unmatched.project_id}/payments`} report={false} fixed={{ contract_payment_id: sel.unmatched.id }} amount={sel.unmatched.gross ?? undefined} onClose={() => setSel(null)} onDone={onDone} />}

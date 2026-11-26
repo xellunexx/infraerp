@@ -205,7 +205,8 @@ CREATE TABLE IF NOT EXISTS accountable_persons (
 CREATE TABLE IF NOT EXISTS contract_payments (
   id INTEGER PRIMARY KEY, contract_id INTEGER NOT NULL REFERENCES contracts(id), kind TEXT NOT NULL,
   pct REAL, amount REAL, paid_at TEXT, note TEXT, vat_pct REAL, gross REAL, updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE (contract_id, kind));
+  seq INTEGER NOT NULL DEFAULT 1, label TEXT, due_on TEXT, due_note TEXT,
+  UNIQUE (contract_id, kind, seq));
 CREATE TABLE IF NOT EXISTS supplier_orders (
   id INTEGER PRIMARY KEY, code TEXT NOT NULL UNIQUE, project_id INTEGER NOT NULL REFERENCES projects(id),
   project_line_id INTEGER REFERENCES project_lines(id), supplier TEXT NOT NULL, order_doc_no TEXT,
@@ -285,7 +286,31 @@ export function openDb(file) {
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA synchronous = NORMAL;');
   db.exec(SCHEMA);
   migrateColumns(db);
+  rebuildForNewUnique(db, 'contract_payments');
   return db;
+}
+
+/** A uniqueness rule that changed (e.g. one payment per kind → one per kind and stage) cannot be altered in SQLite:
+ *  the table is rebuilt from its SCHEMA definition, every row and id kept, in one transaction. */
+export function rebuildForNewUnique(db, table) {
+  const cur = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?").get(table)?.sql || '';
+  const def = SCHEMA.match(new RegExp(`CREATE TABLE IF NOT EXISTS ${table} \\(([^]*?)\\);`))?.[1];
+  if (!def) return false;
+  const norm = s => s.replace(/\s+/g, ' ').trim();
+  const want = [...def.matchAll(/UNIQUE \(([^)]*)\)/g)].map(m => norm(m[1]));
+  const have = [...cur.matchAll(/UNIQUE \(([^)]*)\)/g)].map(m => norm(m[1]));
+  if (JSON.stringify(want) === JSON.stringify(have)) return false;
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name).join(', ');
+  db.exec('PRAGMA foreign_keys = OFF');
+  try {
+    db.exec('BEGIN');
+    db.exec(`CREATE TABLE ${table}__new (${def})`);
+    db.exec(`INSERT INTO ${table}__new (${cols}) SELECT ${cols} FROM ${table}`);
+    db.exec(`DROP TABLE ${table}`);
+    db.exec(`ALTER TABLE ${table}__new RENAME TO ${table}`);
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; } finally { db.exec('PRAGMA foreign_keys = ON'); }
+  return true;
 }
 
 /** Additive migration: columns added to SCHEMA later are added to existing databases, so updates never need a rebuild or lose data. */

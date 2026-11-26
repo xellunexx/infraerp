@@ -409,4 +409,9 @@ test('after signing, Accounting can correct and fill in the plan; Contracts cann
   assert.equal((await con.put(url, { kind: 'advance', pct: 50, amount: 3100 })).status, 403);
   assert.equal((await acc.put(url, { kind: 'advance', pct: 50, amount: 3100 })).status, 200);
   assert.equal((await contract()).payments[0].gross, 3720);
+  // the same for a missing interim: filled in once; a second one is a new stage and needs an annex
+  assert.equal((await con.put(url, { kind: 'interim', pct: 30, amount: 1860 })).status, 403);
+  assert.equal((await acc.put(url, { kind: 'interim', pct: 30, amount: 1860 })).status, 200);
+  assert.equal((await acc.put(url, { kind: 'interim', pct: 10, amount: 100 })).status, 400);
+  assert.equal((await contract()).payments.filter(p => p.kind === 'interim').length, 1);
 }));

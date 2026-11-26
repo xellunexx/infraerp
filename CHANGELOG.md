@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-26 — Batch 3, first part: payment stages on the server (7); review status
+- **7 Several interim payments (server only).** `contract_payments` has one row per stage (`seq`, `label`, `due_on`, `due_note`); a contract can carry interim №1, №2… set before signing. After signing an extra stage needs an annex. A payment that names interim №2 is not counted for №1. Existing databases are rebuilt in place on start (`rebuildForNewUnique`), every row and id kept; checked on a copy of the VM database of 26.11 (6 rows unchanged, integrity ok).
+- **Fix, by cause:** the annex rule also refused Accounting filling in the plan of a contract signed before schedules existed. It now applies only when a stage of that kind already exists. The schedule screen saves a stage by its id, so saving the interim row no longer reads as a new stage.
+- **Not done yet:** the screen still shows three fixed rows (no „add stage"); the calendars (4, 5, 10, 14) are not started.
+- `docs/TODO-2026-11-26.md` shows the real status of the 45 points.
+- Tests: `payment_stages`, extended `payments`. Full suite 156/156 on Windows; web build clean.
+
 ## 2026-11-26 — Batch 4: materials and the linear schedule (20, 21, 23, 24, 25, 26, 29, 30, 31, 38)
 - **24 Materials per offer line.** The offer has a new „Материали" tab: product from the catalogue, norm per unit, waste %, note, or taken from the СМР recipe. On confirmation the materials become the КС line's recipe (`project_line_recipe`). That is the one place the quantity statement, material requests, warehouse and brigadier read from.
 - **21, 23 КС tab.** Each line is shown as in the offer (picture, instruction), with quantities and the needed materials. Technical or Contracts can adjust a line's materials with a reason (audited; warehouse, logistics and brigadier are told). The brigadier's plan lists instructions and materials. The 4 existing projects get their materials this way („✎ материали").

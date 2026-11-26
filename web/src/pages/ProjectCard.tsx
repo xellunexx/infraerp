@@ -180,7 +180,7 @@ function PaymentsCard({ pid, d, cur, write, busy, onSaved }: { pid: number; d: a
   const [pay, setPay] = useState(false);
   const direct = can('finance', 'write'), choices = milestoneChoices(d.payments || []);
   const rows = MS.map(([k, label]) => ({ k, label, p: (d.payments || []).find((x: any) => x.kind === k) || { kind: k, pct: null, amount: null, gross: null, paid: 0, paid_at: null, reported: 0, note: null } }));
-  const save = (k: string, f: any) => run(async () => { await api.put(`/projects/${pid}/contract/payments`, { kind: k, pct: f.pct === '' ? null : Number(f.pct), amount: f.amount === '' ? null : Number(f.amount), note: f.note || null }); await onSaved(); }, 'Планът е записан');
+  const save = (k: string, f: any, id?: number) => run(async () => { await api.put(`/projects/${pid}/contract/payments`, { id, kind: k, pct: f.pct === '' ? null : Number(f.pct), amount: f.amount === '' ? null : Number(f.amount), note: f.note || null }); await onSaved(); }, 'Планът е записан');
   return <Card title="Разплащателен график" actions={<>
     {(direct || write) && choices.length > 0 && <button className="primary sm" onClick={() => setPay(true)}>{direct ? 'Запиши плащане' : 'Докладвай плащане'}</button>}
     {d.final_deadline ? <span className="badge warn">Краен срок по договора: {fmtDate(d.final_deadline)}</span> : <span className="muted small">крайният срок се изчислява след платен аванс + срокове</span>}</>}>
@@ -206,7 +206,7 @@ function MilestoneRow({ kind, label, p, disabled, locked, onSave }: any) {
       {p.reported > 0 ? <div className="small muted">докладвано {fmtMoney(p.reported)} — чака потвърждение</div> : null}</td>
     <td style={{ minWidth: 220 }}><textarea className="grow" rows={1} style={{ width: '100%', fieldSizing: 'content', minHeight: 30, resize: 'vertical' } as any} {...f.bind('note')} disabled={disabled} placeholder="Бележка към етапа" />
       {(p.payment_notes || []).map((n: any, i: number) => <div key={i} className="small" style={{ marginTop: 4, whiteSpace: 'pre-wrap' }}><span className="muted">{fmtDate(n.date)} · {fmtMoney(n.amount)}:</span> {n.note}</div>)}</td>
-    {!disabled && <td>{dirty && <button className="primary sm" onClick={() => onSave(kind, f.v)}>Запис</button>}</td>}</tr>;
+    {!disabled && <td>{dirty && <button className="primary sm" onClick={() => onSave(kind, f.v, p.id)}>Запис</button>}</td>}</tr>;
 }
 
 export function ProjectCard({ id }: { id: number }) {
