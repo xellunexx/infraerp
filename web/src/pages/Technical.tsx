@@ -1,7 +1,7 @@
 // Техник: работно място (обекти, задачи, проблеми) и екран на обект — график, прогрес, материали.
 import React, { useState } from 'react';
 import { api, fmtDate, fmtMoney, fmtNum, today } from '../api';
-import { Card, Empty, Field, Link, Loader, Modal, Progress, Status, Table, Tabs, navigate, useAction, useCan, useCurrency, useForm, useLoad, useToast } from '../ui';
+import { Card, LineSelect, Empty, Field, Link, Loader, Modal, Progress, Status, Table, Tabs, navigate, useAction, useCan, useCurrency, useForm, useLoad, useToast } from '../ui';
 
 const SEV: Record<string, [string, string]> = { low: ['Нисък', ''], medium: ['Среден', 'warn'], high: ['Висок', 'bad'], critical: ['Критичен', 'bad'] };
 const ISSUE_KIND: Record<string, string> = { overconsumption: 'Наднормен разход', schedule_delay: 'Изоставане', shortage: 'Липса', quality: 'Качество', other: 'Друго' };
@@ -151,7 +151,7 @@ function ScheduleTab({ pid, sched, onChanged }: { pid: number; sched: ReturnType
       <><button className="ghost" onClick={() => { setEdit(null); setAdd(false); }}>Отказ</button><button className="primary" onClick={edit ? saveEdit : saveAdd}>Запази</button></>}>
       <div className="form c2">
         <Field label="Дейност" full><input {...ef.bind('name')} required /></Field>
-        {add && <Field label="Ред от КС (по желание)" full><select {...ef.bind('project_line_id')}><option value="">—</option>{(sched.data?.lines || []).map((l: any) => <option key={l.id} value={l.id}>{l.code ? l.code + ' · ' : ''}{l.description} ({l.qty} {l.unit})</option>)}</select></Field>}
+        {add && <Field label="Ред от КС (по желание)" full><LineSelect lines={sched.data?.lines || []} value={ef.v.project_line_id} onChange={v => ef.set('project_line_id', v)} empty="—" /></Field>}
         <Field label="Начало"><input type="date" {...ef.bind('start_date')} /></Field>
         <Field label="Край"><input type="date" {...ef.bind('end_date')} /></Field>
         <Field label="Зависи от"><select {...ef.bind('depends_on')}><option value="">—</option>{items.filter(x => x.id !== edit?.id).map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select></Field>
@@ -184,10 +184,7 @@ function ProgressTab({ pid, prog, onChanged }: { pid: number; prog: ReturnType<t
   };
   return <Loader state={prog}>
     {writable && <Card title="Запис на извършено"><div className="form c3">
-      <Field label="Ред от КС"><select {...f.bind('project_line_id')}>
-        <option value="">— избери —</option>
-        {lines.map(l => <option key={l.id} value={l.id}>{l.code ? l.code + ' · ' : ''}{l.description} — {fmtNum(l.done_qty)}/{fmtNum(l.qty)} {l.unit}</option>)}
-      </select></Field>
+      <Field label="Ред от КС"><LineSelect lines={lines} value={f.v.project_line_id} onChange={v => f.set('project_line_id', v)} /></Field>
       <Field label="Дата"><input type="date" {...f.bind('work_date')} max={today()} /></Field>
       <Field label="Количество"><input type="number" min="0" step="any" {...f.bind('qty')} placeholder={f.v.project_line_id ? (lines.find(l => l.id === Number(f.v.project_line_id))?.unit || '') : ''} /></Field>
       <Field label="Бележка" full><input {...f.bind('note')} placeholder="по желание" /></Field>

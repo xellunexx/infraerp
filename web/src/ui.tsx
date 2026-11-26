@@ -169,3 +169,22 @@ export function NewVersionButton({ doc, onDone, disabled }: { doc: any; onDone: 
   </>;
 }
 export const useFilter = <T,>(rows: T[] | null, q: string, text: (r: T) => string) => useMemo(() => { const s = q.trim().toLowerCase(); return (rows || []).filter(r => !s || text(r).toLowerCase().includes(s)); }, [rows, q]);
+const n3 = (x: any) => x == null || x === '' ? '—' : new Intl.NumberFormat('bg-BG', { maximumFractionDigits: 3 }).format(Number(x));
+/** A КС line picker used everywhere a line is chosen: the list shows code, description and quantities;
+ *  the chosen line is shown in full below (description, quantities, notes, picture), so nothing is cut off. */
+export function LineSelect({ lines, value, onChange, empty = '— избери —' }: { lines: any[]; value: any; onChange: (v: string) => void; empty?: string }) {
+  const l = lines.find(x => String(x.id) === String(value));
+  const short = (s: string) => s && s.length > 90 ? s.slice(0, 88) + '…' : s;
+  return <div className="line-select">
+    <select value={value ?? ''} onChange={e => onChange(e.target.value)}>
+      <option value="">{empty}</option>
+      {lines.map(x => <option key={x.id} value={x.id} title={x.description}>{x.code ? x.code + ' · ' : ''}{short(x.description)} — {x.done_qty != null ? `${n3(x.done_qty)}/` : ''}{n3(x.qty)} {x.unit}</option>)}
+    </select>
+    {l && <div className="line-card">
+      {l.image_version_id ? <img src={`/api/documents/${l.image_version_id}/file`} alt="" /> : null}
+      <div><b>{l.code ? l.code + ' · ' : ''}{l.description}</b>
+        <div className="small muted">Договорено {n3(l.qty)} {l.unit}{l.done_qty != null ? ` · изпълнено ${n3(l.done_qty)} · остава ${n3(Math.max(0, (l.qty || 0) - (l.done_qty || 0)))}` : ''}</div>
+        {l.tech_note ? <div className="small" style={{ whiteSpace: 'pre-wrap', marginTop: 4 }}>{l.tech_note}</div> : null}</div>
+    </div>}
+  </div>;
+}

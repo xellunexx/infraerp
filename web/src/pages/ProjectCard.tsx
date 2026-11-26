@@ -323,8 +323,8 @@ export function ProjectCard({ id }: { id: number }) {
       { key: 'entity_type', title: 'Обект на промяната', render: r => `${r.entity_type}${r.entity_id ? ' #' + r.entity_id : ''}` }, { key: 'action', title: 'Действие' },
       { key: 'before', title: 'Преди', render: r => <span className="mono small">{r.before}</span> }, { key: 'after', title: 'След', render: r => <span className="mono small">{r.after}</span> }]} /></Loader></Card>}
 
-    {tab === 'schedule' && <ScheduleTab sched={sched} />}
-    {tab === 'progress' && <ProgressTab prog={prog} />}
+    {tab === 'schedule' && <ScheduleTab sched={sched} pid={id} />}
+    {tab === 'progress' && <ProgressTab prog={prog} pid={id} />}
     {tab === 'logistics' && <LogisticsTab logi={logi} pid={id} />}
     {tab === 'tasks' && <TasksTab tasks={tasks} pid={id} />}
     {tab === 'docs' && <DocsTab docs={docs} pid={id} write={can('documents', 'write')} />}
@@ -440,10 +440,10 @@ const TSK_ST: Record<string, string> = { open: 'Отворена', done: 'Зав
 const PRI: Record<string, string> = { low: 'нисък', normal: 'нормален', high: 'висок', urgent: 'спешен' };
 const ISSUE_KIND: Record<string, string> = { problem: 'Проблем', delay: 'Закъснение', material_shortage: 'Липса на материал', damage: 'Повреда', additional_work: 'Допълнителна работа', other: 'Друго' };
 
-function ScheduleTab({ sched }: { sched: any }) {
+function ScheduleTab({ sched, pid }: { sched: any; pid: number }) {
   const items: any[] = sched.data?.items || [];
   return <Loader state={sched}>
-    <Card title={`Линеен график${sched.data?.deadline ? ` · краен срок ${fmtDate(sched.data.deadline)}` : ''}`} pad={false} actions={<Link to="/technical">Редактирай в Технически →</Link>}>
+    <Card title={`Линеен график${sched.data?.deadline ? ` · краен срок ${fmtDate(sched.data.deadline)}` : ''}`} pad={false} actions={<Link to={`/technical/${pid}`}>Редактирай в Технически →</Link>}>
       <Table rows={items} empty={<Empty title="Няма график">Линейният график се поддържа в Техническия модул.</Empty>} cols={[
         { key: 'name', title: 'Дейност' },
         { key: 'period', title: 'Период', render: (r: any) => r.start_date ? `${fmtDate(r.start_date)} → ${fmtDate(r.end_date)}` : '—' },
@@ -452,7 +452,7 @@ function ScheduleTab({ sched }: { sched: any }) {
       ]} /></Card></Loader>;
 }
 
-function ProgressTab({ prog }: { prog: any }) {
+function ProgressTab({ prog, pid }: { prog: any; pid: number }) {
   const lines: any[] = prog.data?.lines || [];
   const entries: any[] = prog.data?.entries || [];
   return <Loader state={prog}>
@@ -462,7 +462,7 @@ function ProgressTab({ prog }: { prog: any }) {
       { key: 'done_qty', title: 'Извършено', num: true, render: (r: any) => <>{fmtNum(r.done_qty)}{r.qty > 0 && r.done_qty > r.qty ? <div><span className="badge bad">над договора +{fmtNum(r.done_qty - r.qty, 3)}</span></div> : null}</> },
       { key: 'pct', title: '%', width: 130, render: (r: any) => r.pct != null ? <div className="row" style={{ flexWrap: 'nowrap' }}><Progress pct={r.pct} /><span className="small num" style={{ width: 40 }}>{r.pct}%</span></div> : '—' },
     ]} /></Card>
-    <Card title="Дневни отчети" pad={false} actions={<Link to="/technical">Въведи отчет →</Link>}><Table rows={entries} empty={<Empty title="Няма отчети" />} cols={[
+    <Card title="Дневни отчети" pad={false} actions={<Link to={`/technical/${pid}`}>Въведи отчет →</Link>}><Table rows={entries} empty={<Empty title="Няма отчети" />} cols={[
       { key: 'work_date', title: 'Дата', render: (r: any) => fmtDate(r.work_date) }, { key: 'line_description', title: 'Ред' },
       { key: 'qty', title: 'Кол-во', num: true, render: (r: any) => <span className={r.voided ? 'muted' : ''} style={r.voided ? { textDecoration: 'line-through' } : {}}>{fmtNum(r.qty)} {r.unit}</span> },
       { key: 'note', title: 'Бележка' }, { key: 'reported_by_name', title: 'От' },
@@ -486,7 +486,7 @@ function LogisticsTab({ logi, pid }: { logi: any; pid: number }) {
 function TasksTab({ tasks, pid }: { tasks: any; pid: number }) {
   const d = tasks.data;
   return <Loader state={tasks}>
-    <Card title="Задачи" pad={false} actions={<Link to="/technical">В Технически →</Link>}><Table rows={d?.tasks || []} empty={<Empty title="Няма задачи" />} cols={[
+    <Card title="Задачи" pad={false} actions={<Link to={`/technical/${pid}`}>В Технически →</Link>}><Table rows={d?.tasks || []} empty={<Empty title="Няма задачи" />} cols={[
       { key: 'code', title: '№', width: 90 }, { key: 'title', title: 'Задача' },
       { key: 'assignee_name', title: 'Отговорник', render: (r: any) => r.assignee_name || r.assignee_dept || '—' },
       { key: 'due_date', title: 'Срок', render: (r: any) => fmtDate(r.due_date) },
