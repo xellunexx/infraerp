@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-26 — The contract calendar (4, 5, 10, 14) and a checked status of all 45 points
+- **One „Календар на договора"** (`web/src/Calendar.tsx`) fed by one source (`GET /api/projects/:id/calendar`, `server/calendar.js`), shown in „Договор и приложения" (all lanes), inside „Разплащателен график" (Договор + Плащания) and at the top of „Финанси" (Договор + Плащания).
+- Months and days on top; lanes Договор (signed, advance, production + delivery, installation, final deadline), Плащания (every stage on its bank date or due date: empty = to come, green = paid, red = overdue; stages without a date listed), Доставки, Дейности (out-of-contract work striped). Every item opens its record. Lanes only for whoever may read that module; amounts only for money roles.
+- **10, by cause:** each kind of label had one fixed height and nothing checked for overlap. Labels are now packed into sub-rows (sliding right with a bent leader line when there is room), month names that do not fit are dropped, „днес" has its own band above the dates. Measured in the browser on the screenshot case: 0 overlapping labels.
+- The old private timeline in the contract tab is removed.
+- `docs/TODO-2026-11-26.md`: every point checked against the code on `main` and the live data (read only). Found on the server: the 4 real projects have no materials, so the material request, the quantity statement and the brigadier's list stay empty for them until materials are entered; projects 2 and 4 still have wrong locations from their placeholder addresses.
+- Tests: `calendar` (lanes, dates, payment states, undated stage, links, lanes by rights).
+
 ## 2026-11-26 — D1 (point 39): every write reaches the people it affects
 - **One place decides who is told:** `server/routing.js` maps each event type to departments and people, or to "timeline only" (FEED). The timeline of the project now holds every write.
 - **`record()`** (`server/core.js`) writes the audit row and the event in one step. The 41 write routes that only audited now record an event (6 are exempt with a reason: login, logout, first setup, "read", weather refresh, event retry).

@@ -5,6 +5,7 @@ import { WeatherCard } from './Weather';
 import { MILESTONE, PaymentForm, milestoneChoices } from './PaymentForm';
 import { deliveryCols } from './Logistics';
 import { Gantt } from '../Gantt';
+import { ContractCalendar } from '../Calendar';
 import { MaterialsEditor, cleanMats, type Mat } from './Materials';
 import { Card, DeptBadge, Empty, Field, Kpi, Link, Loader, Modal, NewVersionButton, Progress, Status, Table, Tabs, navigate, useAction, useCan, useCurrency, useForm, useLoad, useMessages, usePath, VersionLinks, useFocus } from '../ui';
 
@@ -68,7 +69,7 @@ function ContractTab({ pid, onChange }: { pid: number; onChange: () => void }) {
       <div className="row" style={{ justifyContent: 'flex-end' }}><button className="primary" disabled={busy || !signF.install_start || !signF.install_deadline || signF.advance_pct === ''}
         onClick={() => run(async () => { await api.post(`/projects/${pid}/contract/sign`, signF); setSignF(null); await c.reload(); onChange(); }, 'Договорът е подписан. Сроковете са активни.')}>Подпиши</button></div>
     </Modal>}
-    <ContractTimeline d={d} />
+    <ContractCalendar pid={pid} reload={c.data} />
     <PaymentsCard pid={pid} d={d} cur={cur} write={write} busy={busy} onSaved={async () => { await c.reload(); onChange(); }} />
     <ContractFiles pid={pid} contract={d} docs={docs} write={write} />
     <AmendmentsCard pid={pid} onChange={() => { c.reload(); onChange(); }} />
@@ -119,59 +120,6 @@ function ContractFiles({ pid, contract, docs, write }: { pid: number; contract: 
   </Card>;
 }
 
-// Договорен календар: етапите на договора върху реалните им дати — лента с напредъка
-// на времето и маркер „днес“. Данните идват от contractView: signed_on, advance_paid_at,
-// срокове в дни, install_*/delivery_deadline, payments[].paid_at, final_deadline.
-const DAY_MS = 86400000;
-function ContractTimeline({ d }: { d: any }) {
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const T = today.getTime();
-  const ts = (s: any) => (s ? Date.parse(s) : NaN);
-  const iso = (t: number) => new Date(t).toISOString().slice(0, 10);
-  const prodEnd = d.deadline_start && d.prod_delivery_days != null ? ts(d.deadline_start) + Number(d.prod_delivery_days) * DAY_MS : NaN;
-  const instStart = ts(d.install_start) || prodEnd;
-  const instEnd = ts(d.install_deadline) || ts(d.final_deadline);
-
-  const unpaid = (d.payments || []).some((p: any) => p.gross !== 0 && !p.paid_at);
-  const pastDeadline = ts(d.final_deadline) && ts(d.final_deadline) < T;
-  const deliveryDue = ts(d.delivery_due); // delivery_due се дерива на сървъра — отпада когато срокът не е уточнен
-  type Pt = { t: number; label: string; state: 'done' | 'active' | 'pending' | 'late' };
-  const pts: Pt[] = ([
-    { t: ts(d.signed_on), label: 'Подписан', state: d.signed_on ? 'done' : 'pending' },
-    { t: ts(d.advance_paid_at), label: 'Аванс платен', state: d.advance_paid_at ? 'done' : 'pending' },
-    { t: deliveryDue, label: d.delivery_due_real ? 'Доставка до' : 'Доставка до (прогноза)', state: (deliveryDue && deliveryDue < T ? 'done' : 'pending') as Pt['state'] },
-    { t: ts(d.final_deadline), label: 'Краен срок', state: pastDeadline ? (unpaid ? 'late' : 'done') : 'pending' },
-  ] as Pt[]).filter(p => !isNaN(p.t));
-
-  type Seg = { a: number; b: number; label: string; state: 'done' | 'active' | 'pending' | 'late' };
-  const segs: Seg[] = [];
-  if (!isNaN(ts(d.deadline_start)) && !isNaN(prodEnd)) segs.push({ a: ts(d.deadline_start), b: prodEnd, label: 'Производство и доставка', state: prodEnd < T ? 'done' : T >= ts(d.deadline_start) ? 'active' : 'pending' });
-  if (!isNaN(instStart) && !isNaN(instEnd)) segs.push({ a: instStart, b: instEnd, label: 'Монтаж', state: instEnd < T ? 'done' : T >= instStart ? 'active' : 'pending' });
-  const payDots = (d.payments || []).filter((p: any) => p.paid_at && p.kind !== 'advance').map((p: any) => ({ t: ts(p.paid_at), label: p.kind === 'interim' ? 'Междинно плащане' : 'Окончателно плащане' }));
-
-  const known = [...pts.map(p => p.t), ...segs.flatMap(s => [s.a, s.b]), ...payDots.map((p: any) => p.t)].filter(t => !isNaN(t));
-  const late = pastDeadline && unpaid;
-  if (known.length < 2) return <Card title="Договорен календар"><div className="muted small">
-    Етапите ще се подредят на лентата, щом има поне две дати — подписване, платен аванс и сроковете в дни активират графика.{d.final_deadline ? ` Краен срок: ${fmtDate(d.final_deadline)}.` : ''}</div></Card>;
-
-  const pad = Math.max((Math.max(...known) - Math.min(...known)) * 0.03, 2 * DAY_MS);
-  const t0 = Math.min(...known) - pad, t1 = Math.max(Math.max(...known), T) + pad;
-  const X = (t: number) => ((t - t0) / (t1 - t0)) * 100;
-  const fillTo = Math.min(Math.max(T, t0), t1);
-
-  return <Card title="Договорен календар" actions={late ? <span className="badge bad">просрочен краен срок</span> : d.final_deadline ? <span className="badge">към {fmtDate(d.final_deadline)}</span> : undefined}>
-    <div className="ctline">
-      <div className="ctl-track"><i className={late ? 'ctl-fill late' : 'ctl-fill'} style={{ width: X(fillTo) + '%' }} /></div>
-      {segs.map((s, i) => <div key={i} className={'ctl-seg ' + s.state} style={{ left: X(s.a) + '%', width: Math.max(X(s.b) - X(s.a), 0.8) + '%' }}><span>{s.label}<br />{fmtDate(iso(s.a))}–{fmtDate(iso(s.b))}</span></div>)}
-      {pts.filter(p => !isNaN(p.t)).map((p, i) => <div key={i} className={'ctl-pt ' + p.state} style={{ left: X(p.t) + '%' }}><i /><div><b>{p.label}</b><span>{fmtDate(iso(p.t))}</span></div></div>)}
-      {payDots.map((p: any, i: number) => <div key={'p' + i} className="ctl-pay" style={{ left: X(p.t) + '%' }}><i /><span>{p.label}<br />{fmtDate(iso(p.t))}</span></div>)}
-      <div className="ctl-today" style={{ left: X(T) + '%' }}><span>днес</span></div>
-    </div>
-    {d.advance_paid_at && <div className="muted small" style={{ marginTop: 10 }}>
-      Аванс {fmtDate(d.advance_paid_at)}{d.prod_delivery_days != null ? ` → производство/доставка до ${fmtDate(iso(prodEnd))}` : ' — въведете срок производство + доставка за реална дата'}{d.install_days != null && d.final_deadline ? ` → монтаж до ${fmtDate(d.final_deadline)}` : ''}</div>}
-  </Card>;
-}
-
 const KIND_ORDER: Record<string, number> = { advance: 1, interim: 2, final: 3 };
 const byStage = (a: any, b: any) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || (a.seq ?? 1) - (b.seq ?? 1);
 // т.7: one row per stage of the contract (аванс, междинно №1…№n, окончателно); a kind with no stage yet keeps an empty row,
@@ -201,6 +149,8 @@ function PaymentsCard({ pid, d, cur, write, busy, onSaved }: { pid: number; d: a
     {d.final_deadline ? <span className="badge warn">Краен срок по договора: {fmtDate(d.final_deadline)}</span> : <span className="muted small">крайният срок се изчислява след платен аванс + срокове</span>}</>}>
     {(d.unmatched_paid_at || []).map((u: any) => <div key={`${u.label || u.kind}|${u.date}`} className="alert warn">Непотвърдена дата: {u.label || MILESTONE[u.kind] || u.kind} — {fmtDate(u.date)}. Няма записано плащане, затова срокът не тече. Счетоводство записва плащането или изчиства датата.</div>)}
     {d.schedule_gap ? <div className="alert warn">Графикът се различава от договорната стойност с {fmtMoney(d.schedule_gap, cur)} без ДДС.</div> : null}
+    {/* т.5: the same calendar, following the dates of advance, interim and final payments */}
+    <div style={{ marginBottom: 14 }}><ContractCalendar pid={pid} lanes={['contract', 'payments']} bare reload={d} /></div>
     <div className="table-wrap"><table className="t"><thead><tr>
       <th>Плащане</th><th className="num">%</th><th className="num">Без ДДС, {cur}</th><th className="num">С ДДС, {cur}</th><th>Падеж</th><th className="num">Получено с ДДС</th><th>Дата</th><th>Състояние</th><th>Бележка</th>{(write || direct) && <th style={{ width: 90 }} />}</tr></thead>
       <tbody>{rows.map(p => <MilestoneRow key={[p.id ?? `new-${p.kind}`, p.pct, p.amount, p.note, p.custom_label, p.due_on, p.due_note].join('|')} p={p} interims={interims}
@@ -397,6 +347,8 @@ function FinanceTab({ pid }: { pid: number }) {
   if (!d) return <Loader state={fin}><div /></Loader>;
   const m = (n: any) => fmtMoney(n, cur), r = d.result;
   return <>
+    {/* т.14: the same contract and payment calendars as in „Договор и приложения" */}
+    <ContractCalendar pid={pid} lanes={['contract', 'payments']} title="Договорен и разплащателен календар" />
     {r && <Card title="Резултат по обекта (както в таблицата)" pad={false}><Table rows={[
       { k: 'ПРИХОД без ДДС', v: r.income_net },
       { k: 'РАЗХОДИ /МАТЕРИАЛИ И УСЛУГИ/ без ДДС', v: r.materials_net },

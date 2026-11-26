@@ -10,6 +10,7 @@ import { recordLink } from './links.js';
 import { humanAudit, humanEvent } from './human.js';
 import { lineMaterials } from './materials.js';
 import { amendmentsOf, decideExtraWork } from './amendments.js';
+import { contractCalendar } from './calendar.js';
 
 export default function mountProjects(app, db) {
   // Етапи, управлявани изцяло от домейн действия върху договора — никога ръчни отметки.
@@ -49,6 +50,12 @@ export default function mountProjects(app, db) {
     (SELECT COALESCE(SUM(qty * unit_price), 0) FROM project_lines l WHERE l.project_id = c.project_id AND l.removed = 0) AS total
     FROM contracts c JOIN projects p ON p.id = c.project_id JOIN customers cu ON cu.id = p.customer_id ORDER BY c.id DESC`).all()); }));
   app.get('/api/projects/:pid/contract', h(req => { need(req.user, 'contracts'); needProject(db, req.user, req.params.pid); return contractView(Number(req.params.pid)); }));
+  // т.4, 5, 14: one calendar of the contract for every place that shows it; each lane only for who may read that module
+  app.get('/api/projects/:pid/calendar', h(req => {
+    need(req.user, 'projects'); needProject(db, req.user, req.params.pid);
+    const pid = Number(req.params.pid);
+    return contractCalendar(db, req.user, pid, can(req.user, 'contracts') || can(req.user, 'finance') ? contractView(pid) : null);
+  }));
   app.get('/api/contract-versions/:id', h(req => { need(req.user, 'contracts');
     const v = db.prepare('SELECT * FROM contract_versions WHERE id = ?').get(req.params.id);
     if (!v) throw new HttpError(404, 'Няма такава версия');
