@@ -133,20 +133,24 @@ export default function mountProjects(app, db) {
 
   /** §14.6 dashboard buckets: negotiating = no signed contract; upcoming = signed, execution not started
    *  (flagged чака аванс until the advance milestone is paid); executing = execution started. */
+  // the project's stage — one rule, read by the dashboard and the projects list
+  const STAGE_SQL = `(SELECT status FROM contracts ct WHERE ct.project_id = p.id) AS contract_status,
+        (SELECT id FROM contracts ct WHERE ct.project_id = p.id) AS contract_id,
+        (SELECT COUNT(*) FROM progress_entries e WHERE e.project_id = p.id AND e.voided = 0) AS entries`;
+  const stageOf = p => ['closed', 'completed', 'on_hold'].includes(p.status) || p.archived ? null
+    : p.contract_status !== 'signed' ? 'negotiating'
+    : (p.actual_start || p.status === 'execution' || p.entries > 0) ? 'executing' : 'upcoming';
   app.get('/api/dashboard', h(req => {
     need(req.user, 'projects');
-    const rows = db.prepare(`SELECT p.id, p.code, p.name, p.status, p.actual_start, c.name AS customer_name,
-        ct.status AS contract_status, ct.signed_on, ct.install_start, ct.install_deadline,
-        ct.id AS contract_id,
-        (SELECT COUNT(*) FROM progress_entries e WHERE e.project_id = p.id AND e.voided = 0) AS entries
-      FROM projects p JOIN customers c ON c.id = p.customer_id LEFT JOIN contracts ct ON ct.project_id = p.id
-      WHERE p.archived = 0 AND p.status NOT IN ('closed', 'completed', 'on_hold')`).all()
+    const rows = db.prepare(`SELECT p.id, p.code, p.name, p.status, p.archived, p.actual_start, c.name AS customer_name, ${STAGE_SQL}
+      FROM projects p JOIN customers c ON c.id = p.customer_id WHERE p.archived = 0`).all()
       .filter(p => visible(req.user, p.id))
+      .map(p => ({ ...p, stage: stageOf(p) })).filter(p => p.stage)
       .map(p => ({ ...p, progress_pct: progressSummary(db, p.id).progress_pct }));
-    const negotiating = rows.filter(p => p.contract_status !== 'signed');
-    const upcoming = rows.filter(p => p.contract_status === 'signed' && !p.actual_start && p.status !== 'execution')
+    const negotiating = rows.filter(p => p.stage === 'negotiating');
+    const upcoming = rows.filter(p => p.stage === 'upcoming')
       .map(p => { const adv = milestones(db, p.contract_id).find(m => m.kind === 'advance'); return { ...p, advance_paid_at: adv?.paid_at ?? null, awaiting_advance: !adv || (adv.gross !== 0 && !adv.paid_at) }; });
-    const executing = rows.filter(p => p.contract_status === 'signed' && (p.actual_start || p.status === 'execution' || p.entries > 0));
+    const executing = rows.filter(p => p.stage === 'executing');
     return { negotiating, upcoming, executing };
   }));
 
@@ -215,12 +219,12 @@ export default function mountProjects(app, db) {
     need(req.user, 'projects');
     const money = can(req.user, 'finance');
     const archived = req.query.archived === '1' ? 1 : 0;
-    return db.prepare(`SELECT p.*, c.name AS customer_name, t.full_name AS technical_name, b.full_name AS brigadier_name,
+    return db.prepare(`SELECT p.*, c.name AS customer_name, t.full_name AS technical_name, b.full_name AS brigadier_name, ${STAGE_SQL},
         (SELECT COUNT(*) FROM issues i WHERE i.project_id = p.id AND i.status = 'open' AND i.severity IN ('high', 'critical')) AS critical_issues
       FROM projects p JOIN customers c ON c.id = p.customer_id LEFT JOIN users t ON t.id = p.technical_id LEFT JOIN users b ON b.id = p.brigadier_id
       WHERE p.archived = ? ORDER BY p.id DESC`).all(archived)
       .filter(p => visible(req.user, p.id))
-      .map(p => { const s = progressSummary(db, p.id); return { ...p, progress_pct: s.progress_pct, contract_value: money ? s.contract_value : null, cost_price: money ? s.cost_price : null }; });
+      .map(p => { const s = progressSummary(db, p.id); return { ...p, stage: stageOf(p), progress_pct: s.progress_pct, contract_value: money ? s.contract_value : null, cost_price: money ? s.cost_price : null }; });
   }));
   app.get('/api/projects/:id', h(req => {
     need(req.user, 'projects'); const id = Number(req.params.id); needProject(db, req.user, id);
@@ -234,6 +238,8 @@ export default function mountProjects(app, db) {
       contract: db.prepare('SELECT id, code, status, active_version, signed_on, delivery_deadline, install_start, install_deadline FROM contracts WHERE project_id = ?').get(id) || null,
       progress_pct: s.progress_pct, lines: s.lines.map(l => money ? l : { ...l, unit_price: null, unit_cost: null }),
       finance: money ? finance(db, id) : null,
+      // the contract value card is for Accounting, Logistics and Management only (others see the contract code)
+      contract_value_card: ['accounting', 'logistics', 'management'].includes(req.user.department) ? { value: s.contract_value, cost_price: money ? s.cost_price : null } : null,
       stages: db.prepare('SELECT s.*, u.full_name AS done_by_name FROM project_stages s LEFT JOIN users u ON u.id = s.done_by WHERE s.project_id = ? ORDER BY s.sort').all(id),
       members: db.prepare('SELECT m.user_id, m.role, u.full_name, u.department FROM project_members m JOIN users u ON u.id = m.user_id WHERE m.project_id = ?').all(id),
       reopen_request: db.prepare("SELECT a.*, u.full_name AS requested_by_name FROM approvals a LEFT JOIN users u ON u.id = a.requested_by WHERE a.entity_type = 'project' AND a.entity_id = ? AND a.kind = 'project_reopen' AND a.status = 'pending'").get(id) || null };

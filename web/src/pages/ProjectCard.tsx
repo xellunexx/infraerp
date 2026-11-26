@@ -76,12 +76,10 @@ function ContractTab({ pid, onChange }: { pid: number; onChange: () => void }) {
     <ContractTimeline d={d} />
     <PaymentsCard pid={pid} d={d} cur={cur} write={write} busy={busy} onSaved={async () => { await c.reload(); onChange(); }} />
     <ContractFiles pid={pid} contract={d} docs={docs} write={write} />
-    <Card title={`Приложения${d.active_version ? ` към версия ${d.active_version}` : ' (проект)'}`}>
+    <Card title={`Приложения${d.active_version ? ` към версия ${d.active_version}` : ' (проект)'}`} actions={d.versions?.length ? <span className="row small">История: {d.versions.map((r: any) =>
+      <button key={r.id} className="ghost sm" title={`${r.reason || ''} · ${fmtDateTime(r.created_at)}`} onClick={async () => setVer(await api.get(`/contract-versions/${r.id}`))}>v{r.version}</button>)}</span> : undefined}>
       {d.appendices.map((a: any) => <details key={a.id} style={{ marginBottom: 8 }} open={a.number === 3}><summary><b>{a.title}</b></summary><div className="pre mono" style={{ padding: '8px 0 0 14px' }}>{a.body}</div></details>)}
     </Card>
-    <Card title="Версии на договора" pad={false}><Table rows={d.versions} onRow={async r => setVer(await api.get(`/contract-versions/${r.id}`))} empty={<Empty title="Още няма одобрена версия">Версия 1 се създава при одобрение на договора.</Empty>} cols={[
-      { key: 'version', title: 'Версия', render: r => 'v' + r.version }, { key: 'reason', title: 'Основание' }, { key: 'total_value', title: `Стойност, ${cur}`, num: true, render: r => fmtMoney(r.total_value) },
-      { key: 'approved_by_name', title: 'Одобрил' }, { key: 'created_at', title: 'Дата', render: r => fmtDateTime(r.created_at) }]} /></Card>
     {ver && <Modal wide title={`Договор ${d.code} — версия ${ver.version}`} onClose={() => setVer(null)}>
       <p className="muted">{ver.reason} · {fmtDateTime(ver.created_at)} · неизменяем запис</p>
       <Table rows={ver.snapshot.lines} cols={[{ key: 'description', title: 'Описание' }, { key: 'unit', title: 'Мярка' }, { key: 'qty', title: 'Количество', num: true, render: (r: any) => fmtNum(r.qty, 3) },
@@ -268,8 +266,8 @@ export function ProjectCard({ id }: { id: number }) {
     {d.archived ? <div className="alert bad">Обектът е архивиран — показан е архивният запис, не активна работа.{write ? ' „Възстанови от архив“ го връща в списъка.' : ''}</div> : null}
     <div className="grid g4 kpis-m" style={{ marginBottom: 14 }}>
       <Kpi label="Изпълнение" value={d.progress_pct + '%'} sub={<Progress pct={d.progress_pct} />} />
-      {money ? <Kpi label={`Договорна стойност без ДДС, ${cur}`} value={fmtMoney(d.finance.contract_value)} sub={`себестойност ${fmtMoney(d.finance.cost_price)}`} /> : <Kpi label="Договор" value={d.contract ? d.contract.code : '—'} sub={d.contract && <Status value={d.contract.status} />} />}
-      <Kpi label="Планирано изпълнение" value={d.planned_start ? `${fmtDate(d.planned_start)} – ${fmtDate(d.planned_end)}` : 'няма срокове'} sub={d.contract?.delivery_deadline ? `доставка до ${fmtDate(d.contract.delivery_deadline)}` : 'сроковете се активират при подписан договор'} />
+      {d.contract_value_card ? <Kpi label={`Договорна стойност без ДДС, ${cur}`} value={fmtMoney(d.contract_value_card.value)} sub={d.contract_value_card.cost_price != null ? `себестойност ${fmtMoney(d.contract_value_card.cost_price)}` : undefined} /> : <Kpi label="Договор" value={d.contract ? d.contract.code : '—'} sub={d.contract && <Status value={d.contract.status} />} />}
+      <Kpi label="Срок на договора" value={d.planned_start ? `${fmtDate(d.planned_start)} – ${fmtDate(d.planned_end)}` : 'няма срокове'} sub={d.contract?.delivery_deadline ? `доставка до ${fmtDate(d.contract.delivery_deadline)}` : 'сроковете се активират при подписан договор'} />
       <Kpi label="Отговорници" value={<span style={{ fontSize: 14 }}>{d.technical_name || 'няма Техник'} / {d.brigadier_name || 'няма Бригадир'}</span>} tone={!d.technical_id || !d.brigadier_id ? 'warn' : undefined} sub="Техник / Бригадир" />
     </div>
     {failed > 0 && <div className="alert bad">Има {failed} неуспешно обработени събития по този обект. Виж „Настройки → Синхронизация“.</div>}
@@ -308,12 +306,11 @@ export function ProjectCard({ id }: { id: number }) {
 
     {tab === 'lines' && <Card title="Количествено-стойностна сметка (КС) — договорни количества" pad={false}>
       <Table rows={d.lines} empty={<Empty title="Няма редове" />} cols={[{ key: 'sort', title: '№', width: 40 },
-        { key: 'img', title: '', width: 56, render: (r: any) => r.image_document_id ? <a href={`/api/documents/${r.image_document_id}/file`} target="_blank" rel="noreferrer" title="Техническа спецификация / снимка"><img src={`/api/documents/${r.image_document_id}/file`} alt="" style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 6, display: 'block' }} /></a> : null },
+        { key: 'img', title: '', width: 56, render: (r: any) => r.image_version_id ? <a href={`/api/documents/${r.image_version_id}/file`} target="_blank" rel="noreferrer" title="Техническа спецификация / снимка"><img src={`/api/documents/${r.image_version_id}/file`} alt="" style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 6, display: 'block' }} /></a> : null },
         { key: 'description', title: 'Описание на СМР' }, { key: 'unit', title: 'Мярка' },
         { key: 'qty', title: 'Договорено', num: true, render: (r: any) => fmtNum(r.qty, 3) }, { key: 'done_qty', title: 'Изпълнено', num: true, render: (r: any) => <>{fmtNum(r.done_qty, 3)}{r.qty > 0 && r.done_qty > r.qty ? <div><span className="badge bad">над договора +{fmtNum(r.done_qty - r.qty, 3)}</span></div> : null}</> },
         { key: 'pct', title: '%', num: true, render: (r: any) => r.qty ? fmtNum(Math.min(100, r.done_qty / r.qty * 100), 0) + '%' : '—' },
-        ...(money ? [{ key: 'unit_price', title: 'Ед. цена', num: true, render: (r: any) => fmtMoney(r.unit_price) }, { key: 'tot', title: `Стойност, ${cur}`, num: true, render: (r: any) => fmtMoney(r.qty * r.unit_price) }] : [])]}
-        foot={money ? <tr><td colSpan={8}>Общо без ДДС (версия {d.baseline_version ?? 'проект'})</td><td className="num">{fmtMoney(d.finance.contract_value)}</td></tr> : undefined} /></Card>}
+]} /></Card>}
 
     {tab === 'timeline' && <Card title="Хронология на обекта"><Loader state={timeline}>{(timeline.data || []).length === 0 ? <Empty title="Няма събития" /> : <ul className="timeline">{(timeline.data || []).map(e => <li key={e.id}>
       <div className="muted small">{fmtDateTime(e.ts)}<br />{e.user_name || 'система'}</div>

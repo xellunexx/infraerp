@@ -1,33 +1,23 @@
 import React from 'react';
 import { fmtDateTime, fmtMoney } from '../api';
-import { Card, DeptBadge, Empty, Kpi, Link, Loader, Progress, Status, Table, navigate, useCan, useCurrency, useLoad, useUser } from '../ui';
+import { Card, DeptBadge, Empty, Link, Loader, Progress, Status, Table, navigate, useCan, useCurrency, useLoad, useUser } from '../ui';
 
 /** Role-aware start page. Each role sees the queues it is responsible for; figures come from the shared records. */
 export function Dashboard() {
   const user = useUser();
   const can = useCan();
   const cur = useCurrency();
-  const projects = useLoad<any[]>(can('projects') ? '/projects' : null);
   const dash = useLoad<any>(can('projects') ? '/dashboard' : null);
   const offers = useLoad<any[]>(can('offers') ? '/offers' : null);
   const contracts = useLoad<any[]>(can('contracts') ? '/contracts' : null);
   const notes = useLoad<any[]>('/notifications');
-  const active = (projects.data || []).filter(p => !['closed', 'completed'].includes(p.status));
   const openOffers = (offers.data || []).filter(o => ['draft', 'sent'].includes(o.status));
   const pendingContracts = (contracts.data || []).filter(c => c.status !== 'signed');
-  const unread = (notes.data || []).filter(n => !n.is_read);
-  const money = can('finance');
   return <>
     <div className="page-head"><div><h1>Табло</h1><div className="muted small">{user.full_name} · <DeptBadge code={user.department} /></div></div></div>
-    <div className="grid g4 kpis-m" style={{ marginBottom: 14 }}>
-      {can('projects') && <Kpi label="Активни обекти" value={active.length} />}
-      {can('offers') && <Kpi label="Отворени оферти" value={openOffers.length} sub={money ? fmtMoney(openOffers.reduce((s, o) => s + (o.total || 0), 0), cur) : undefined} />}
-      {can('contracts') && <Kpi label="Договори в работа" value={pendingContracts.length} tone={pendingContracts.length ? 'warn' : undefined} />}
-      <Kpi label="Непрочетени известия" value={unread.length} tone={unread.length ? 'warn' : undefined} />
-    </div>
     {can('projects') && <Loader state={dash}><div className="grid g3" style={{ marginBottom: 14 }}>
       {[['executing', 'В изпълнение'], ['upcoming', 'Предстоящи'], ['negotiating', 'В договаряне']].map(([k, label]) =>
-        <Card key={k} pad={false} title={label}><Table rows={(dash.data?.[k] || []).slice(0, 8)} onRow={r => navigate(`/projects/${r.id}`)}
+        <Card key={k} pad={false} title={`${label} (${(dash.data?.[k] || []).length})`} actions={<Link to={`/projects?stage=${k}`}>Всички →</Link>}><Table rows={(dash.data?.[k] || []).slice(0, 8)} onRow={r => navigate(`/projects/${r.id}`)}
           empty={<Empty title="Няма обекти" />} cols={[
             { key: 'code', title: '№ / Обект', render: (r: any) => <>{r.code} — {r.name}<div className="small muted">{r.customer_name}</div></> },
             { key: 'progress_pct', title: '%', render: (r: any) => <div className="row" style={{ flexWrap: 'nowrap' }}><Progress pct={r.progress_pct} /><span className="small">{r.progress_pct}%</span></div> },

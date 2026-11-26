@@ -1,17 +1,23 @@
 import React, { useState } from 'react';
 import { fmtDate, fmtMoney } from '../api';
-import { Card, Empty, Loader, Progress, Status, Table, navigate, useCan, useCurrency, useFilter, useLoad } from '../ui';
+import { Card, Empty, Loader, Progress, Status, Table, Tabs, navigate, useCan, useCurrency, useFilter, useLoad, usePath } from '../ui';
+
+const STAGES: [string, string][] = [['', 'Всички'], ['negotiating', 'В договаряне'], ['upcoming', 'Предстоящи'], ['executing', 'В изпълнение']];
 
 export function Projects() {
   const [showArchived, setShowArchived] = useState(false);
   const list = useLoad<any[]>(showArchived ? '/projects?archived=1' : '/projects');
   const cur = useCurrency(), money = useCan()('finance');
   const [q, setQ] = useState('');
-  const rows = useFilter(list.data, q, r => [r.code, r.name, r.customer_name, r.site_address, r.technical_name, r.brigadier_name].join(' '));
+  const path = usePath();
+  const [stage, setStage] = useState(new URLSearchParams(path.split('?')[1] || '').get('stage') || '');
+  React.useEffect(() => { setStage(new URLSearchParams(path.split('?')[1] || '').get('stage') || ''); }, [path]);
+  const rows = useFilter((list.data || []).filter(r => !stage || r.stage === stage), q, r => [r.code, r.name, r.customer_name, r.site_address, r.technical_name, r.brigadier_name].join(' '));
   return <>
     <div className="page-head"><h1>{showArchived ? 'Обекти — архив' : 'Обекти'}</h1><span className="spacer" />
       <button className={showArchived ? 'sm primary' : 'sm ghost'} onClick={() => setShowArchived(v => !v)}>Архив</button>
       <input style={{ maxWidth: 260 }} placeholder="Филтър" value={q} onChange={e => setQ(e.target.value)} /></div>
+    {!showArchived && <Tabs value={stage} onChange={setStage} tabs={STAGES.map(([k, l]) => [k, k ? `${l} (${(list.data || []).filter(r => r.stage === k).length})` : l] as [string, string])} />}
     <Card pad={false}><Loader state={list}>
       <Table rows={rows} onRow={r => navigate(`/projects/${r.id}`)}
         empty={<Empty title="Няма обекти">Обект (Картон на обекта) се създава автоматично при потвърдена оферта.</Empty>} cols={[
