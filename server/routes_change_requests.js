@@ -180,6 +180,8 @@ function applyEdit(db, type, id, payload, user) {
   const after = entRow(db, type, id);
   if (type === 'transaction') settleRow(db, id, { before, separate: true });
   e.reindex?.(db, after);
+  emit(db, user, { type: `${type}.changed_by_request`, origin: 'change_requests', project_id: after?.project_id ?? (type === 'project' ? id : null),
+    entity_type: type, entity_id: id, prev: Object.fromEntries(Object.keys(fields).map(k => [k, before[k]])), next: fields });
   return { before, after, result };
 }
 function applyDelete(db, type, id, user) {

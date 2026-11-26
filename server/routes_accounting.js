@@ -1,7 +1,7 @@
 // Счетоводство: проформи, приходи/разходи, заявки за плащане с одобрение от Управител, настаняване, финансов преглед по обект и портфолио.
 import crypto from 'node:crypto';
 import { tx, nextCode } from './db.js';
-import { HttpError, bad, need, can, canSeeProject, scopeRows, redactMoney, audit, updateRow, emit, notify, on, setting, resolveApproval } from './core.js';
+import { HttpError, bad, need, can, canSeeProject, scopeRows, redactMoney, audit, record, updateRow, emit, notify, on, setting, resolveApproval } from './core.js';
 import { withLinks } from './links.js';
 import { roleOf } from './roles.js';
 import { proformaState, orderDates } from './payments.js';
@@ -281,7 +281,7 @@ export default function mountAccounting(app, db) {
     if (f.document_id === t.id) throw bad('Плащането не може да сочи към самия документ');
     updateRow(db, 'transactions', t.id, f, b.row_version);
     settleRow(db, t.id, { before: t, separate: b.separate === true });
-    audit(db, req.user, { project_id: t.project_id, entity_type: 'transaction', entity_id: t.id, action: 'update', before: pick(t, Object.keys(f)), after: f, module: 'accounting' });
+    record(db, req.user, { type: 'transaction.corrected', project_id: t.project_id, entity_type: 'transaction', entity_id: t.id, action: 'update', before: pick(t, Object.keys(f)), after: f, next: { ...f, supplier_order_id: t.supplier_order_id ?? null }, module: 'accounting' });
     return withOpen(db.prepare(`${txView} WHERE t.id = ?`).get(t.id));
   })));
 
@@ -365,7 +365,7 @@ export default function mountAccounting(app, db) {
     needProjectGuard(req.user, a.project_id);
     const f = accoFields(req.body || {});
     updateRow(db, 'accommodations', a.id, f, req.body?.row_version);
-    audit(db, req.user, { project_id: a.project_id, entity_type: 'accommodation', entity_id: a.id, action: 'update', before: pick(a, Object.keys(f)), after: f, module: 'accounting' });
+    record(db, req.user, { type: 'accommodation.updated', project_id: a.project_id, entity_type: 'accommodation', entity_id: a.id, action: 'update', before: pick(a, Object.keys(f)), after: f, module: 'accounting' });
     return db.prepare(`${accoView} WHERE a.id = ?`).get(a.id);
   })));
 
@@ -382,7 +382,7 @@ export default function mountAccounting(app, db) {
     if (b.user_id != null && b.user_id !== '') { if (!db.prepare('SELECT 1 FROM users WHERE id = ?').get(Number(b.user_id))) throw bad('Няма такъв потребител'); user_id = Number(b.user_id); }
     const id = Number(db.prepare('INSERT INTO accountable_persons(code, name, user_id, note) VALUES (?,?,?,?)')
       .run(nextCode(db, 'PER'), name, user_id, b.note || null).lastInsertRowid);
-    audit(db, req.user, { entity_type: 'accountable_person', entity_id: id, action: 'create', after: { name }, module: 'accounting' });
+    record(db, req.user, { type: 'accountable_person.created', entity_type: 'accountable_person', entity_id: id, action: 'create', after: { name }, module: 'accounting' });
     return db.prepare(`${personView} WHERE p.id = ?`).get(id);
   })));
   app.patch('/api/accountable-persons/:id', h(req => tx(db, () => {
@@ -393,7 +393,7 @@ export default function mountAccounting(app, db) {
     if (f.name !== undefined) f.name = reqStr(f.name, 'Име');
     if (req.body?.user_id !== undefined) { const uid = req.body.user_id == null || req.body.user_id === '' ? null : Number(req.body.user_id); if (uid != null && !db.prepare('SELECT 1 FROM users WHERE id = ?').get(uid)) throw bad('Няма такъв потребител'); f.user_id = uid; }
     updateRow(db, 'accountable_persons', p.id, f, req.body?.row_version);
-    audit(db, req.user, { entity_type: 'accountable_person', entity_id: p.id, action: 'update', before: pick(p, Object.keys(f)), after: f, module: 'accounting' });
+    record(db, req.user, { type: 'accountable_person.updated', entity_type: 'accountable_person', entity_id: p.id, action: 'update', before: pick(p, Object.keys(f)), after: f, module: 'accounting' });
     return db.prepare(`${personView} WHERE p.id = ?`).get(p.id);
   })));
   app.get('/api/accountable-persons/:id/card', h(req => {
@@ -409,7 +409,7 @@ export default function mountAccounting(app, db) {
     need(req.user, 'finance', 'write');
     const b = req.body || {}, name = reqStr(b.name, 'Име');
     const id = Number(db.prepare('INSERT INTO cost_centers(code, name, kind) VALUES (?,?,?)').run(nextCode(db, 'CC'), name, b.kind || 'overhead').lastInsertRowid);
-    audit(db, req.user, { entity_type: 'cost_center', entity_id: id, action: 'create', after: { name, kind: b.kind || 'overhead' }, module: 'accounting' });
+    record(db, req.user, { type: 'cost_center.created', entity_type: 'cost_center', entity_id: id, action: 'create', after: { name, kind: b.kind || 'overhead' }, module: 'accounting' });
     return db.prepare('SELECT * FROM cost_centers WHERE id = ?').get(id);
   })));
   app.patch('/api/cost-centers/:id', h(req => tx(db, () => {
@@ -419,7 +419,7 @@ export default function mountAccounting(app, db) {
     const f = pick(req.body || {}, ['name', 'kind', 'active']);
     if (f.name !== undefined) f.name = reqStr(f.name, 'Име');
     updateRow(db, 'cost_centers', c.id, f, req.body?.row_version);
-    audit(db, req.user, { entity_type: 'cost_center', entity_id: c.id, action: 'update', before: pick(c, Object.keys(f)), after: f, module: 'accounting' });
+    record(db, req.user, { type: 'cost_center.updated', entity_type: 'cost_center', entity_id: c.id, action: 'update', before: pick(c, Object.keys(f)), after: f, module: 'accounting' });
     return db.prepare('SELECT * FROM cost_centers WHERE id = ?').get(c.id);
   })));
 
@@ -473,7 +473,7 @@ export default function mountAccounting(app, db) {
     // the target of a payment is not moved by those who may only report payments
     if (['total_eur', 'advance_eur'].some(k => f[k] !== undefined && f[k] !== o[k]) && db.prepare("SELECT 1 FROM transactions WHERE supplier_order_id = ? AND status IN ('paid', 'reported')").get(o.id)) need(req.user, 'finance', 'write');
     updateRow(db, 'supplier_orders', o.id, f, req.body?.row_version);
-    audit(db, req.user, { project_id: o.project_id, entity_type: 'supplier_order', entity_id: o.id, action: 'update', before: pick(o, Object.keys(f)), after: f, module: 'accounting' });
+    record(db, req.user, { type: 'supplier_order.updated', project_id: o.project_id, entity_type: 'supplier_order', entity_id: o.id, action: 'update', before: pick(o, Object.keys(f)), after: f, module: 'accounting' });
     return soOut(db.prepare(`${soView} WHERE o.id = ?`).get(o.id));
   })));
 }

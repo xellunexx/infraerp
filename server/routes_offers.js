@@ -1,6 +1,6 @@
 // Оферти: inquiries, offers, versions/revisions, confirmation.
 import { tx, nextCode } from './db.js';
-import { HttpError, bad, need, audit, updateRow, reindex, setting } from './core.js';
+import { HttpError, bad, need, audit, record, emit, updateRow, reindex, setting } from './core.js';
 import { offerTotals, confirmOffer } from './domain.js';
 import { h, pick, reqStr, num } from './app.js';
 import { priceLine } from './pricing.js';
@@ -21,7 +21,7 @@ export default function mountOffers(app, db) {
     if (b.active !== undefined) f.active = b.active ? 1 : 0;
     if (Array.isArray(b.lines)) f.lines = JSON.stringify(b.lines.map(l => ({ ...l, description: reqStr(l.description, 'Описание'), unit: reqStr(l.unit, 'Мярка') })));
     updateRow(db, 'offer_templates', id, f, b.row_version);
-    audit(db, req.user, { entity_type: 'offer_template', entity_id: id, action: 'update', before, after: f, module: 'offers' });
+    record(db, req.user, { type: 'offer_template.updated', entity_type: 'offer_template', entity_id: id, action: 'update', before, after: f, module: 'offers' });
     return { ok: true };
   })));
   /** Save the current section of an offer as a new reusable template. */
@@ -34,7 +34,7 @@ export default function mountOffers(app, db) {
     const lines = (b.lines || []).map(l => ({ ...l, description: reqStr(l.description, 'Описание'), unit: reqStr(l.unit, 'Мярка') }));
     const id = Number(db.prepare('INSERT INTO offer_templates(code, family, title, description, footer, alternative, lines) VALUES (?,?,?,?,?,?,?)')
       .run(code, reqStr(b.family || 'Други', 'Група'), reqStr(b.title, 'Заглавие'), b.description || null, b.footer || null, b.alternative ? 1 : 0, JSON.stringify(lines)).lastInsertRowid);
-    audit(db, req.user, { entity_type: 'offer_template', entity_id: id, action: 'create', after: { code, title: b.title }, module: 'offers' });
+    record(db, req.user, { type: 'offer_template.created', entity_type: 'offer_template', entity_id: id, action: 'create', after: { code, title: b.title }, module: 'offers' });
     return { id, code };
   })));
 
@@ -46,7 +46,7 @@ export default function mountOffers(app, db) {
     const id = Number(db.prepare('INSERT INTO inquiries(code, customer_id, title, site_address, description, received_on, owner_id) VALUES (?,?,?,?,?,?,?)')
       .run(code, num(b.customer_id, 'Клиент', { min: 1 }), reqStr(b.title, 'Заглавие'), b.site_address || null, b.description || null,
         b.received_on || new Date().toISOString().slice(0, 10), req.user.id).lastInsertRowid);
-    audit(db, req.user, { entity_type: 'inquiry', entity_id: id, action: 'create', after: b, module: 'offers' });
+    record(db, req.user, { type: 'inquiry.created', entity_type: 'inquiry', entity_id: id, action: 'create', after: b, module: 'offers' });
     return { id, code };
   })));
   app.patch('/api/inquiries/:id', h(req => tx(db, () => {
@@ -55,7 +55,7 @@ export default function mountOffers(app, db) {
     if (!before) throw new HttpError(404, 'Запитването не е намерено');
     const f = pick(req.body || {}, ['title', 'site_address', 'description', 'status', 'received_on']);
     updateRow(db, 'inquiries', id, f, req.body?.row_version);
-    audit(db, req.user, { entity_type: 'inquiry', entity_id: id, action: 'update', before, after: f, module: 'offers' });
+    record(db, req.user, { type: 'inquiry.updated', entity_type: 'inquiry', entity_id: id, action: 'update', before, after: f, module: 'offers' });
     return { ok: true };
   })));
 
@@ -103,7 +103,7 @@ export default function mountOffers(app, db) {
       .run(id, req.user.id, b.attention_to || null, new Date().toISOString().slice(0, 10), Math.max(1, Math.round(Number(b.validity_months) || 1)));
     if (b.inquiry_id) db.prepare("UPDATE inquiries SET status = 'offered' WHERE id = ?").run(b.inquiry_id);
     reindex(db, 'offer', id, code, b.title, b.site_address || '');
-    audit(db, req.user, { entity_type: 'offer', entity_id: id, action: 'create', after: b, module: 'offers' });
+    record(db, req.user, { type: 'offer.created', entity_type: 'offer', entity_id: id, action: 'create', after: b, module: 'offers' });
     return { id, code };
   })));
 
@@ -152,7 +152,7 @@ export default function mountOffers(app, db) {
           l.tech_note || null, l.planned_days ? Math.round(num(l.planned_days, 'Дни')) : null, row.material_cost, row.delivery_cost, row.labour_days, row.day_rate, row.install_cost,
           row.overhead_pct, row.profit_pct, row.tax_pct, row.manual_price, l.image_document_id || null, JSON.stringify(cleanMaterials(db, l.materials, `Ред ${i + 1}: `)));
       });
-      audit(db, req.user, { entity_type: 'offer', entity_id: id, action: 'save_lines', before: { lines: before }, after: { version: v.version, lines: b.lines.length }, module: 'offers' });
+      record(db, req.user, { type: 'offer.updated', entity_type: 'offer', entity_id: id, action: 'save_lines', before: { lines: before }, after: { version: v.version, lines: b.lines.length }, module: 'offers' });
     }
     const t = db.prepare('SELECT title, site_address FROM offers WHERE id = ?').get(id);
     reindex(db, 'offer', id, o.code, t.title, t.site_address || '');
@@ -177,7 +177,9 @@ export default function mountOffers(app, db) {
     need(req.user, 'offers', 'write');
     const o = db.prepare('SELECT * FROM offers WHERE id = ?').get(req.params.id);
     if (!o) throw new HttpError(404, 'Офертата не е намерена');
-    return fn(o, req);
+    const out = fn(o, req);
+    emit(db, req.user, { type: `offer.${name}`, origin: 'offers', entity_type: 'offer', entity_id: o.id, prev: { status: o.status }, next: { code: o.code, title: o.title } });
+    return out;
   })));
   transition('send', (o, req) => {
     if (o.status === 'confirmed') throw bad('Офертата вече е потвърдена');

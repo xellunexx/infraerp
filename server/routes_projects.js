@@ -1,6 +1,6 @@
 // Договори + Картон на обекта (core view) + engine visibility, notifications, search.
 import { tx, nextCode } from './db.js';
-import { HttpError, bad, need, can, needProject, canSeeProject, scopeRows, canSeeMoney, redactMoney, audit, updateRow, emit, notify, on, reindex, resolveApproval, setting } from './core.js';
+import { HttpError, bad, need, can, needProject, canSeeProject, scopeRows, canSeeMoney, redactMoney, audit, record, updateRow, emit, notify, on, reindex, resolveApproval, setting } from './core.js';
 import { milestones, grossOf } from './payments.js';
 import { signContract, advancePct, newContractVersion, setStage, deriveProjectStatus, syncProjectStatus } from './domain.js';
 import { progressSummary, finance } from './calc.js';
@@ -71,7 +71,7 @@ export default function mountProjects(app, db) {
     const s = f.install_start ?? c.install_start, e = f.install_deadline ?? c.install_deadline;
     if (s && e && e < s) throw bad('Крайният срок е преди началото на монтажа');
     updateRow(db, 'contracts', c.id, f, req.body?.row_version);
-    audit(db, req.user, { project_id: pid, entity_type: 'contract', entity_id: c.id, action: 'update', before: pick(c, Object.keys(f)), after: f, module: 'contracts' });
+    record(db, req.user, { type: 'contract.updated', project_id: pid, entity_type: 'contract', entity_id: c.id, action: 'update', before: pick(c, Object.keys(f)), after: f, module: 'contracts' });
     return contractView(pid);
   })));
   /** draft -> review -> approved (immutable version 1) -> signed (event). */
@@ -122,7 +122,7 @@ export default function mountProjects(app, db) {
     if (m.contract_status === 'signed') throw bad('След подписване етап се маха само с анекс');
     if (db.prepare('SELECT 1 FROM transactions WHERE contract_payment_id = ?').get(m.id)) throw bad('По етапа има плащания');
     db.prepare('DELETE FROM contract_payments WHERE id = ?').run(m.id);
-    audit(db, req.user, { project_id: m.project_id, entity_type: 'contract', entity_id: m.contract_id, action: 'payment_plan', before: { kind: m.kind, seq: m.seq, amount: m.amount }, after: { removed: true }, module: 'contracts' });
+    record(db, req.user, { type: 'contract_payment.removed', project_id: m.project_id, entity_type: 'contract', entity_id: m.contract_id, action: 'payment_plan', before: { kind: m.kind, seq: m.seq, amount: m.amount }, after: { removed: true }, module: 'contracts' });
     return { ok: true };
   })));
   app.put('/api/projects/:pid/contract/payments', h(req => tx(db, () => {
@@ -154,7 +154,7 @@ export default function mountProjects(app, db) {
       const seq = kind === 'interim' ? (db.prepare("SELECT MAX(seq) s FROM contract_payments WHERE contract_id = ? AND kind = 'interim'").get(c.id).s || 0) + 1 : 1;
       db.prepare('INSERT INTO contract_payments(contract_id, kind, seq, pct, amount, vat_pct, gross, note, label, due_on, due_note) VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(c.id, kind, seq, ...vals);
     }
-    audit(db, req.user, { project_id: pid, entity_type: 'contract', entity_id: c.id, action: 'payment_plan', before: before ? pick(before, ['kind', 'pct', 'amount']) : null,
+    record(db, req.user, { type: 'contract_payment.changed', project_id: pid, entity_type: 'contract', entity_id: c.id, action: 'payment_plan', before: before ? pick(before, ['kind', 'pct', 'amount']) : null,
       after: { kind, seq: before?.seq ?? null, pct: keep('pct', num(b.pct)), amount }, module: 'contracts' });
     return contractView(pid);
   })));
@@ -289,6 +289,10 @@ export default function mountProjects(app, db) {
     updateRow(db, 'projects', id, f, b.row_version);
     audit(db, req.user, { project_id: id, entity_type: 'project', entity_id: id, action: 'update', before: pick(before, Object.keys(f)), after: f, module: 'projects' });
     if (f.name || f.site_address) { const a = db.prepare('SELECT p.code, p.name, p.site_address, c.name AS cn FROM projects p JOIN customers c ON c.id = p.customer_id WHERE p.id = ?').get(id); reindex(db, 'project', id, a.code, a.name, `${a.cn} ${a.site_address || ''}`); }
+    const SITE_FIELDS = ['site_address', 'access_notes', 'unloading_notes', 'storage_notes', 'parking_notes', 'courier_office', 'courier_pallets', 'site_questionnaire'];
+    const siteChanged = SITE_FIELDS.filter(k => f[k] !== undefined && f[k] !== before[k]);
+    if (siteChanged.length) emit(db, req.user, { type: 'project.site_changed', origin: 'projects', project_id: id, entity_type: 'project', entity_id: id,
+      prev: pick(before, siteChanged.filter(k => k !== 'site_questionnaire')), next: pick(f, siteChanged.filter(k => k !== 'site_questionnaire')) });
     for (const k of ['technical_id', 'brigadier_id']) if (f[k] !== undefined && f[k] !== before[k])
       emit(db, req.user, { type: 'project.assigned', origin: 'projects', project_id: id, entity_type: 'project', entity_id: id, prev: { [k]: before[k] }, next: { [k]: f[k] }, affected: [k === 'technical_id' ? 'technical' : 'brigadier'] });
     // coarse status is stage-derived; the only manual writes are on_hold (pause) and resume (re-derive)
@@ -299,7 +303,7 @@ export default function mountProjects(app, db) {
       else if (b.status === 'resume' && before.status === 'on_hold') next = deriveProjectStatus(db, id);
       if (next !== before.status) {
         db.prepare('UPDATE projects SET status = ?, row_version = row_version + 1 WHERE id = ?').run(next, id);
-        audit(db, req.user, { project_id: id, entity_type: 'project', entity_id: id, action: 'status', before: { status: before.status }, after: { status: next }, module: 'projects' });
+        record(db, req.user, { type: next === 'on_hold' ? 'project.on_hold' : 'project.resumed', project_id: id, entity_type: 'project', entity_id: id, action: 'status', before: { status: before.status }, after: { status: next }, module: 'projects' });
       }
     }
     return { ok: true };
@@ -349,7 +353,7 @@ export default function mountProjects(app, db) {
     if (!!p.archived === want) return { ok: true, archived: p.archived, status: p.status };
     const next = want ? 'closed' : deriveProjectStatus(db, id);
     db.prepare('UPDATE projects SET archived = ?, status = ?, row_version = row_version + 1 WHERE id = ?').run(want ? 1 : 0, next, id);
-    audit(db, req.user, { project_id: id, entity_type: 'project', entity_id: id, action: want ? 'archive' : 'unarchive',
+    record(db, req.user, { type: want ? 'project.archived' : 'project.unarchived', project_id: id, entity_type: 'project', entity_id: id, action: want ? 'archive' : 'unarchive',
       before: { archived: p.archived, status: p.status }, after: { archived: want ? 1 : 0, status: next }, module: 'projects' });
     return { ok: true, archived: want, status: next };
   })));
@@ -388,7 +392,9 @@ export default function mountProjects(app, db) {
       LEFT JOIN notification_reads r ON r.notification_id = n.id AND r.user_id = ?
       WHERE n.user_id = ? OR n.department = ? ORDER BY n.id DESC LIMIT 300`)
       .all(req.user.id, req.user.id, req.user.department)
-      .filter(n => !n.project_id || visible(req.user, n.project_id));
+      // Д1: a notice addressed to me personally always reaches me (e.g. a brigadier who was just replaced on the project);
+      // a department notice needs the project to be mine, and never tells me about my own action
+      .filter(n => n.user_id === req.user.id || ((!n.project_id || visible(req.user, n.project_id)) && n.author_id !== req.user.id));
     rows = rows.map(n => ({ ...n, link: recordLink(n.ref_type, n.ref_id, n.project_id, req.user.department) ?? n.link }));
     if (req.query.unread === '1') rows = rows.filter(n => !n.is_read);
     if (req.query.project_id) rows = rows.filter(n => n.project_id === Number(req.query.project_id));

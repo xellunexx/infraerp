@@ -41,7 +41,8 @@ test('Phase 1: offer -> contract -> Project Card through the sync engine', async
     const ev = t.db.prepare("SELECT * FROM events WHERE type = 'offer.confirmed'").get();
     assert.equal(ev.status, 'processed');
     assert.equal(ev.project_id, p.id);
-    assert.equal(t.db.prepare("SELECT COUNT(*) n FROM event_effects WHERE event_id = ? AND status = 'ok'").get(ev.id).n, 3);
+    // 3 handlers + the Д1 fan-out by server/routing.js
+    assert.equal(t.db.prepare("SELECT COUNT(*) n FROM event_effects WHERE event_id = ? AND status = 'ok'").get(ev.id).n, 4);
     const depts = t.db.prepare('SELECT department FROM notifications WHERE event_id = ?').all(ev.id).map(n => n.department).sort();
     assert.deepEqual(depts, ['contracts', 'management', 'technical']);
 

@@ -4,7 +4,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 const parseCookie = header => Object.fromEntries(String(header).split(';').map(p => p.trim().split('=')).filter(p => p[0] && p.length > 1).map(([k, ...v]) => [k, decodeURIComponent(v.join('='))]));
 import { tx, nextCode } from './db.js';
-import { bootstrap, HttpError, bad, hashPassword, verifyPassword, createSession, userFromToken, need, needAdmin, audit, updateRow, reindex, ROLES, RESOURCES } from './core.js';
+import { bootstrap, HttpError, bad, hashPassword, verifyPassword, createSession, userFromToken, need, needAdmin, audit, record, updateRow, reindex, ROLES, RESOURCES } from './core.js';
 import './domain.js';
 
 export const pick = (o, keys) => Object.fromEntries(keys.filter(k => o[k] !== undefined).map(k => [k, o[k] === '' ? null : o[k]]));
@@ -87,7 +87,7 @@ export function createApp(db, routeModules = []) {
     if (db.prepare('SELECT 1 FROM users WHERE username = ?').get(reqStr(b.username, 'Потребителско име'))) throw bad('Потребителското име е заето');
     const id = Number(db.prepare('INSERT INTO users(username, full_name, department, role, phone, email, offer_letter, office, pass_hash) VALUES (?,?,?,?,?,?,?,?,?)')
       .run(b.username.trim(), reqStr(b.full_name, 'Име'), ROLES[b.role], b.role, b.phone || null, b.email || null, offerLetter(b.offer_letter), b.office || null, hashPassword(b.password)).lastInsertRowid);
-    audit(db, req.user, { entity_type: 'user', entity_id: id, action: 'create', after: { username: b.username, role: b.role }, module: 'settings' });
+    record(db, req.user, { type: 'user.created', entity_type: 'user', entity_id: id, action: 'create', after: { username: b.username, role: b.role }, module: 'settings' });
     return { id };
   })));
   app.patch('/api/users/:id', h(req => tx(db, () => {
@@ -105,7 +105,7 @@ export function createApp(db, routeModules = []) {
       // a changed password ends every other session of that user; the device making the change stays in
       db.prepare('DELETE FROM sessions WHERE user_id = ? AND token != ?').run(id, parseCookie(req.headers.cookie || '').synchro_sid || ''); }
     updateRow(db, 'users', id, f, b.row_version);
-    audit(db, req.user, { entity_type: 'user', entity_id: id, action: 'update', before, after: { ...f, pass_hash: f.pass_hash ? '(changed)' : undefined }, module: 'settings' });
+    record(db, req.user, { type: 'user.updated', entity_type: 'user', entity_id: id, action: 'update', before, after: { ...f, pass_hash: f.pass_hash ? '(changed)' : undefined }, module: 'settings' });
     return { ok: true };
   })));
   // per-user module visibility: admin sets explicit allow/deny per resource; NULL inherits the role
@@ -122,7 +122,7 @@ export function createApp(db, routeModules = []) {
       if (!RESOURCES.includes(String(r.resource))) throw bad(`Невалиден модул: ${r.resource}`);
       ins.run(id, String(r.resource), r.can_read == null ? null : +!!r.can_read, r.can_write == null ? null : +!!r.can_write, r.can_approve == null ? null : +!!r.can_approve);
     }
-    audit(db, req.user, { entity_type: 'user', entity_id: id, action: 'overrides', after: req.body?.rows, module: 'settings' });
+    record(db, req.user, { type: 'user.overrides_changed', entity_type: 'user', entity_id: id, action: 'overrides', after: req.body?.rows, module: 'settings' });
     return { ok: true };
   })));
   app.get('/api/permissions', h(req => { needAdmin(req.user); return { roles: Object.keys(ROLES), resources: RESOURCES, rows: db.prepare('SELECT * FROM role_permissions').all() }; }));
@@ -130,7 +130,7 @@ export function createApp(db, routeModules = []) {
     needAdmin(req.user);
     const up = db.prepare('UPDATE role_permissions SET can_read = ?, can_write = ?, can_approve = ? WHERE role = ? AND resource = ?');
     for (const r of req.body?.rows || []) { if (r.role === 'admin') continue; up.run(+!!r.can_read, +!!r.can_write, +!!r.can_approve, String(r.role), String(r.resource)); }
-    audit(db, req.user, { entity_type: 'permissions', action: 'update', after: req.body?.rows, module: 'settings' });
+    record(db, req.user, { type: 'permissions.changed', entity_type: 'permissions', action: 'update', after: req.body?.rows, module: 'settings' });
     return { ok: true };
   })));
   app.put('/api/settings', h(req => tx(db, () => {
@@ -145,7 +145,7 @@ export function createApp(db, routeModules = []) {
     }
     delete body.offer_next_number;
     for (const [k, v] of Object.entries(body)) up.run(k, String(v));
-    audit(db, req.user, { entity_type: 'settings', action: 'update', after: req.body, module: 'settings' });
+    record(db, req.user, { type: 'settings.changed', entity_type: 'settings', action: 'update', after: req.body, module: 'settings' });
     return { ok: true };
   })));
 
@@ -163,7 +163,7 @@ export function createApp(db, routeModules = []) {
       const keys = Object.keys(f);
       const id = Number(db.prepare(`INSERT INTO ${table}(${keys.join(',')}) VALUES (${keys.map(() => '?').join(',')})`).run(...keys.map(k => f[k])).lastInsertRowid);
       reindex(db, kind, id, f.code, f.name, text(f));
-      audit(db, req.user, { entity_type: kind, entity_id: id, action: 'create', after: f, module: resource });
+      record(db, req.user, { type: `${kind}.created`, entity_type: kind, entity_id: id, action: 'create', after: f, module: resource });
       return db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id);
     })));
     app.patch(`/api/${route}/:id`, h(req => tx(db, () => {
@@ -173,7 +173,7 @@ export function createApp(db, routeModules = []) {
       updateRow(db, table, id, pick(req.body || {}, cols.filter(c => c !== 'code')), req.body?.row_version);
       const after = db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id);
       reindex(db, kind, id, after.code, after.name, text(after));
-      audit(db, req.user, { entity_type: kind, entity_id: id, action: 'update', before, after, module: resource });
+      record(db, req.user, { type: `${kind}.updated`, entity_type: kind, entity_id: id, action: 'update', before, after, module: resource });
       return after;
     })));
   }
@@ -188,7 +188,7 @@ export function createApp(db, routeModules = []) {
     db.prepare('DELETE FROM recipe_items WHERE smr_type_id = ?').run(id);
     const ins = db.prepare('INSERT INTO recipe_items(smr_type_id, product_id, norm_per_unit, waste_pct) VALUES (?,?,?,?)');
     for (const r of req.body?.items || []) ins.run(id, num(r.product_id, 'Материал', { min: 1 }), num(r.norm_per_unit, 'Норма', { min: 0.000001 }), num(r.waste_pct ?? 0, 'Фира'));
-    audit(db, req.user, { entity_type: 'recipe', entity_id: id, action: 'replace', before, after: req.body?.items, module: 'catalog' });
+    record(db, req.user, { type: 'smr.recipe_changed', entity_type: 'recipe', entity_id: id, action: 'replace', before, after: req.body?.items, module: 'catalog' });
     return { ok: true };
   })));
 

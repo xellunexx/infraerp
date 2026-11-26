@@ -1,6 +1,6 @@
 // Логистика: доставки до обект с артикели, техника (активи) и разпределението й по обекти, портфолио и обеден изглед.
 import { tx, nextCode } from './db.js';
-import { HttpError, bad, need, canSeeProject, hideForeignProject, audit, updateRow, emit, notify, on } from './core.js';
+import { HttpError, bad, need, canSeeProject, hideForeignProject, audit, record, updateRow, emit, notify, on } from './core.js';
 import { withLinks } from './links.js';
 import { fulfilRequest } from './routes_warehouse.js';
 import { h, pick, num, reqStr } from './app.js';
@@ -172,6 +172,10 @@ export default function mountLogistics(app, db) {
       const m = db.prepare('SELECT status FROM material_requests WHERE id = ?').get(d.request_id);
       if (m?.status === 'approved') fulfilRequest(db, req.user, d.request_id);
     }
+    const moved = Object.keys(f).filter(k => k !== 'status').length || b.items !== undefined || f.status === 'in_transit';
+    if (moved && !['delivered', 'cancelled'].includes(f.status))
+      emit(db, req.user, { type: 'delivery.updated', origin: 'logistics', project_id: d.project_id, entity_type: 'delivery', entity_id: d.id,
+        prev: pick(d, Object.keys(f)), next: { ...f, ...(b.items !== undefined ? { items: b.items } : {}) } });
     if (f.status === 'delivered')
       emit(db, req.user, { type: 'delivery.delivered', origin: 'logistics', project_id: d.project_id, entity_type: 'delivery', entity_id: d.id,
         dedupe_key: `delivery.delivered:${d.id}`, prev: { status: d.status }, next: { status: 'delivered' }, affected: ['brigadier', 'technical', 'logistics'] });
@@ -192,7 +196,7 @@ export default function mountLogistics(app, db) {
       status, location: b.location || null, notes: b.notes || null };
     const id = Number(db.prepare('INSERT INTO assets(code, name, kind, plate, status, location, notes) VALUES (?,?,?,?,?,?,?)')
       .run(f.code, f.name, f.kind, f.plate, f.status, f.location, f.notes).lastInsertRowid);
-    audit(db, req.user, { entity_type: 'asset', entity_id: id, action: 'create', after: { code: f.code, name: f.name, kind: f.kind }, module: 'logistics' });
+    record(db, req.user, { type: 'asset.created', entity_type: 'asset', entity_id: id, action: 'create', after: { code: f.code, name: f.name, kind: f.kind }, module: 'logistics' });
     return db.prepare(`${assetView} WHERE s.id = ?`).get(id);
   })));
   app.patch('/api/assets/:id', h(req => tx(db, () => {
@@ -205,7 +209,7 @@ export default function mountLogistics(app, db) {
     if (f.kind !== undefined) f.kind = reqStr(f.kind, 'Вид');
     if (f.status !== undefined && !ASSET_STATUSES.includes(f.status)) throw bad('Невалиден статус');
     updateRow(db, 'assets', a.id, f, b.row_version);
-    audit(db, req.user, { entity_type: 'asset', entity_id: a.id, action: 'update', before: pick(a, Object.keys(f)), after: f, module: 'logistics' });
+    record(db, req.user, { type: 'asset.updated', entity_type: 'asset', entity_id: a.id, action: 'update', before: pick(a, Object.keys(f)), after: f, module: 'logistics' });
     return db.prepare(`${assetView} WHERE s.id = ?`).get(a.id);
   })));
 
@@ -255,7 +259,7 @@ export default function mountLogistics(app, db) {
     if (['planned', 'active'].includes(ns) && (f.date_from !== undefined || f.date_to !== undefined || f.status !== undefined) && overlap(a.asset_id, ndf, ndt, a.id))
       throw bad('Техниката вече е разпределена за този период');
     updateRow(db, 'asset_allocations', a.id, f, b.row_version);
-    audit(db, req.user, { project_id: a.project_id, entity_type: 'asset_allocation', entity_id: a.id, action: 'update', before: pick(a, Object.keys(f)), after: f, module: 'logistics' });
+    record(db, req.user, { type: 'asset_allocation.updated', project_id: a.project_id, entity_type: 'asset_allocation', entity_id: a.id, action: 'update', before: pick(a, Object.keys(f)), after: f, module: 'logistics' });
     return db.prepare(`${allocView} WHERE a.id = ?`).get(a.id);
   })));
 }

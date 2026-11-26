@@ -52,7 +52,7 @@ test('Technical: schedule built on signing, editable with concurrency guard, emi
     assert.ok(ev, 'schedule.changed emitted');
     assert.equal(ev.status, 'processed');
     const n = t.db.prepare("SELECT DISTINCT department FROM notifications WHERE event_id = ?").all(ev.id).map(r => r.department);
-    assert.deepEqual(n.sort(), ['brigadier', 'logistics']);
+    assert.deepEqual(n.sort(), ['brigadier', 'logistics', 'warehouse'], 'Д1: the warehouse plans material by the schedule too');
 
     // add a custom item
     const add = await tech.post(`/api/projects/${project.id}/schedule`, { name: 'Почистване', start_date: '2026-01-13', end_date: '2026-01-14', depends_on: item.id });

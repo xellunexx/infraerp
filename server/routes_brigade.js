@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import multer from 'multer';
 import { tx, nextCode, FILES_DIR } from './db.js';
-import { HttpError, bad, need, canSeeProject, audit, updateRow, emit, notify, on } from './core.js';
+import { HttpError, bad, need, canSeeProject, audit, record, updateRow, emit, notify, on } from './core.js';
 import { progressSummary } from './calc.js';
 import { h, pick, num, reqStr } from './app.js';
 
@@ -76,7 +76,7 @@ export default function mountBrigade(app, db) {
       ON CONFLICT(project_id, work_date, worker) DO UPDATE SET hours = excluded.hours, team = excluded.team, recorded_by = excluded.recorded_by`)
       .run(pid, workDate, worker, hours, b.team || null, req.user.id);
     const row = db.prepare(`${attView} WHERE a.project_id = ? AND a.work_date = ? AND a.worker = ?`).get(pid, workDate, worker);
-    audit(db, req.user, { project_id: pid, entity_type: 'attendance', entity_id: row.id, action: 'upsert', after: { worker, work_date: workDate, hours, team: b.team || null }, module: 'brigade' });
+    record(db, req.user, { type: 'attendance.recorded', project_id: pid, entity_type: 'attendance', entity_id: row.id, action: 'upsert', after: { worker, work_date: workDate, hours, team: b.team || null }, module: 'brigade' });
     return row;
   })));
 
@@ -150,6 +150,8 @@ export default function mountBrigade(app, db) {
     updateRow(db, 'issues', i.id, f, b.row_version);
     audit(db, req.user, { project_id: i.project_id, entity_type: 'issue', entity_id: i.id, action: b.status && b.status !== i.status ? 'status' : 'update',
       before: pick(i, Object.keys(f)), after: f, module: 'brigade' });
+    if (f.status !== 'resolved' && Object.keys(f).length)
+      emit(db, req.user, { type: 'issue.updated', origin: 'brigade', project_id: i.project_id, entity_type: 'issue', entity_id: i.id, prev: pick(i, Object.keys(f)), next: f });
     if (f.status === 'resolved')
       emit(db, req.user, { type: 'issue.resolved', origin: 'brigade', project_id: i.project_id, entity_type: 'issue', entity_id: i.id,
         dedupe_key: `issue.resolved:${i.id}`, prev: { status: i.status }, next: { status: 'resolved', resolution: f.resolution }, affected: ['brigadier', 'technical'] });
@@ -180,7 +182,7 @@ export default function mountBrigade(app, db) {
     if (parentId != null && !db.prepare('SELECT 1 FROM messages WHERE id = ? AND project_id = ?').get(parentId, pid)) throw bad('Няма такова нишка');
     const id = Number(db.prepare(`INSERT INTO messages(project_id, parent_id, entity_type, entity_id, kind, body, mentions, author_id) VALUES (?,?,?,?, 'comment', ?, '[]', ?)`)
       .run(pid, parentId, entityType, entityId, body, req.user.id).lastInsertRowid);
-    audit(db, req.user, { project_id: pid, entity_type: 'message', entity_id: id, action: 'create', after: { body: body.slice(0, 120) }, module: 'messages' });
+    record(db, req.user, { type: 'message.created', project_id: pid, entity_type: 'message', entity_id: id, action: 'create', after: { body: body.slice(0, 120) }, module: 'messages' });
     return db.prepare(`SELECT m.*, u.full_name AS author_name FROM messages m LEFT JOIN users u ON u.id = m.author_id WHERE m.id = ?`).get(id);
   })));
 

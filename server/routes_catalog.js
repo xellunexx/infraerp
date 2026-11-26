@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { FILES_DIR } from './db.js';
-import { HttpError, need, audit } from './core.js';
+import { HttpError, need, audit, record } from './core.js';
 import { h } from './app.js';
 
 const MIME = { '.webp': 'image/webp', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.svg': 'image/svg+xml' };
@@ -81,7 +81,7 @@ export default function mountCatalog(app, db) {
     const verId = Number(db.prepare('INSERT INTO document_versions(document_id, version, filename, stored_name, mime, size, sha256, note, uploaded_by) VALUES (?,?,?,?,?,?,?,?,?)')
       .run(docId, 1, `${it.name}.${path.extname(stored).slice(1)}`, stored, mimeOf(stored), buf.length,
         crypto.createHash('sha256').update(buf).digest('hex'), `catalog:${it.slug}#${idx}`, req.user.id).lastInsertRowid);
-    audit(db, req.user, { entity_type: 'catalog_item', entity_id: it.id, action: 'attach', after: { slug: it.slug, img: idx, document_id: docId }, module: 'offers' });
+    record(db, req.user, { type: 'catalog.attached', entity_type: 'catalog_item', entity_id: it.id, action: 'attach', after: { slug: it.slug, img: idx, document_id: docId }, module: 'offers' });
     return { document_id: docId, version_id: verId, image_url: `/api/documents/${verId}/file`, reused: false };
   }));
 }

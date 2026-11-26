@@ -1,7 +1,7 @@
 // Плащания: единственният вход за пари по етап, проформа и поръчка. Договори/Логистика докладват, Счетоводство потвърждава.
 import crypto from 'node:crypto';
 import { tx, nextCode } from './db.js';
-import { HttpError, bad, need, can, needProject, scopeRows, audit, emit, notify, on, updateRow } from './core.js';
+import { HttpError, bad, need, can, needProject, scopeRows, audit, record, emit, notify, on, updateRow } from './core.js';
 import { milestones, proformaOpenSql, similarPayments, vatInside, ratePct, stageLabel } from './payments.js';
 import { bankDate, refuseSimilar, settleRow } from './ledger_rules.js';
 import { h, reqStr } from './app.js';
@@ -134,7 +134,7 @@ export default function mountPayments(app, db) {
     if (Object.keys(links).length) updateRow(db, 'transactions', into.id, links);
     settleRow(db, into.id, { before: into, separate: true });
     updateRow(db, 'transactions', t.id, { status: 'voided', note: [t.note, `Същото плащане като ${into.code}`].filter(Boolean).join(' · ') }, req.body?.row_version);
-    audit(db, req.user, { project_id: t.project_id, entity_type: 'transaction', entity_id: t.id, action: 'payment_merge', before: { status: t.status, amount: t.amount }, after: { into: into.code, links }, module: 'accounting' });
+    record(db, req.user, { type: 'payment.merged', project_id: t.project_id, entity_type: 'transaction', entity_id: t.id, action: 'payment_merge', before: { status: t.status, amount: t.amount }, after: { into: into.code, links }, next: { into: into.code, reporter_id: t.created_by }, module: 'accounting' });
     return { payment: rowOf(db, into.id) };
   })));
 
@@ -154,7 +154,7 @@ export default function mountPayments(app, db) {
     if (!m) throw new HttpError(404, 'Няма такъв етап');
     needProject(db, req.user, m.project_id);
     db.prepare("UPDATE contract_payments SET paid_at = NULL, updated_at = datetime('now') WHERE id = ?").run(m.id);
-    audit(db, req.user, { project_id: m.project_id, entity_type: 'contract', entity_id: m.contract_id, action: 'clear_unmatched_date', before: { kind: m.kind, paid_at: m.paid_at }, module: 'accounting' });
+    record(db, req.user, { type: 'contract_payment.unmatched_cleared', project_id: m.project_id, entity_type: 'contract', entity_id: m.contract_id, action: 'clear_unmatched_date', before: { kind: m.kind, paid_at: m.paid_at }, module: 'accounting' });
     return { ok: true };
   })));
 }

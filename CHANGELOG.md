@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-11-26 — D1 (point 39): every write reaches the people it affects
+- **One place decides who is told:** `server/routing.js` maps each event type to departments and people, or to "timeline only" (FEED). The timeline of the project now holds every write.
+- **`record()`** (`server/core.js`) writes the audit row and the event in one step. The 41 write routes that only audited now record an event (6 are exempt with a reason: login, logout, first setup, "read", weather refresh, event retry).
+- **Silent branches fixed:** site data (address, access, unloading, courier), pause/resume, delivery date/items/vehicle/"on the way", issue moved to another department, allocation edits, supplier-order edits, offer sent/revised/rejected, changes applied by a change request.
+- **The engine:** after a type's own handlers the fan-out by the map always runs. For a type with a handler the map only adds people, so existing notices are not doubled. Added this way: the paid advance reaches Logistics, Warehouse, the brigadier and the Manager; an approved/fulfilled material request reaches the site and Logistics; a new supplier order reaches the Warehouse; a booked machine reaches the brigadier; a schedule change reaches the Warehouse; a ledger row that pays a client document reaches Contracts and the technician; the next stage's department learns it is its turn.
+- **People, not departments (operator, 26.11):** a notice for a project to Technical or Brigadier goes to that project's technician/brigadier; to the whole department only when nobody is assigned.
+- **Nobody is told about their own action** (operator, 26.11). A personal notice is never filtered out, so a replaced brigadier sees the change.
+- **One notice per person/department per event** (the change-request double notice is gone). **Money is hidden** in the text for recipients who may not see money.
+- Operator choices applied: users/permissions/settings → the Manager; daily report and attendance → timeline only; contract and payment-plan changes before signing → Accounting and the Manager.
+- **Correction to the audit "after":** a stricter analyzer counts 41 silent write routes, not 35 (the old one credited a route with the next handler's `notify()`).
+- Tests: `slack_guard` (no silent write route; every exemption has a reason and still exists; every event type has a Bulgarian name) and `slack_routing` (who is told for each action, the project person, the author, the replaced brigadier, money, no duplicates). Three older tests updated for the intended change: the brigadier now also hears "on the way", every event has one more effect (the fan-out), a schedule change also reaches the Warehouse.
+- Timeline and notices read in Bulgarian for the fields D1 brought in (message text, days for production and installation, due date, department, dates, prices) and for a few statuses that showed as codes (review, on hold, equipment states). Checked by hand in the browser on a throwaway database: the brigadier sees the access change, the deadline days, the new delivery and its date; the chat message is in the timeline and pings nobody.
+- Design: `docs/DESIGN-D1-2026-11-26.md`. One deviation, stated there: for a type that has a handler, the emit's `affected` list stays documentation; the map adds only the people the design names.
+
 ## 2026-11-26 — Point 39: whole-ERP audit "after" and the "Slack" design (docs only)
 - `docs/AUDIT-SLACK-AFTER-2026-11-26.md`: measured before (de1857b) and after (35d7e05). 35 of 79 write routes still tell nobody (35 of 75 before). A live run of 14 actions on a throwaway database shows what each one notifies.
 - Seven causes named (B1–B7), with a design D1–D7 that waits for approval and simple questions in Bulgarian. No code changed.

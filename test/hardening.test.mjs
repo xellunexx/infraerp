@@ -53,7 +53,8 @@ test('notifications: brigadiers hear about deliveries; an unknown department is 
     const d = (await t.admin.post('/api/deliveries', { project_id: pid, items: [{ product_id: s.tile.id, qty: 1 }] })).data;
     await t.admin.patch(`/api/deliveries/${d.id}`, { status: 'in_transit' }); await t.admin.patch(`/api/deliveries/${d.id}`, { status: 'delivered' });
     await b.post('/api/issues', { project_id: pid, title: 'Счупена плоча' }); t.sync();
-    assert.equal((await b.get('/api/notifications')).data.filter(n => n.title.toLowerCase().includes('доставка')).length, 2);
+    // Д1: created, on the way (delivery.updated), arrived
+    assert.equal((await b.get('/api/notifications')).data.filter(n => n.title.toLowerCase().includes('доставка')).length, 3);
     assert.match((await tech.get('/api/notifications')).data.find(n => n.title.includes('проблем')).body, /Счупена плоча/);
     assert.throws(() => notify(t.db, null, { departments: ['brigadir'], title: 'x' }), /brigadir/);
   } finally { await t.stop(); }

@@ -14,6 +14,26 @@ export const EVENT_LABEL = {
   'payment_request.created': 'Заявка за плащане', 'payment_request.decided': 'Решение по заявка за плащане', 'transaction.recorded': 'Запис в книгата',
   'accommodation.recorded': 'Настаняване', 'document.uploaded': 'Качен документ', 'document.shared': 'Документ изпратен на бригадира', 'document.versioned': 'Нова версия на документ',
   'change_request.created': 'Заявка за промяна',
+  // Д1: every write has a name (server/routing.js)
+  'customer.created': 'Нов клиент', 'customer.updated': 'Променен клиент', 'product.created': 'Нов продукт', 'product.updated': 'Променен продукт',
+  'smr.created': 'Нов вид СМР', 'smr.updated': 'Променен вид СМР', 'smr.recipe_changed': 'Променена рецепта на вид СМР',
+  'offer_template.created': 'Нов шаблон на оферта', 'offer_template.updated': 'Променен шаблон на оферта', 'catalog.attached': 'Прикачен файл към артикул',
+  'inquiry.created': 'Ново запитване', 'inquiry.updated': 'Променено запитване', 'offer.created': 'Нова оферта', 'offer.updated': 'Променена оферта',
+  'offer.send': 'Офертата е изпратена на клиента', 'offer.revise': 'Нова ревизия на офертата', 'offer.reject': 'Офертата е отказана',
+  'accountable_person.created': 'Ново отчетно лице', 'accountable_person.updated': 'Променено отчетно лице',
+  'cost_center.created': 'Нов разходен център', 'cost_center.updated': 'Променен разходен център',
+  'attendance.recorded': 'Отчетено присъствие', 'message.created': 'Ново съобщение',
+  'user.created': 'Нов потребител', 'user.updated': 'Променен потребител', 'user.overrides_changed': 'Променени лични права на потребител',
+  'permissions.changed': 'Променена матрица на правата', 'settings.changed': 'Променени настройки',
+  'contract.updated': 'Променени условия или срокове на договора', 'contract_payment.changed': 'Променен етап от графика за плащане',
+  'contract_payment.removed': 'Махнат етап от графика за плащане', 'contract_payment.unmatched_cleared': 'Изчистена непотвърдена дата на плащане',
+  'transaction.corrected': 'Поправка на запис в книгата', 'payment.merged': 'Две записани плащания са обединени в едно',
+  'accommodation.updated': 'Променено настаняване',
+  'project.site_changed': 'Променени данни на обекта (адрес, достъп, разтоварване)', 'project.on_hold': 'Обектът е на пауза', 'project.resumed': 'Обектът продължава',
+  'project.archived': 'Обектът е архивиран', 'project.unarchived': 'Обектът е изваден от архива',
+  'task.done': 'Задачата е изпълнена', 'task.reopened': 'Задачата е отворена отново', 'issue.updated': 'Променен проблем',
+  'delivery.updated': 'Променена доставка', 'asset.created': 'Нова техника', 'asset.updated': 'Променена техника',
+  'asset_allocation.updated': 'Променено разпределение на техника', 'supplier_order.updated': 'Променена поръчка към доставчик',
 };
 const ACTION = {
   create: 'създаде', add: 'добави', update: 'промени', write: 'промени', upsert: 'записа', replace: 'замени', save_lines: 'записа редовете на',
@@ -41,10 +61,15 @@ const FIELD = {
   stage_code: 'Етап', advance_pct: 'Аванс %', total: 'Общо', total_value: 'Стойност', vat_pct: 'ДДС %', exceptional: 'Над лимита', size: 'Размер',
   access_notes: 'Достъп', unloading_notes: 'Разтоварване', storage_notes: 'Съхранение', parking_notes: 'Паркиране', courier_office: 'Куриерски офис',
   payment_urgency: 'Спешност', materials: 'Материали', shared_with_brigade: 'За бригадира', crew: 'Хора', depends_on: 'Зависи от', items: 'Артикули',
+  body: 'Текст', install_days: 'Дни за монтаж', prod_delivery_days: 'Дни за производство и доставка', special: 'Специални условия',
+  due_on: 'Падеж', due_note: 'Условие за падеж', label: 'Име', assigned_dept: 'Отдел', severity: 'Спешност', vehicle_asset_id: 'Превозно средство',
+  date_from: 'От', date_to: 'До', cost_per_night: 'Цена на нощувка', prod_days: 'Дни за производство', transport_days: 'Дни за транспорт',
+  unloading: 'Разтоварване', address: 'Адрес', courier_pallets: 'Палети за куриер',
 };
 const STATUS = { draft: 'чернова', sent: 'изпратена', confirmed: 'потвърдена', submitted: 'подадена', approved: 'одобрена', rejected: 'отхвърлена', signed: 'подписан',
   pending: 'чака', paid: 'платено', reported: 'докладвано', committed: 'дължимо', planned: 'планирано', in_transit: 'на път', delivered: 'доставено',
-  cancelled: 'отменено', voided: 'анулирано', open: 'отворен', resolved: 'решен', done: 'готово', execution: 'в изпълнение', closed: 'закрит', fulfilled: 'изпълнена' };
+  cancelled: 'отменено', voided: 'анулирано', open: 'отворен', resolved: 'решен', done: 'готово', execution: 'в изпълнение', closed: 'закрит', fulfilled: 'изпълнена',
+  review: 'за одобрение', on_hold: 'на пауза', maintenance: 'в ремонт', available: 'свободна', in_use: 'заета', retired: 'бракувана', active: 'активно', completed: 'приключено' };
 
 const parse = v => { if (v == null || v === '') return null; if (typeof v !== 'string') return v; try { return JSON.parse(v); } catch { return v; } };
 const DATE = /^\d{4}-\d{2}-\d{2}/;
@@ -75,7 +100,8 @@ export function changes(db, before, after) {
   return out;
 }
 export function humanEvent(db, e) {
-  const label = EVENT_LABEL[e.type] || e.type;
+  const byRequest = e.type?.endsWith('.changed_by_request') ? `Промяна по заявка: ${ENTITY[e.type.replace('.changed_by_request', '')] || e.type.replace('.changed_by_request', '')}` : null;
+  const label = EVENT_LABEL[e.type] || byRequest || e.type;
   return { ...e, label, sentence: `${e.user_name || 'Системата'}: ${label.charAt(0).toLowerCase() + label.slice(1)}`, changes: changes(db, e.prev_value, e.new_value) };
 }
 export function humanAudit(db, r) {

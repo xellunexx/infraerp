@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import { tx } from './db.js';
 import { humanEvent } from './human.js';
 import { recordLink } from './links.js';
+import { recipientsOf } from './routing.js';
 
 export const DEPARTMENTS = [
   ['management', 'Управител', '#7c3aed'], ['offers', 'Оферти', '#2563eb'], ['contracts', 'Договори', '#0891b2'],
@@ -95,16 +96,20 @@ export function userFromToken(db, token) {
   const u = db.prepare(`SELECT u.id, u.username, u.full_name, u.department, u.role, u.phone, u.email, u.offer_letter, u.office FROM sessions s JOIN users u ON u.id = s.user_id
     WHERE s.token = ? AND s.expires_at > datetime('now') AND u.active = 1`).get(token);
   if (!u) return null;
-  u.perms = {};
+  u.perms = permsFor(db, u);
+  return u;
+}
+/** A user's effective rights: the role's, then the per-user limits an admin set (admins are never restricted). */
+export function permsFor(db, u) {
+  const perms = {};
   for (const p of db.prepare('SELECT resource, can_read, can_write, can_approve FROM role_permissions WHERE role = ?').all(u.role))
-    u.perms[p.resource] = { read: !!p.can_read, write: !!p.can_write, approve: !!p.can_approve };
-  // per-user visibility limits set by an admin; admins themselves are never restricted
+    perms[p.resource] = { read: !!p.can_read, write: !!p.can_write, approve: !!p.can_approve };
   if (u.role !== 'admin') for (const o of db.prepare('SELECT resource, can_read, can_write, can_approve FROM user_overrides WHERE user_id = ?').all(u.id)) {
-    const cur = u.perms[o.resource] || { read: false, write: false, approve: false };
-    u.perms[o.resource] = { read: o.can_read == null ? cur.read : !!o.can_read, write: o.can_write == null ? cur.write : !!o.can_write,
+    const cur = perms[o.resource] || { read: false, write: false, approve: false };
+    perms[o.resource] = { read: o.can_read == null ? cur.read : !!o.can_read, write: o.can_write == null ? cur.write : !!o.can_write,
       approve: o.can_approve == null ? cur.approve : !!o.can_approve };
   }
-  return u;
+  return perms;
 }
 export function can(user, resource, action = 'read') { return !!user?.perms?.[resource]?.[action]; }
 export function need(user, resource, action = 'read') {
@@ -183,6 +188,14 @@ const handlers = new Map(); // type -> [{ name, fn }]
 export function on(type, name, fn) { if (!handlers.has(type)) handlers.set(type, []); handlers.get(type).push({ name, fn }); }
 export const MAX_ATTEMPTS = 5;
 
+/** Д1: a write and its notice are one step — the audit row and the event, in the caller's transaction.
+ *  Who is told is decided by server/routing.js, not here. `type` is required (the timeline and the guard read it). */
+export function record(db, user, { type, project_id = null, entity_type, entity_id = null, action, before = null, after = null, module = null, next, dedupe_key }) {
+  if (!type) throw new Error('record(): type is required');
+  audit(db, user, { project_id, entity_type, entity_id, action, before, after, module });
+  return emit(db, user, { type, origin: module, project_id, entity_type, entity_id, prev: before, next: next ?? after, dedupe_key });
+}
+
 /** Record a structured event in the same transaction as the business change. Returns null if the dedupe key already exists. */
 export function emit(db, user, e) {
   const uid = crypto.randomUUID();
@@ -194,22 +207,45 @@ export function emit(db, user, e) {
 }
 
 const DEPT_CODES = new Set(DEPARTMENTS.map(d => d[0]));
-export function notify(db, ev, { departments = [], users = [], title, body = '', link = null, severity = 'info' }) {
+// Д1: the project's own person stands for these departments (operator, 26.11: notices go to the people on the project)
+const PROJECT_PERSON = { technical: 'technical_id', brigadier: 'brigadier_id' };
+const SEES_MONEY = p => !!(p.finance?.read || p.contracts?.read);
+const deptSeesMoney = (db, d) => Object.entries(ROLES).filter(([, dept]) => dept === d).some(([role]) => SEES_MONEY(permsFor(db, { role, id: 0 })));
+const userSeesMoney = (db, id) => { const u = db.prepare('SELECT id, role FROM users WHERE id = ?').get(id); return !!u && SEES_MONEY(permsFor(db, u)); };
+/** One notice per person/department per event. A department with a person on the project reaches that person;
+ *  the author of the event is never told about their own action; `blindBody` (no money) goes to whoever may not see money. */
+export function notify(db, ev, { departments = [], users = [], title, body = '', blindBody = null, link = null, severity = 'info' }) {
   // a misspelled department would silently reach nobody
   for (const d of departments) if (!DEPT_CODES.has(d)) throw new Error(`Непознат отдел за известие: ${d}`);
+  const depts = new Set(departments), people = new Set(users.filter(Boolean));
+  const site = ev?.project_id ? db.prepare('SELECT technical_id, brigadier_id FROM projects WHERE id = ?').get(ev.project_id) : null;
+  for (const [d, col] of Object.entries(PROJECT_PERSON)) if (depts.has(d) && site?.[col]) { depts.delete(d); people.add(site[col]); }
+  if (ev?.user_id) people.delete(ev.user_id);
+  if (ev?.id) for (const n of db.prepare('SELECT department, user_id FROM notifications WHERE event_id = ?').all(ev.id)) { depts.delete(n.department); people.delete(n.user_id); }
   const ins = db.prepare('INSERT INTO notifications(event_id, user_id, department, project_id, title, body, link, severity, ref_type, ref_id, author_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)');
   const args = [ev?.id ?? null, ev?.project_id ?? null, ev?.entity_type ?? null, ev?.entity_id ?? null, ev?.user_id ?? null];
-  for (const d of new Set(departments)) ins.run(args[0], null, d, args[1], title, body, link, severity, args[2], args[3], args[4]);
-  for (const u of new Set(users.filter(Boolean))) ins.run(args[0], u, null, args[1], title, body, link, severity, args[2], args[3], args[4]);
-  return { departments, users: users.filter(Boolean) };
+  const text = sees => blindBody != null && !sees ? blindBody : body;
+  for (const d of depts) ins.run(args[0], null, d, args[1], title, text(deptSeesMoney(db, d)), link, severity, args[2], args[3], args[4]);
+  for (const u of people) ins.run(args[0], u, null, args[1], title, text(userSeesMoney(db, u)), link, severity, args[2], args[3], args[4]);
+  return { departments: [...depts], users: [...people] };
 }
 
-function notifyAffected(db, ev) {
-  const depts = (JSON.parse(ev.affected_modules || '[]') || []).filter(d => DEPT_CODES.has(d));
-  if (!depts.length) return { skipped: 'no affected department' };
+/** Д1: after the type's own handlers, tell whoever routing.js names. A type with a handler: only the extra people the map adds.
+ *  A type with neither handler nor map entry: the departments the emit listed, as before. FEED = timeline only. */
+function fanOut(db, ev, hasHandler) {
+  let r = recipientsOf(db, ev);
+  if (r?.feed) return { feed: true };
+  if (!r) {
+    if (hasHandler) return { skipped: 'the handler decides' };
+    r = { departments: (JSON.parse(ev.affected_modules || '[]') || []).filter(d => DEPT_CODES.has(d)), users: [] };
+  }
+  if (!r.departments.length && !r.users.length) return { skipped: 'nobody to tell' };
   const p = ev.project_id ? db.prepare('SELECT code FROM projects WHERE id = ?').get(ev.project_id) : null;
-  const h = humanEvent(db, { ...ev, user_name: ev.user_id ? db.prepare('SELECT full_name FROM users WHERE id = ?').get(ev.user_id)?.full_name : null });
-  return notify(db, ev, { departments: depts, title: `${h.label}${p ? ' — ' + p.code : ''}`, body: [h.user_name ? `от ${h.user_name}` : '', ...h.changes].filter(Boolean).join(' · '),
+  const who = ev.user_id ? db.prepare('SELECT full_name FROM users WHERE id = ?').get(ev.user_id)?.full_name : null;
+  const line = e => { const x = humanEvent(db, { ...e, user_name: who }); return [x.user_name ? `от ${x.user_name}` : '', ...x.changes].filter(Boolean).join(' · '); };
+  const h = humanEvent(db, ev);
+  return notify(db, ev, { ...r, title: `${h.label}${p ? ' — ' + p.code : ''}`, body: line(ev),
+    blindBody: line({ ...ev, prev_value: redactMoney(ev.prev_value), new_value: redactMoney(ev.new_value) }),
     link: recordLink(ev.entity_type, ev.entity_id, ev.project_id) ?? (ev.project_id ? `/projects/${ev.project_id}` : null), severity: ev.approval_status === 'pending' ? 'warn' : 'info' });
 }
 
@@ -221,8 +257,9 @@ export function processEvent(db, id) {
   ev.prev = ev.prev_value ? JSON.parse(ev.prev_value) : null;
   ev.next = ev.new_value ? JSON.parse(ev.new_value) : null;
   let error = null;
-  // an event nobody handles still reaches the departments it affects (the "Slack" rule: no silent facts)
-  for (const h of handlers.get(ev.type) || [{ name: 'notify_affected', fn: notifyAffected }]) {
+  // the type's own handlers, then the fan-out by routing.js (the "Slack" rule: handlers add, they never silence the map)
+  const own = handlers.get(ev.type) || [];
+  for (const h of [...own, { name: 'fan_out', fn: (d, e) => fanOut(d, e, own.length > 0) }]) {
     const done = db.prepare("SELECT 1 FROM event_effects WHERE event_id = ? AND handler = ? AND status = 'ok'").get(id, h.name);
     if (done) continue;
     try {

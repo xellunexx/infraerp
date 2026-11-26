@@ -1,7 +1,7 @@
 // Техник: работно място, задачи, линеен график, дневен прогрес, разход на материали.
 import crypto from 'node:crypto';
 import { tx, nextCode } from './db.js';
-import { HttpError, bad, need, can, needProject, canSeeProject, audit, updateRow, emit, setting } from './core.js';
+import { HttpError, bad, need, can, needProject, canSeeProject, audit, record, updateRow, emit, setting } from './core.js';
 import { progressSummary, consumption, scheduleStatus, projectLines } from './calc.js';
 import { h, pick, num, reqStr } from './app.js';
 import { setStage } from './domain.js';
@@ -100,7 +100,7 @@ export default function mountTechnical(app, db) {
     if (!status) throw bad('Непозната операция');
     if (t.status === status) throw bad(status === 'done' ? 'Задачата вече е изпълнена' : 'Задачата вече е отворена');
     db.prepare("UPDATE tasks SET status = ?, done_at = CASE WHEN ? = 'done' THEN datetime('now') ELSE NULL END WHERE id = ?").run(status, status, t.id);
-    audit(db, req.user, { project_id: t.project_id, entity_type: 'task', entity_id: t.id, action: status, before: { status: t.status }, after: { status }, module: 'tasks' });
+    record(db, req.user, { type: status === 'done' ? 'task.done' : 'task.reopened', project_id: t.project_id, entity_type: 'task', entity_id: t.id, action: status, before: { status: t.status }, after: { status }, module: 'tasks' });
     return db.prepare('SELECT * FROM tasks WHERE id = ?').get(t.id);
   })));
 
