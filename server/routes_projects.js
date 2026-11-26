@@ -7,6 +7,7 @@ import { progressSummary, finance } from './calc.js';
 import { h, pick } from './app.js';
 import { refreshProject, weatherView } from './weather.js';
 import { recordLink } from './links.js';
+import { humanAudit, humanEvent } from './human.js';
 
 export default function mountProjects(app, db) {
   // Етапи, управлявани изцяло от домейн действия върху договора — никога ръчни отметки.
@@ -328,10 +329,10 @@ export default function mountProjects(app, db) {
   app.get('/api/projects/:id/timeline', h(req => { need(req.user, 'projects'); needProject(db, req.user, req.params.id);
     const mask = canSeeMoney(req.user) ? r => r : redactMoney;
     return mask(db.prepare(`SELECT e.id, e.type, e.origin_module, e.ts, e.status, e.approval_status, e.affected_modules, e.prev_value, e.new_value, e.last_error, u.full_name AS user_name
-      FROM events e LEFT JOIN users u ON u.id = e.user_id WHERE e.project_id = ? ORDER BY e.id DESC LIMIT 300`).all(req.params.id)); }));
+      FROM events e LEFT JOIN users u ON u.id = e.user_id WHERE e.project_id = ? ORDER BY e.id DESC LIMIT 300`).all(req.params.id)).map(e => humanEvent(db, e)); }));
   app.get('/api/projects/:id/audit', h(req => { need(req.user, 'projects'); needProject(db, req.user, req.params.id);
     const mask = canSeeMoney(req.user) ? r => r : redactMoney;
-    return mask(db.prepare('SELECT a.*, u.full_name AS user_name FROM audit_log a LEFT JOIN users u ON u.id = a.user_id WHERE a.project_id = ? ORDER BY a.id DESC LIMIT 500').all(req.params.id)); }));
+    return mask(db.prepare('SELECT a.*, u.full_name AS user_name FROM audit_log a LEFT JOIN users u ON u.id = a.user_id WHERE a.project_id = ? ORDER BY a.id DESC LIMIT 500').all(req.params.id)).map(a => humanAudit(db, a)); }));
 
   // ---- engine visibility, notifications, search
   app.get('/api/events', h(req => { need(req.user, 'events'); return db.prepare(`SELECT e.*, p.code AS project_code, u.full_name AS user_name,
