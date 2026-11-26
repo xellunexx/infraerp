@@ -15,7 +15,8 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const OUT = `${ROOT}/server/assets/offer_template.xlsx`;
 const OUT_MAP = `${ROOT}/server/assets/offer_template.map.json`;
 const KEEP = ['КСС', 'Труд'];              // in this order; the first is the offer sheet
-const SECTION_SHEET = 'Sport';             // its row 10 is the section banner, row 11 a line with a picture
+const SECTION_SHEET = 'Sport';             // its row 11 is a line with a picture
+const BANNER_SHEET = 'Padel';             // its row 10 is a section title (plain bold, not the hyperlink style Sport uses)
 const HEADER_FIELDS = { attention_to: 'C1', object: 'C2', offer_no: 'A3', date: 'C3', valid_until: 'C4', made_by: 'C6', phone: 'C7' };
 const COLS = 'ABCDEFGHIJKLMNOPQRSTUVW'.split('');
 const NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
@@ -53,6 +54,7 @@ const cellStyle = (xml, ref) => {
 const rowHeight = (xml, r) => Number(xml.match(new RegExp(`<row r="${r}"[^>]* ht="([\\d.]+)"`))[1]);
 const kssXml = await read(sheetPart('КСС'));
 const secXml = await read(sheetPart(SECTION_SHEET));
+const banXml = await read(sheetPart(BANNER_SHEET));
 const rowStyles = (xml, r, cols = COLS) => Object.fromEntries(cols.map(c => [c, cellStyle(xml, `${c}${r}`)]));
 const map = {
   source: posix.basename(src.replace(/\\/g, '/')),
@@ -62,8 +64,8 @@ const map = {
     header: Object.fromEntries(['A1', 'C1', 'D1', 'A2', 'C2', 'D2', 'A3', 'B3', 'C3', 'A4', 'C4', 'A6', 'B6', 'C6', 'A7', 'B7', 'C7'].map(r => [r, cellStyle(kssXml, r)])),
     column_header: rowStyles(kssXml, 8),
     line: rowStyles(kssXml, 10),
-    line_with_picture: { ...rowStyles(kssXml, 10), ...rowStyles(secXml, 11, 'ABCDEFGH'.split('')) },
-    section_banner: rowStyles(secXml, 10, 'ABCDEFGH'.split('')),
+    line_with_picture: { ...rowStyles(kssXml, 10), ...rowStyles(secXml, 11, 'BCD'.split('')) }, // numbers keep the КСС formats
+    section_banner: { ...rowStyles(banXml, 10, 'ABC'.split('')), D: cellStyle(banXml, 'C10'), ...rowStyles(secXml, 10, 'EFGH'.split('')) },
     total_net: { ...rowStyles(kssXml, 22, 'ABCDEFGH'.split('')), K: cellStyle(kssXml, 'K22'), N: cellStyle(kssXml, 'N22'), R: cellStyle(kssXml, 'R22'), U: cellStyle(kssXml, 'U22') },
     total_vat: rowStyles(kssXml, 23, 'ABCDEFGH'.split('')),
     total_gross: rowStyles(kssXml, 24, 'ABCDEFGH'.split('')),
