@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-11-26 — Batch 2: the "Slack" core (28, 33, 39)
+- **No silent events.** An event with no handler of its own notifies the departments it names as affected, with a sentence and a link to the record (`core.notifyAffected`). This covers 12 event kinds that reached nobody before: contract sent, stage, document version, proformas, supplier orders, ledger rows, stock moves, accommodation, change requests and others.
+- **Reassignment.** A change of technician or brigadier tells the new person and the one replaced.
+- **Reminders** carry their record (`ref_type`/`ref_id`), so they open it.
+- **Every link opens the record.** `links.js` knows every kind of record: warehouse requests and moves, deliveries, asset allocations, change requests, schedule, progress, tasks, issues and ledger rows. Brigadiers are sent into the brigade module. `useLinkTab`/`useFocus` make Warehouse, Logistics, Technical, Brigade, Change requests, Accounting and the project card open the linked tab and mark the row.
+- **Rows shown away from home open where they are managed** (`withLinks`): the project card's proformas, ledger rows, payment requests, accommodation, deliveries and asset allocations. Any table row with a link is clickable.
+- **One supplier-order form** (Accounting's, with the КС line) is used by Logistics too. The warehouse fleet shows asset kinds in Bulgarian.
+- **The contract follows its КС lines.** A line changed before signing rewrites the draft appendices. If the contract was already sent or approved, Contracts and the Manager are told; nothing is reverted automatically.
+- Note: more events now notify (for example every ledger row → Accounting). If this is too much, tell us which ones to mute.
+- Tests: `event_reach`, `row_links`, `contract_one_source`, plus extended `notification_links`. Full suite 148/148.
+
 ## 2026-11-26 — Batch 1 of the 45-point review (audit: docs/AUDIT-SLACK-2026-11-26.md)
 - **Dashboard (1, 2, 3):** the four KPI cards are gone. „В изпълнение", „Предстоящи" and „В договаряне" show their count and open the full list (`/projects?stage=…`). The projects list has stage tabs. One `stageOf` rule serves both.
 - **Project card:**
