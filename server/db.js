@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS offer_lines (
   unit_cost REAL NOT NULL DEFAULT 0, tech_note TEXT, planned_days INTEGER,
   section_id INTEGER REFERENCES offer_sections(id) ON DELETE SET NULL, material_cost REAL NOT NULL DEFAULT 0, delivery_cost REAL NOT NULL DEFAULT 0,
   labour_days REAL NOT NULL DEFAULT 0, day_rate REAL NOT NULL DEFAULT 0, install_cost REAL, overhead_pct REAL NOT NULL DEFAULT 3.5,
-  profit_pct REAL NOT NULL DEFAULT 30, tax_pct REAL NOT NULL DEFAULT 10, manual_price REAL, image_document_id INTEGER REFERENCES documents(id));
+  profit_pct REAL NOT NULL DEFAULT 30, tax_pct REAL NOT NULL DEFAULT 10, manual_price REAL, image_document_id INTEGER REFERENCES documents(id), materials TEXT);
 CREATE TABLE IF NOT EXISTS offer_sections (
   id INTEGER PRIMARY KEY, version_id INTEGER NOT NULL REFERENCES offer_versions(id) ON DELETE CASCADE, sort INTEGER NOT NULL DEFAULT 0,
   title TEXT NOT NULL, description TEXT, footer TEXT, alternative INTEGER NOT NULL DEFAULT 0, selected INTEGER NOT NULL DEFAULT 0, image_document_id INTEGER REFERENCES documents(id));

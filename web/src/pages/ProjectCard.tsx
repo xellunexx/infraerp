@@ -4,6 +4,7 @@ import { api, fmtDate, fmtDateTime, fmtMoney, fmtNum } from '../api';
 import { WeatherCard } from './Weather';
 import { MILESTONE, PaymentForm, milestoneChoices } from './PaymentForm';
 import { deliveryCols } from './Logistics';
+import { MaterialsEditor, cleanMats, type Mat } from './Materials';
 import { Card, DeptBadge, Empty, Field, Kpi, Link, Loader, Modal, NewVersionButton, Progress, Status, Table, Tabs, navigate, useAction, useCan, useCurrency, useForm, useLoad, useMessages, usePath, VersionLinks, useFocus } from '../ui';
 
 const PLANNED = ['Технически спецификации', 'Склад'];
@@ -297,13 +298,7 @@ export function ProjectCard({ id }: { id: number }) {
 
     {tab === 'finance' && <FinanceTab pid={id} />}
 
-    {tab === 'lines' && <Card title="Количествено-стойностна сметка (КС) — договорни количества" pad={false}>
-      <Table rows={d.lines} empty={<Empty title="Няма редове" />} cols={[{ key: 'sort', title: '№', width: 40 },
-        { key: 'img', title: '', width: 56, render: (r: any) => r.image_version_id ? <a href={`/api/documents/${r.image_version_id}/file`} target="_blank" rel="noreferrer" title="Техническа спецификация / снимка"><img src={`/api/documents/${r.image_version_id}/file`} alt="" style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 6, display: 'block' }} /></a> : null },
-        { key: 'description', title: 'Описание на СМР' }, { key: 'unit', title: 'Мярка' },
-        { key: 'qty', title: 'Договорено', num: true, render: (r: any) => fmtNum(r.qty, 3) }, { key: 'done_qty', title: 'Изпълнено', num: true, render: (r: any) => <>{fmtNum(r.done_qty, 3)}{r.qty > 0 && r.done_qty > r.qty ? <div><span className="badge bad">над договора +{fmtNum(r.done_qty - r.qty, 3)}</span></div> : null}</> },
-        { key: 'pct', title: '%', num: true, render: (r: any) => r.qty ? fmtNum(Math.min(100, r.done_qty / r.qty * 100), 0) + '%' : '—' },
-]} /></Card>}
+    {tab === 'lines' && <LinesTab d={d} onSaved={() => p.reload()} />}
 
     {tab === 'timeline' && <Card title="Хронология на обекта"><Loader state={timeline}>{(timeline.data || []).length === 0 ? <Empty title="Няма събития" /> : <ul className="timeline">{(timeline.data || []).map(e => <li key={e.id}>
       <div className="muted small">{fmtDateTime(e.ts)}</div>
@@ -537,4 +532,37 @@ function MessagesTab({ msgs, pid, write, onSent }: { msgs: any; pid: number; wri
       {write && <div className="row"><input {...f.bind('body')} placeholder="Съобщение…" style={{ flex: 1 }} onKeyDown={e => { if (e.key === 'Enter') send(); }} />
         <button className="primary" disabled={!f.v.body.trim()} onClick={send}>Изпрати</button></div>}
     </Card></Loader>;
+}
+
+/** КС: every line as in the offer (picture, description, instruction), its quantities and the materials it needs (т.21, 23). */
+function LinesTab({ d, onSaved }: { d: any; onSaved: () => void }) {
+  const can = useCan();
+  const write = can('technical', 'write') || can('contracts', 'write');
+  const [edit, setEdit] = useState<any>(null);
+  return <Card title="Количествено-стойностна сметка (КС) — договорни количества и материали" pad={false}>
+    <Table rows={d.lines} empty={<Empty title="Няма редове" />} cols={[{ key: 'sort', title: '№', width: 40 },
+      { key: 'img', title: '', width: 56, render: (r: any) => r.image_version_id ? <a href={`/api/documents/${r.image_version_id}/file`} target="_blank" rel="noreferrer" title="Снимка / спецификация от офертата"><img src={`/api/documents/${r.image_version_id}/file`} alt="" style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 6, display: 'block' }} /></a> : null },
+      { key: 'description', title: 'Ред от офертата', render: (r: any) => <><b>{r.code ? r.code + ' · ' : ''}{r.description}</b>{r.tech_note ? <div className="small muted" style={{ whiteSpace: 'pre-wrap' }}>{r.tech_note}</div> : null}</> },
+      { key: 'qty', title: 'Договорено', num: true, render: (r: any) => <>{fmtNum(r.qty, 3)} {r.unit}</> },
+      { key: 'done_qty', title: 'Изпълнено', num: true, render: (r: any) => <>{fmtNum(r.done_qty, 3)}{r.qty > 0 && r.done_qty > r.qty ? <div><span className="badge bad">над договора +{fmtNum(r.done_qty - r.qty, 3)}</span></div> : null}</> },
+      { key: 'pct', title: '%', num: true, render: (r: any) => r.qty ? fmtNum(Math.min(100, r.done_qty / r.qty * 100), 0) + '%' : '—' },
+      { key: 'materials', title: 'Нужни материали и консумативи', render: (r: any) => <>{(r.materials || []).length ? <ul className="small" style={{ margin: 0, paddingLeft: 16 }}>{r.materials.map((m: any) =>
+        <li key={m.product_id}>{m.name}: <b>{fmtNum(r.qty * m.norm_per_unit * (1 + (m.waste_pct || 0) / 100), 3)} {m.unit}</b> <span className="muted">({fmtNum(m.norm_per_unit, 3)}/{r.unit}{m.waste_pct ? ` + ${fmtNum(m.waste_pct)}%` : ''}{m.note ? ` · ${m.note}` : ''})</span></li>)}</ul>
+        : <span className="muted small">не са зададени</span>}
+        {write && <div><button className="ghost sm" onClick={() => setEdit(r)}>✎ материали</button></div>}</> },
+    ]} />
+    {edit && <LineMaterialsModal line={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); onSaved(); }} />}
+  </Card>;
+}
+function LineMaterialsModal({ line, onClose, onSaved }: { line: any; onClose: () => void; onSaved: () => void }) {
+  const products = useLoad<any[]>('/products');
+  const [items, setItems] = useState<Mat[]>(line.materials || []);
+  const [reason, setReason] = useState('');
+  const { run, busy } = useAction();
+  return <Modal wide title={`Материали — ${line.description}`} onClose={onClose} footer={<><button onClick={onClose}>Отказ</button>
+    <button className="primary" disabled={busy || !reason.trim()} onClick={() => run(async () => { await api.put(`/project-lines/${line.id}/materials`, { items: cleanMats(items), reason }); onSaved(); }, 'Материалите са записани')}>Запази</button></>}>
+    <div className="muted small" style={{ marginBottom: 8 }}>Договорено {fmtNum(line.qty, 3)} {line.unit}. Промяната се вижда веднага в склада, заявките, количествената сметка и при бригадира.</div>
+    <MaterialsEditor items={items} onChange={setItems} products={products.data || []} qty={Number(line.qty) || 0} unit={line.unit} editable smrTypeId={line.smr_type_id} />
+    <div className="form" style={{ marginTop: 10 }}><Field label="Причина за промяната (задължително)" full><input value={reason} onChange={e => setReason(e.target.value)} placeholder="напр. замерване на място, друга дебелина" /></Field></div>
+  </Modal>;
 }

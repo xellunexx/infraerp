@@ -5,6 +5,7 @@ import { HttpError, bad, need, can, needProject, canSeeProject, audit, updateRow
 import { progressSummary, consumption, scheduleStatus, projectLines } from './calc.js';
 import { h, pick, num, reqStr } from './app.js';
 import { setStage } from './domain.js';
+import { setLineMaterials, lineMaterials } from './materials.js';
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const reqDate = (v, label, { required = true } = {}) => {
@@ -51,6 +52,14 @@ export default function mountTechnical(app, db) {
 
   // ---- Задачи (създаване към отдел/човек; отчитане на изпълнение)
   /** Per-project tasks + issues bundle for the Project Card "Задачи" tab. */
+  // т.24: the project adjusts a КС line's materials (with a reason) — Technical or Contracts
+  app.put('/api/project-lines/:id/materials', h(req => tx(db, () => {
+    const l = db.prepare('SELECT project_id FROM project_lines WHERE id = ?').get(Number(req.params.id));
+    if (!l) throw new HttpError(404, 'Няма такъв ред от КС');
+    if (!can(req.user, 'technical', 'write') && !can(req.user, 'contracts', 'write')) throw new HttpError(403, 'Материалите по КС се променят от Технически или Договори');
+    needProject(db, req.user, l.project_id);
+    return { materials: setLineMaterials(db, req.user, Number(req.params.id), req.body?.items, req.body?.reason) };
+  })));
   app.get('/api/projects/:pid/tasks', h(req => {
     needP(req, 'tasks');
     const pid = Number(req.params.pid);
@@ -100,7 +109,9 @@ export default function mountTechnical(app, db) {
     const pid = Number(req.params.pid);
     return { items: scheduleStatus(db, pid), deadline: db.prepare('SELECT install_deadline FROM contracts WHERE project_id = ?').get(pid)?.install_deadline || null,
       // one reading of the КС lines (calc.projectLines): what the picker and the brigadier's instructions show; no prices
-      lines: projectLines(db, pid).map(l => ({ id: l.id, code: l.code, description: l.description, unit: l.unit, qty: l.qty, done_qty: l.done_qty, tech_note: l.tech_note, image_version_id: l.image_version_id })) };
+      lines: (ls => { const mats = lineMaterials(db, ls.map(l => l.id));
+        return ls.map(l => ({ id: l.id, code: l.code, description: l.description, unit: l.unit, qty: l.qty, done_qty: l.done_qty, tech_note: l.tech_note, image_version_id: l.image_version_id,
+          materials: (mats.get(l.id) || []).map(m => ({ name: m.name, unit: m.unit, note: m.note, need: Math.round(l.qty * m.norm_per_unit * (1 + (m.waste_pct || 0) / 100) * 1000) / 1000 })) })); })(projectLines(db, pid)) };
   }));
   app.post('/api/projects/:pid/schedule', h(req => tx(db, () => {
     needP(req, 'technical', 'write');

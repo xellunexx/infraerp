@@ -8,6 +8,7 @@ import { h, pick } from './app.js';
 import { refreshProject, weatherView } from './weather.js';
 import { recordLink } from './links.js';
 import { humanAudit, humanEvent } from './human.js';
+import { lineMaterials } from './materials.js';
 
 export default function mountProjects(app, db) {
   // Етапи, управлявани изцяло от домейн действия върху договора — никога ръчни отметки.
@@ -237,7 +238,7 @@ export default function mountProjects(app, db) {
     return { ...p, customer: db.prepare('SELECT * FROM customers WHERE id = ?').get(p.customer_id),
       offer: p.offer_id ? db.prepare('SELECT id, code, title, confirmed_version, current_version FROM offers WHERE id = ?').get(p.offer_id) : null,
       contract: db.prepare('SELECT id, code, status, active_version, signed_on, delivery_deadline, install_start, install_deadline FROM contracts WHERE project_id = ?').get(id) || null,
-      progress_pct: s.progress_pct, lines: s.lines.map(l => money ? l : { ...l, unit_price: null, unit_cost: null }),
+      progress_pct: s.progress_pct, lines: (mats => s.lines.map(l => ({ ...(money ? l : { ...l, unit_price: null, unit_cost: null }), materials: mats.get(l.id) || [] })))(lineMaterials(db, s.lines.map(l => l.id))),
       finance: money ? finance(db, id) : null,
       // the contract value card is for Accounting, Logistics and Management only (others see the contract code)
       contract_value_card: ['accounting', 'logistics', 'management'].includes(req.user.department) ? { value: s.contract_value, cost_price: money ? s.cost_price : null } : null,

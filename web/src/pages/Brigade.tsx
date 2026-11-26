@@ -97,8 +97,10 @@ function PlanTab({ sched, logi }: { sched: any; logi: any }) {
     <div>
       {notes.length ? <Card title="Логистика на обекта" pad={false}><Table rows={notes.map(([k, v]) => ({ k, v }))} cols={[
         { key: 'k', title: '', width: 160 }, { key: 'v', title: 'Бележка' }]} /></Card> : null}
-      <Card title="Инструкции към редовете" pad={false}><Loader state={sched}><Table rows={(sched.data?.lines || []).filter((l: any) => l.tech_note)} empty={<Empty title="Няма допълнителни инструкции" />} cols={[
-        { key: 'code', title: 'Код', width: 90 }, { key: 'description', title: 'Ред' }, { key: 'tech_note', title: 'Инструкция' }]} /></Loader></Card>
+      <Card title="Редове: инструкции и нужни материали" pad={false}><Loader state={sched}><Table rows={(sched.data?.lines || []).filter((l: any) => l.tech_note || (l.materials || []).length)} empty={<Empty title="Няма инструкции и материали по редовете" />} cols={[
+        { key: 'description', title: 'Ред', render: (r: any) => <><b>{r.code ? r.code + ' · ' : ''}{r.description}</b><div className="small muted">{fmtNum(r.qty)} {r.unit}</div></> },
+        { key: 'tech_note', title: 'Инструкция', render: (r: any) => <span style={{ whiteSpace: 'pre-wrap' }}>{r.tech_note || '—'}</span> },
+        { key: 'materials', title: 'Материали и консумативи', render: (r: any) => (r.materials || []).length ? <ul className="small" style={{ margin: 0, paddingLeft: 16 }}>{r.materials.map((m: any, i: number) => <li key={i}>{m.name}: <b>{fmtNum(m.need)} {m.unit}</b>{m.note ? <span className="muted"> · {m.note}</span> : null}</li>)}</ul> : '—' }]} /></Loader></Card>
     </div>
   </div>;
 }

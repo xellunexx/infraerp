@@ -4,6 +4,7 @@ import { HttpError, bad, need, audit, updateRow, reindex, setting } from './core
 import { offerTotals, confirmOffer } from './domain.js';
 import { h, pick, reqStr, num } from './app.js';
 import { priceLine } from './pricing.js';
+import { cleanMaterials, parseMaterials } from './materials.js';
 
 const BREAKDOWN = ['material_cost', 'delivery_cost', 'labour_days', 'day_rate', 'install_cost'];
 const optNum = (v, label) => v === undefined || v === null || v === '' ? null : num(v, label);
@@ -74,7 +75,7 @@ export default function mountOffers(app, db) {
     o.versions = db.prepare('SELECT v.*, u.full_name AS created_by_name FROM offer_versions v LEFT JOIN users u ON u.id = v.created_by WHERE v.offer_id = ? ORDER BY v.version').all(id)
       .map(v => {
         const sections = db.prepare('SELECT * FROM offer_sections WHERE version_id = ? ORDER BY sort, id').all(v.id);
-        const lines = db.prepare('SELECT * FROM offer_lines WHERE version_id = ? ORDER BY sort, id').all(v.id).map(l => ({ ...l, calc: priceLine(l) }));
+        const lines = db.prepare('SELECT * FROM offer_lines WHERE version_id = ? ORDER BY sort, id').all(v.id).map(l => ({ ...l, materials: parseMaterials(l.materials), calc: priceLine(l) }));
         const urls = imgUrls([...sections, ...lines].map(x => x.image_document_id).filter(Boolean));
         const withImg = x => x.image_document_id && urls.has(x.image_document_id) ? { ...x, image_url: urls.get(x.image_document_id) } : x;
         return { ...v, labour_calc: v.labour_calc ? JSON.parse(v.labour_calc) : null, totals: offerTotals(db, v.id), sections: sections.map(withImg), lines: lines.map(withImg) };
@@ -134,7 +135,7 @@ export default function mountOffers(app, db) {
         b.sections.forEach((s, i) => sectionIds.set(String(s.key ?? s.id ?? i), Number(insS.run(v.id, i + 1, reqStr(s.title, 'Заглавие на раздел'), s.description || null, s.footer || null, s.alternative ? 1 : 0, s.image_document_id || null).lastInsertRowid)));
       } else for (const s of db.prepare('SELECT id FROM offer_sections WHERE version_id = ?').all(v.id)) sectionIds.set(String(s.id), s.id);
       const ins = db.prepare(`INSERT INTO offer_lines(version_id, sort, section_id, smr_type_id, product_id, code, description, unit, qty, unit_price, unit_cost, tech_note, planned_days,
-        material_cost, delivery_cost, labour_days, day_rate, install_cost, overhead_pct, profit_pct, tax_pct, manual_price, image_document_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+        material_cost, delivery_cost, labour_days, day_rate, install_cost, overhead_pct, profit_pct, tax_pct, manual_price, image_document_id, materials) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
       b.lines.forEach((l, i) => {
         const sec = l.section === undefined || l.section === null || l.section === '' ? null : sectionIds.get(String(l.section));
         if (l.section !== undefined && l.section !== null && l.section !== '' && !sec) throw bad(`Ред ${i + 1}: няма такъв раздел`);
@@ -149,7 +150,7 @@ export default function mountOffers(app, db) {
         const unitCost = hasBreakdown ? c.unit_cost : num(l.unit_cost ?? 0, 'Себестойност');
         ins.run(v.id, i + 1, sec, l.smr_type_id || null, l.product_id || null, l.code || null, reqStr(l.description, 'Описание'), reqStr(l.unit, 'Мярка'), row.qty, c.unit_price, unitCost,
           l.tech_note || null, l.planned_days ? Math.round(num(l.planned_days, 'Дни')) : null, row.material_cost, row.delivery_cost, row.labour_days, row.day_rate, row.install_cost,
-          row.overhead_pct, row.profit_pct, row.tax_pct, row.manual_price, l.image_document_id || null);
+          row.overhead_pct, row.profit_pct, row.tax_pct, row.manual_price, l.image_document_id || null, JSON.stringify(cleanMaterials(db, l.materials, `Ред ${i + 1}: `)));
       });
       audit(db, req.user, { entity_type: 'offer', entity_id: id, action: 'save_lines', before: { lines: before }, after: { version: v.version, lines: b.lines.length }, module: 'offers' });
     }
@@ -198,7 +199,7 @@ export default function mountOffers(app, db) {
     for (const s of db.prepare('SELECT * FROM offer_sections WHERE version_id = ? ORDER BY sort, id').all(prev.id))
       secMap.set(s.id, Number(db.prepare('INSERT INTO offer_sections(version_id, sort, title, description, footer, alternative, image_document_id) VALUES (?,?,?,?,?,?,?)')
         .run(vid, s.sort, s.title, s.description, s.footer, s.alternative, s.image_document_id).lastInsertRowid));
-    const cols = 'sort, smr_type_id, product_id, code, description, unit, qty, unit_price, unit_cost, tech_note, planned_days, material_cost, delivery_cost, labour_days, day_rate, install_cost, overhead_pct, profit_pct, tax_pct, manual_price, image_document_id';
+    const cols = 'sort, smr_type_id, product_id, code, description, unit, qty, unit_price, unit_cost, tech_note, planned_days, material_cost, delivery_cost, labour_days, day_rate, install_cost, overhead_pct, profit_pct, tax_pct, manual_price, image_document_id, materials';
     for (const l of db.prepare(`SELECT section_id, ${cols} FROM offer_lines WHERE version_id = ? ORDER BY sort, id`).all(prev.id)) {
       const { section_id, ...rest } = l;
       db.prepare(`INSERT INTO offer_lines(version_id, section_id, ${cols}) VALUES (?,?,${Object.keys(rest).map(() => '?').join(',')})`).run(vid, section_id ? secMap.get(section_id) : null, ...Object.values(rest));
